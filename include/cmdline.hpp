@@ -104,7 +104,6 @@ static inline argparser::ap_instance def_args()
                 {
                     {argparser::ap_defkey::explanations,"files or directories to be calculated"},
                     {argparser::ap_defkey::explanations,"files or directories"},
-                    {argparser::ap_defkey::min_positional_count,"1"},
                     {argparser::ap_defkey::barrier,"\\"},
                 }
             ),
