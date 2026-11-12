@@ -8,8 +8,6 @@
 
 namespace tsubaki
 {
-namespace
-{
 constexpr std::string_view help_body =
     R"HELP({program} {version} - high-speed batch checksum calculator
 
@@ -80,10 +78,7 @@ Examples:
 Exit status:
   0 if every file was processed successfully, 1 otherwise.
 )HELP";
-} // namespace
 
-namespace
-{
 std::string replace_placeholder(std::string_view body, std::string_view key,
                                 std::string_view value)
 {
@@ -103,7 +98,6 @@ std::string replace_placeholder(std::string_view body, std::string_view key,
     }
     return result;
 }
-} // namespace
 
 std::string help_text(std::string_view program)
 {

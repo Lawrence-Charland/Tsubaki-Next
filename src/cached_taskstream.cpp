@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "cached_taskstream.hpp"
+
 #include <filesystem>
 
 namespace tsubaki

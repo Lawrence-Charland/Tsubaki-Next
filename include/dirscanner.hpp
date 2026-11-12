@@ -5,6 +5,7 @@
 #define LCPROJECTS_TSUBAKI_DIRSCANNER_HPP
 
 #include "basic_taskstream.hpp"
+
 #include <filesystem>
 #include <optional>
 #include <vector>

@@ -110,7 +110,7 @@ static inline argparser::ap_instance def_args()
             argparser::ap_entry(
                 "version",
                 argparser::ap_type::flag,
-                {
+                { // Done in src/tsubaki_core.cpp
                     {argparser::ap_defkey::explanations,"get the version"},
                     {argparser::ap_defkey::explanations,"-V or --version"},
                     {argparser::ap_defkey::long_name,"version"},

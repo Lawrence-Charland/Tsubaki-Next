@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "basic_taskstream.hpp"
+
 #include <filesystem>
 #include <mutex>
 #include <optional>

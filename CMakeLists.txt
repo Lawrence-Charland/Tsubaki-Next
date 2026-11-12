@@ -28,10 +28,10 @@ add_executable(tsubaki
     src/fanin_taskstream.cpp
     src/checksum.cpp
     src/help.cpp
-    ${lc-argparser_SOURCE_DIR}/src/argparser.cpp
     src/worker.cpp
     src/cached_taskstream.cpp
-    src/tsubaki_core.cpp)
+    src/tsubaki_core.cpp
+    ${lc-argparser_SOURCE_DIR}/src/argparser.cpp)
 
 target_compile_definitions(tsubaki PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")
 
@@ -47,4 +47,5 @@ target_include_directories(tsubaki PRIVATE ${lc-argparser_SOURCE_DIR}/include)
 target_link_libraries(tsubaki PRIVATE OpenSSL::Crypto)
 
 install(TARGETS tsubaki RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 install(FILES COPYING DESTINATION ${CMAKE_INSTALL_DOCDIR})

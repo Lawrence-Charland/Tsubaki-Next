@@ -5,6 +5,7 @@
 #define LCPROJECTS_TSUBAKI_FANIN_TASKSTREAM_HPP
 
 #include "basic_taskstream.hpp"
+
 #include <filesystem>
 #include <memory>
 #include <optional>

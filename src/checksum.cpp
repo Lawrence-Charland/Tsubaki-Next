@@ -9,10 +9,8 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
-
 #include <fcntl.h>
 #include <unistd.h>
-
 #include <openssl/evp.h>
 
 namespace
