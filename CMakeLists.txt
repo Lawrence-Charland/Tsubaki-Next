@@ -20,7 +20,7 @@ FetchContent_MakeAvailable(LC-ArgParser)
 # exe: tsubaki
 
 add_executable(tsubaki
-    src/main.cpp
+    src/tsubaki_main.cpp
     src/dirscanner.cpp
     src/listscanner.cpp
     src/utilities.cpp
@@ -49,3 +49,22 @@ target_link_libraries(tsubaki PRIVATE OpenSSL::Crypto)
 install(TARGETS tsubaki RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 install(FILES COPYING DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+##exe: kousei
+#
+#add_executable(kousei
+#    src/kousei_main.cpp
+#    src/timeline_fs.cpp)
+#
+#target_compile_definitions(kousei PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")
+#
+#set_target_properties(kousei PROPERTIES
+#    CXX_STANDARD 23
+#    CXX_STANDARD_REQUIRED ON
+#    CXX_EXTENSIONS OFF)
+#
+#target_include_directories(kousei PRIVATE ${CMAKE_SOURCE_DIR}/include)
+#
+#target_include_directories(kousei PRIVATE ${lc-argparser_SOURCE_DIR}/include)
+#
+#install(TARGETS kousei RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -28,7 +28,8 @@ std::optional<std::filesystem::path> listscanner::pop_raw()
                 parsed_line.first == none_checksum ? parsed_line.second : line);
         else if (rescan)
             return std::filesystem::path(parsed_line.second);
-        std::osyncstream(os) << "# Kept" << std::endl << line << std::endl;
+        std::osyncstream(os) << "# Kept: " << parsed_line.second << std::endl
+                             << line << std::endl;
     }
     return {};
 }

@@ -28,6 +28,13 @@ dirscanner::dirscanner(const std::filesystem::path &dir,
     {
         if (!exists(it, ec))
         {
+            errors.emplace_back(
+                std::make_error_code(std::errc::no_such_file_or_directory),
+                "while checking the existence of " + it.string());
+            continue;
+        }
+        if (ec)
+        {
             errors.emplace_back(ec, "while checking the existence of " +
                                         it.string());
             continue;

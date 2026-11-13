@@ -45,7 +45,7 @@ class work_result
         sum.success += target.success;
         sum.failed += target.failed;
         sum.unprocessed += target.unprocessed;
-        sum.duration += target.duration;
+        sum.duration += target.duration; /*  */
         return sum;
     }
 };
@@ -53,15 +53,16 @@ class work_result
 inline std::ostream &operator<<(std::ostream &os, const work_result &wr)
 {
     os << "# ----------General Report----------\n";
-    os << "# Algorithm: " << alg_to_str(wr.alg) << std::endl;
-    os << "# Total Processed: " << wr.success + wr.failed << std::endl;
-    os << "# Succeeded: " << wr.success << std::endl;
-    os << "# Failed: " << wr.failed << std::endl;
-    os << "# Unprocessed: " << wr.unprocessed << std::endl;
-    os << "# Duration: " << std::chrono::duration<double>(wr.duration).count()
+    os << "# Algorithm:         " << alg_to_str(wr.alg) << std::endl;
+    os << "# Total Processed:   " << wr.success + wr.failed << std::endl;
+    os << "# Succeeded:         " << wr.success << std::endl;
+    os << "# Failed:            " << wr.failed << std::endl;
+    os << "# Unprocessed:       " << wr.unprocessed << std::endl;
+    os << "# Duration:          " << std::chrono::duration<double>(wr.duration).count()
        << " seconds" << std::endl;
     if (wr.errors.empty())
         return os;
+    os << "# Errors:            " << wr.errors.size() << std::endl;
     os << "#\n# Error messages: " << std::endl;
     for (auto &it : wr.errors)
     {

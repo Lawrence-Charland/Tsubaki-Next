@@ -28,8 +28,9 @@ target, not as a mode of `tsubaki`.
 
 ## Build
 
-Requirements: CMake 3.28+, a C++23 compiler, OpenSSL (only `libcrypto` is
-linked), Ninja for the bundled presets.
+Requirements: CMake 3.28+ (that is what `CMakePresets.json` asks for;
+`CMakeLists.txt` itself accepts 3.10), a C++23 compiler, OpenSSL (only
+`libcrypto` is linked), Ninja for the bundled presets.
 
 ```sh
 cmake --preset linux-gcc-release
@@ -38,8 +39,9 @@ cmake --build --preset linux-gcc-release
 
 The first configure fetches
 [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser) from GitHub,
-so network access is needed once; the copy stays under `build/_deps` and is
-reused afterwards. Without network access, point CMake at a local checkout:
+so network access is needed once; the copy stays under `build/<preset>/_deps`
+and is reused afterwards. Without network access, point CMake at a local
+checkout:
 
 ```sh
 cmake --preset linux-gcc-release \
@@ -67,18 +69,24 @@ options.
 tsubaki sha256 dir1 file2 - -e build -l old.txt
 ```
 
-Options come last because `-e` and `-l` take every plain argument that follows
-them, and by then all the inputs are already collected.
+Options come last because a separated value is taken from the plain arguments
+that physically follow the switch, up to the next one still in the queue: an
+`-e` placed before the inputs would swallow them. `files` is evaluated after
+`excludes` and `lists`, so whatever those two leave behind still reaches it.
+
+No input is required at all: `tsubaki sha256` runs with an empty stream and
+prints the report block alone, with every counter at 0.
 
 ### Options
 
 | Option                     | Meaning                                              |
 | -------------------------- | ---------------------------------------------------- |
 | `-h`, `--help`             | print help and exit                                  |
+| `-V`, `--version`          | print the version and exit                           |
 | `-v`, `--verbose`          | live progress indicator on stderr                    |
-| `-t<n>`, `--thread=<n>`    | worker threads, defaults to hardware concurrency     |
-| `-o<file>`, `--output=<file>` | write results to `<file>` instead of stdout        |
-| `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when scanning directories; repeatable |
+| `-t<n>`, `--thread=<n>`    | worker threads, a positive integer; defaults to hardware concurrency |
+| `-o<file>`, `--output=<file>` | write results to `<file>`, created or truncated, instead of stdout |
+| `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
 | `-l<file>`, `--list=<file>` | read paths from `<file>`; repeatable                |
 | `-s`, `--follow-symlinks`  | follow symbolic links to directories                 |
 | `-f`, `--force-rescan`     | recompute checksums already listed in the input      |
@@ -145,17 +153,25 @@ unprocessed.
 ## Inputs
 
 Files and directories on the command line are scanned directly. A list file
-(`-l`, or stdin via `-`) is read line by line:
+(`-l`, or stdin via `-`) is read line by line. Every line is trimmed before it
+is looked at, so leading and trailing whitespace never becomes part of a path.
 
 - an empty line or a line starting with `#` is ignored;
-- a line starting with `<NONE> ` names the path after the marker;
+- a line starting with `<NONE> ` (the marker and one space) names the path after
+  the marker;
 - a line in `<checksum> <path>` form keeps the checksum as it is, writes
-  `# Kept` and the original line to the output, and only rescans the path when
-  `--force-rescan` is given;
+  `# Kept: <path>` and the (trimmed) original line to the output, and only
+  rescans the path when `--force-rescan` is given;
 - any other line is a path, spaces included.
 
 A kept line is decoupled from the hashing run: it is not hashed and does not
-show up in the report counts.
+show up in the report counts. It is written to the result stream while the list
+is being read, so it can appear between computed lines.
+
+Every list entry is treated as a file. A directory on a list line is rejected,
+not expanded; only directory arguments on the command line are walked. A line
+beginning with `#` is a comment even if it was meant as a path, so a file named
+`#name` has to be written as `./#name` or by an absolute path.
 
 A path made only of hex digits would be read as a checksum, so write entries as
 `./name` or as absolute paths. Paths with spaces need no quoting: an
@@ -164,7 +180,26 @@ unrecognised line is taken whole.
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
 fed back with `-l` to redo only the files that were left unprocessed.
 
+Excludes are compared with `equivalent()` against every entry met during a
+directory walk, so they are neither patterns nor string prefixes. They only
+affect directory scans: a file named on the command line, or read from a list,
+is hashed even when it is excluded. An exclude that is the scanned directory
+itself, or a parent of it, matches nothing and is silently ignored — exclude a
+subdirectory instead. Do not use `-e` to drop a directory that you also pass as
+an input; just leave that argument out.
+
+Inside a directory walk only regular files are hashed; a device or a FIFO met
+there is skipped silently. An explicitly named input is different: a device or
+a FIFO given on the command line, or written in a list, is opened and read as a
+stream. `/dev/null` therefore hashes as empty content, `/dev/stdin` hashes
+whatever arrives on stdin, and `/dev/fd/N` from process substitution works as
+well. Such a stream can block or never end; see Output and Interrupt.
+
 Duplicate entries are not merged: the same path named twice is processed twice.
+
+Sparse files are hashed over their logical length: holes read as zeros, so a 1 TB
+sparse image still costs 1 TB of reads even if it occupies a few megabytes on
+disk.
 
 ## Output
 
@@ -174,48 +209,82 @@ Results go to stdout unless `--output` is given. One line per file:
 <checksum> <path>
 ```
 
+Lines are written in completion order, not input order, so with more than one
+worker the order changes between runs. A path is printed exactly as its scanner
+produced it: `./name` for entries found under `.`, as written for a list entry.
+
 Files that were not hashed — interrupted, or the `none` algorithm — are written
-as `<NONE> <path>`. A report block follows, every line of which starts with
-`#`:
+as `<NONE> <path>`. The same happens to a file that passes the scan but fails to
+open, read or hash; that one is counted as failed.
+
+A path that is missing is filtered out before any worker sees it: it produces
+no output line and none of the counters below. It only adds an entry to the
+error block, which still makes the exit status 1. A directory written in a list
+file is rejected the same way.
+
+A report block follows, every line of which starts with `#`:
 
 ```
 #
 # ----------General Report----------
-# Algorithm: sha256
-# Total Processed: 3
-# Succeeded: 3
-# Failed: 0
-# Unprocessed: 0
-# Duration: 1.23456 seconds
+# Algorithm:         sha256
+# Total Processed:   3
+# Succeeded:         3
+# Failed:            0
+# Unprocessed:       0
+# Duration:          1.23456 seconds
 ```
 
 `Algorithm` is the one chosen for the run, so a `Ctrl-C` does not turn it into
-`none` in the report. `Duration` measures the hashing run itself, not argument
-parsing or scanning setup.
+`none` in the report. `Duration` is measured from the moment the workers are
+started to the moment they are joined; argument parsing and scanner setup are
+not included.
 
 `Total Processed` is `Succeeded + Failed`; files that were left unprocessed are
 not counted, and neither are kept lines or skipped paths.
 
-When something went wrong, an `# Error messages:` block follows with one
-`# Value= / Message= / Operation=` line per entry. The progress indicator, when
-enabled, is written to stderr and never to the result stream.
+When at least one error was recorded, an `# Errors:` count is added, followed by
+a `# Error messages:` block with one `# Value= / Message= / Operation=` line per
+entry:
+
+```
+# Errors:            2
+#
+# Error messages:
+# Value= 2, Message= No such file or directory, Operation= while fetching file type of plain.txt
+```
+
+An error does not have to come from a checksum failure. A missing input path, an
+unopenable list file, or an exclude that does not exist is recorded here as
+well, so a run can have `Failed: 0` and still exit 1 (and a missing exclude is
+reported even though the scan itself continues normally).
+
+The progress indicator, when enabled, is written to stderr and never to the
+result stream.
 
 ## Exit status
 
-`0` when every processed file succeeded and no error was recorded, `1`
-otherwise. Argument errors exit with `1` as well.
+`0` when no error was recorded, `1` otherwise. Argument errors exit with `1` as
+well; `--help` and `--version` exit with `0`.
 
 ## Interrupt
 
 `Ctrl-C` switches the run to the `none` algorithm: files that have not started
 yet are still popped, written as `<NONE>` and counted as unprocessed, so the
 report accounts for every file the scanners produced. A file that has already
-entered the hashing call finishes normally.
+entered the hashing call is not abandoned; for a device or a FIFO that means it
+keeps reading until EOF. A worker blocked in `open()` or in an endless read
+never gets back to the switch, so a single `Ctrl-C` cannot stop it — only the
+fifth one aborts the process.
 
 This makes an interrupted run resumable. Feed the output file back as a `-l`
 input: lines that already carry a checksum are kept unchanged, and the `<NONE>`
 lines are hashed again. The report block starts with `#`, so it is ignored and
-the file can be used as it is.
+the file can be used as it is. An interrupted run still exits 0 as long as
+nothing actually failed.
+
+Pressing `Ctrl-C` five times gives up altogether: the handler writes a message to
+stderr and calls `std::terminate()`.
 
 ## Architecture
 

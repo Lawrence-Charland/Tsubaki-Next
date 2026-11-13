@@ -25,6 +25,7 @@ Positional arguments:
 
 Options:
   -h, --help                  show this message and exit.
+  -V, --version               print the version and exit.
   -v, --verbose               print a live progress indicator on stderr.
   -t<n>, --thread=<n>         number of worker threads; defaults to the
                               hardware concurrency. Alias: --threads=<n>.
@@ -55,13 +56,16 @@ Option values:
 File lists:
   Every non-empty line is either a path, or a checksum and a path separated by
   a space. A line starting with '#' is a comment. A line carrying both a
-  checksum and a path is kept unchanged (marked with "# Kept") unless
+  checksum and a path is kept unchanged (marked with "# Kept: <path>") unless
   --force-rescan is given, in which case only the path is rescanned.
 
 Output format:
   "<checksum> <path>" for every processed file, followed by a report block
-  whose lines start with '#'. Files that cannot be read are reported as
-  <NONE>, and are counted as failures.
+  whose lines start with '#'. A file that fails to open, read or hash is
+  printed as <NONE> and counted as failed. A path that is missing, or a
+  directory in a list, never reaches the hashing step: no output line, no
+  counter, only an error entry. Devices and FIFOs are read as streams, so they
+  can block or never reach EOF.
 
 Examples:
   {program} sha256 .                            scan the current directory.
@@ -76,7 +80,7 @@ Examples:
                                                 inputs first, options last.
 
 Exit status:
-  0 if every file was processed successfully, 1 otherwise.
+  0 if no error was recorded, 1 otherwise.
 )HELP";
 
 std::string replace_placeholder(std::string_view body, std::string_view key,

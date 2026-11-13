@@ -9,6 +9,8 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cstring>
+#include <exception>
 #include <expected>
 #include <filesystem>
 #include <iostream>
@@ -17,6 +19,7 @@
 #include <string>
 #include <syncstream>
 #include <thread>
+#include <unistd.h>
 
 namespace tsubaki
 {
@@ -24,10 +27,20 @@ namespace
 {
 std::atomic<algorithm> *volatile g_target = nullptr;
 
+std::atomic<unsigned> volatile int_time = 0;
+
+const constexpr char *term_msg = "\nTerminated for pressing Ctrl+C 5 times.\n";
+
 void on_interrupt(int)
 {
+    int_time++;
     if (g_target)
         g_target->store(algorithm::none, std::memory_order_relaxed);
+    if (int_time == 5)
+    {
+        write(2, term_msg, strlen(term_msg));
+        std::terminate();
+    }
 }
 } // namespace
 
@@ -62,7 +75,7 @@ void work_manager::printer()
 {
     if (quiet || alg == algorithm::none)
         return;
-    const std::size_t width = terminal_width(stderr);
+    std::size_t width;
     std::size_t tick = 0;
     std::size_t last_size = 0;
     auto render = [&]() -> std::string
@@ -86,6 +99,7 @@ void work_manager::printer()
     };
     while (alg.load() != algorithm::none)
     {
+        width = terminal_width(stderr);
         {
             std::osyncstream out(std::cerr);
             out << '\r' << render();

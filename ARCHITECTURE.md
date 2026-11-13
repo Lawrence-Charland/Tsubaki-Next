@@ -30,10 +30,11 @@ escaped exception into an error message plus exit code 1.
    `include/cmdline.hpp`.
 2. `pre_parse(argc, argv)` splits the arguments into styled tokens;
    `evaluate()` matches them against the entries.
-3. The program name is taken from `argv[0]` and the help flag is checked
-   **before** validation. `--help` therefore works with no other arguments
-   present, and it wins over every other argument error. Help text comes from
-   `help_text()` in `src/help.cpp`.
+3. The program name is taken from `argv[0]`, and `--help` and `--version` are
+   checked **before** validation. Both therefore work with no other arguments
+   present, and both win over every argument error. Help text comes from
+   `help_text()` in `src/help.cpp`; the version string is the CMake project
+   version, injected as `TSUBAKI_VERSION`.
 4. `fine(false)` runs the validation. Every failed entry is reported with
    `argparser::describe()`, followed by a hint to run `--help`.
 5. Values are read out of the entries and checked: the algorithm is mapped
@@ -41,10 +42,15 @@ escaped exception into an error message plus exit code 1.
    `std::thread::hardware_concurrency()`), and the output stream is opened.
 6. Inputs are turned into producers and added to a `fanin_taskstream`: one
    `dirscanner` per directory, one `listscanner` per `-` or list file, and one
-   `cached_taskstream` for the plain file arguments. The cached stream is added
-   even when it is empty.
+   `cached_taskstream` for the plain file arguments. The queue is built in that
+   order: directories and `-` markers as they appear on the command line, then
+   the cached files, then the `-l` lists. The cached stream is added even when
+   it is empty, and an empty input list is legal: `files` has no minimum count,
+   so nothing is a valid run that just prints an empty report.
 7. `work_manager(tasks, *out, alg, verbose).run(threads)` starts the workers and
-   returns the exit code.
+   returns a `work_result`.
+8. `tsubaki_main` prints `#` and the result to the output stream and turns
+   `errors.empty()` into the exit code.
 
 ## Command line layer
 
@@ -75,7 +81,7 @@ The parts of its behaviour that surface here:
 
 Entries are defined once, in `include/cmdline.hpp`; their declaration order is
 the evaluation order: threads, output, the flags, algorithm, excludes, lists,
-files, help.
+files, version, help.
 
 - `excludes` and `lists` come before `files`, so their values are taken before
   the positional looks at anything, and a separated value (`-e build`) works as
@@ -86,7 +92,7 @@ files, help.
   barrier; a plain argument after the barrier is left unconsumed, and
   `fine(false)` reports it as `invalid_arguments`.
 - `-h`/`--help` is a flag, so `--help=something` is a validation error rather
-  than a help request.
+  than a help request. The same applies to `-V`/`--version`.
 
 ## Task streams
 
@@ -106,15 +112,23 @@ std::vector<error_entry> take_errors();
 releases the mutex, and then inspects the candidate outside the lock:
 
 - a regular file is returned;
-- `is_regular_file` setting an error code records that error and the loop
-  continues;
-- a path that exists but is not a regular file (a device, a fifo, a dangling
-  entry) is recorded as `operation_not_permitted` and the loop continues.
+- `status()` setting an error code — a missing path, a dangling symlink —
+  records that error and the loop continues;
+- a directory is recorded as `operation_not_permitted` and the loop continues;
+- anything else that exists — a character or block device, a FIFO, a socket —
+  is returned as it is, and opening or reading it is left to the worker.
 
 This filter lives in the base class, so producers only have to answer "what is
 the next path". `dirscanner` overrides `pop()` as well, for one reason: it walks
-directory entries, so it silently skips non-files instead of recording an error
-for every subdirectory it passes.
+directory entries, so it silently skips every non-file instead of recording an
+error for each subdirectory it passes. That is also what keeps a directory walk
+from opening a FIFO or a device it happens to meet.
+
+A path rejected here (missing, unstatable, or a directory in a list) never
+reaches a worker, so it is not printed and not counted in any of the three
+counters; it only leaves an `error_entry`, which is enough to make the exit code
+1. That is why `Failed` can be 0 while the run still fails: `Failed` only counts
+files whose checksum attempt returned an error.
 
 `error_entry` is a pair of `std::error_code` and a free-form operation string;
 the string is what ends up in the report, so producers are expected to describe
@@ -135,6 +149,18 @@ it is a directory), steps over it, and checks the next entry. Paths are compared
 with `equivalent()`, not by string prefix, so an exclude matches the same
 inode wherever it is reached from.
 
+The check only sees entries the iterator yields, and the iterator never yields
+the root it was opened on. An exclude that is the scanned root, or a parent of
+it, therefore matches nothing and is silently ignored; excluding a subdirectory
+is the supported shape. Excludes also never apply to files that are named on the
+command line or read from a list, because those do not go through this scanner.
+
+A nonexistent exclude is dropped after an `error_entry` is recorded, so it still
+makes the run exit 1 even though scanning continues. A missing directory or a
+path that is not a directory makes the constructor throw `std::invalid_argument`;
+that exception is not converted into an error entry — it escapes `tsubaki_main`
+and is caught by the last-resort handler in `main()`.
+
 ### listscanner
 
 Reads lines from any `std::istream` — a file opened by `tsubaki_core`, or
@@ -150,9 +176,9 @@ included. If the first part *is* hexadecimal, the line is a `<checksum> <path>`
 pair:
 
 - with `--force-rescan`, the path is handed out for hashing;
-- otherwise the line is decoupled from the run: `# Kept` and the original line
-  are written to the output and the line contributes nothing to the run or to
-  the report counts.
+- otherwise the line is decoupled from the run: `# Kept: <path>` and the
+  trimmed original line are written to the output, and the line contributes
+  nothing to the run or to the report counts.
 
 Taking an unrecognised line whole is what makes a space in a name harmless, and
 it is what lets an `<NONE> <path>` output be fed back as input. The one
@@ -160,6 +186,10 @@ ambiguity left is a name made only of hex digits: it is lexically identical to a
 checksum, and the only way to separate them is to make the first field
 non-hexadecimal (`./name`, an absolute path). The `<NONE> ` prefix is reserved
 and is always read as a marker.
+
+A list line always names a file. A directory written on a list line is handed
+out like any other path and then rejected by `pop()`; it is never walked. Only
+directory arguments on the command line become a `dirscanner`.
 
 ### cached_taskstream
 
@@ -207,6 +237,16 @@ it. `EINTR` is retried; every other failure is returned as a `std::error_code`
 wrapped in `std::unexpected`, never as an exception. `algorithm::none` short-
 circuits to `<NONE>` without touching the file.
 
+Reading is done with plain `read()` calls, not `mmap` or `SEEK_DATA`, so a sparse
+file is hashed over its logical length: holes are fed to the digest as zeros.
+The cost therefore follows `st_size`, not the allocated block count, and memory
+use stays at the 64 KiB buffer no matter how large the file claims to be.
+
+The same `open()` is used for an explicitly named non-regular path, and it is
+blocking: a FIFO with no writer blocks before the first read, and a device that
+never reaches EOF keeps the worker inside the loop. Neither path observes the
+algorithm switch, which is only looked at between files.
+
 The digest is rendered with `to_hex()` in lowercase.
 
 ## Workers, progress and report
@@ -220,7 +260,8 @@ writing the report itself, so the caller decides where and how it is printed.
 - Each worker loops: `tasks.pop()`, `checksum_file(path, alg.load())`, write one
   line through an `osyncstream`. A failed checksum prints `<NONE> <path>` and
   increments `failed`; a success increments `success`, or `unprocessed` when the
-  current algorithm is `none`.
+  current algorithm is `none`. A path that `pop()` rejected never gets here, so
+  it has no line and no counter — only an error entry.
 - The printer, unless quiet or running with `none`, repaints a single line every
   100 ms on stderr. It uses the terminal width of stderr and degenerates to a
   plain `[N files]` when the width is unknown.
@@ -239,22 +280,27 @@ embedding driver wants.
 algorithm (errors appended, counters and durations added), which is there for a
 future setup with more than one manager. `operator<<` writes the report block:
 `Algorithm`, `Total Processed` (= succeeded + failed), the three counts,
-`Duration`, and the optional error list.
+`Duration`, and, when `errors` is not empty, an `Errors` count followed by the
+`# Error messages:` list.
 
-`tsubaki_main` prints the result (`*out << "#\n" << result`) and returns 0 when
-`errors` is empty.
+`tsubaki_main` prints `#` and the result (`*out << "#\n" << result`) and returns
+0 when `errors` is empty. `failed` itself does not decide the exit code; every
+checksum failure also leaves an error entry, so in practice the two agree.
 
 `SIGINT` is implemented through the algorithm value, not through a separate
 flag: the handler stores `algorithm::none` into the worker's atomic, and every
 later `checksum_file()` call returns `<NONE>` immediately. Remaining paths are
 still popped, printed and counted as unprocessed, so the report accounts for
-everything the scanners produced.
+everything the scanners produced. A worker already inside a blocking `open()` or
+an endless read never returns to that check, so one `Ctrl-C` does not free it;
+the handler also bumps an atomic counter, and on the fifth `Ctrl-C` it writes a
+fixed message with `write(2, ...)` and calls `std::terminate()`.
 
 ## Output streams
 
 `tsubaki_core` picks the sink once: `std::cout`, or a file opened by
 `--output`. That single `std::ostream` is shared by every worker, the list
-scanners (for `# Kept`) and the final report. Writes go through
+scanners (for `# Kept: <path>` markers) and the final report. Writes go through
 `std::osyncstream`, which flushes complete insertions, so lines never interleave.
 
 The progress indicator is the only thing written to stderr. Errors detected
@@ -272,9 +318,10 @@ end up in the report block of the result stream.
 
 - One mutex per taskstream. The mutex covers `pop_raw()` and the error vector;
   it is held only while a path is being taken out.
-- Atomics: the algorithm, the three counters, and the signal target pointer.
-  The pointer is `volatile` because the handler writes it; the algorithm is
-  `std::atomic<algorithm>` because the handler stores into it.
+- Atomics: the algorithm, the three counters, the interrupt counter, and the
+  signal target pointer. The pointer is `volatile` because the handler writes
+  it; the algorithm and the interrupt counter are `std::atomic` because the
+  handler stores into them.
 - No lock is held while hashing, so file I/O is fully parallel.
 - Nothing in the pipeline reorders results: output order is completion order,
   not scan order.
@@ -292,8 +339,8 @@ tsubaki sha256 . -e build -l old.txt
 3. Both are added to the fan-in, plus an empty `cached_taskstream`.
 4. Workers pull paths: first from the `dirscanner` (walking the tree), then from
    the `listscanner` once the directory is exhausted.
-5. Kept lines from `old.txt` are written immediately as `# Kept` plus the
-   original line; they never enter the hashing path.
+5. Kept lines from `old.txt` are written immediately as `# Kept: <path>` plus
+   the original line; they never enter the hashing path.
 6. When all children are exhausted, the fan-in returns nothing, the workers
    stop, the printer stops, and `run()` returns the `work_result` that
    `tsubaki_main` prints.
@@ -342,7 +389,7 @@ door open for a caller that wants more.
 | --- | --- | --- |
 | `tsubaki::basic_taskstream` | — | virtual base of every task stream: `pop()` filters the candidate, `pop_raw()` is the hook each subclass implements, `errors` + `report_error()` + `take_errors()` carry failures |
 | `tsubaki::dirscanner` | `basic_taskstream` | recursive directory walk with excludes and symlink control |
-| `tsubaki::listscanner` | `basic_taskstream` | parses a list file or stdin and writes `# Kept` lines |
+| `tsubaki::listscanner` | `basic_taskstream` | parses a list file or stdin and writes `# Kept: <path>` lines |
 | `tsubaki::cached_taskstream` | `basic_taskstream` | replays a fixed vector of paths |
 | `tsubaki::fanin_taskstream` | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
 | `tsubaki::work_manager` | — | worker pool, progress line, SIGINT switch |
@@ -353,7 +400,7 @@ door open for a caller that wants more.
 
 | Path | Contents |
 | --- | --- |
-| `src/main.cpp` | entry point and the last-resort exception handler |
+| `src/tsubaki_main.cpp` | entry point and the last-resort exception handler |
 | `src/tsubaki_core.cpp` | startup sequence, argument checks, stream construction |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |
@@ -366,3 +413,7 @@ door open for a caller that wants more.
 | `include/cmdline.hpp` | argument entry definitions |
 | `include/help.hpp`, `src/help.cpp` | help text |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |
+
+`src/kousei_main.cpp`, `src/timeline_fs.cpp` and `include/timeline_fs.hpp` are an
+unfinished experiment (a later build target that is not enabled in
+`CMakeLists.txt`). They are not part of the `tsubaki` source map.
