@@ -19,6 +19,7 @@ class listscanner : public basic_taskstream
     std::istream &is;
     std::ostream &os;
     bool rescan;
+    bool ended = false;   // 流已经读到终点（正常或出错），只报告一次
 
   public:
     listscanner(std::istream &_is, std::ostream &_os, bool _rescan = false)
