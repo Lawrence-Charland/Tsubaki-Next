@@ -1,0 +1,17 @@
+--- a/src/listscanner.cpp
++++ b/src/listscanner.cpp
+@@ -31,6 +31,13 @@
+         std::osyncstream(os) << "# Kept: " << parsed_line.second << std::endl
+                              << line << std::endl;
+     }
++    // getline 的"读失败"和"读完了"返回同一个 false。badbit 才是 I/O 错误的证据；
++    // 正常 EOF 只会置 eofbit|failbit。此处已在 pop_raw() 的锁区间内，
++    // 所以直接写 errors，不能调 report_error()（mutex_ 不可重入）。
++    if (is.bad())
++        errors.emplace_back(std::make_error_code(std::errc::io_error),
++                            "while reading the file list");
++
+     return {};
+ }
+ } // namespace tsubaki
+\ 文件末尾没有换行符
