@@ -23,6 +23,30 @@
 
 namespace tsubaki
 {
+void work_result::print(std::ostream &os, bool with_errors)
+{
+    os << "# ----------General Report----------\n";
+    os << "# Algorithm:         " << alg_to_str(alg) << std::endl;
+    os << "# Total Processed:   " << success + failed << std::endl;
+    os << "# Succeeded:         " << success << std::endl;
+    os << "# Failed:            " << failed << std::endl;
+    os << "# Unprocessed:       " << unprocessed << std::endl;
+    os << "# Duration:          "
+       << std::chrono::duration<double>(duration).count() << " seconds"
+       << std::endl;
+    if (errors.empty())
+        return;
+    os << "# Errors:            " << errors.size() << std::endl;
+    if (!with_errors)
+        return;
+    os << "#\n# Error messages: " << std::endl;
+    for (auto &it : errors)
+    {
+        os << "# Value= " << it.ec.value() << ", Message= " << it.ec.message()
+           << ", Operation= " << it.op << std::endl;
+    }
+}
+
 namespace
 {
 std::atomic<algorithm> *volatile g_target = nullptr;

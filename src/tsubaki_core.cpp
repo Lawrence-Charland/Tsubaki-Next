@@ -18,6 +18,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <queue>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -72,7 +73,7 @@ int tsubaki_main(int argc, char **argv)
     fanin_taskstream tasks;
     algorithm alg = algorithm::error;
     unsigned threads = 0;
-    std::vector<path> files;
+    std::queue<path> files;
     std::vector<std::unique_ptr<std::ifstream>> lists;
     std::vector<path> excludes;
     bool follow_symlinks =
@@ -170,7 +171,7 @@ int tsubaki_main(int argc, char **argv)
                     tasks.add_task(std::make_unique<dirscanner>(
                         target, excludes, follow_symlinks));
                 else
-                    files.push_back(target); // Add single files
+                    files.push(target); // Add single files
             }
         }
         tasks.add_task(std::make_unique<cached_taskstream>(files));
@@ -190,9 +191,10 @@ int tsubaki_main(int argc, char **argv)
 
     // Run work
     work_result result = work_manager(tasks, *out, alg, verbose).run(threads);
-    *out << "#\n" << result;
+    *out << "#\n";
+    result.print(*out,true);
     if (out != &std::cout)
-        std::clog << result;
+        result.print(std::clog,false);
     return result.errors.empty() ? 0 : 1;
 }
 } // namespace tsubaki

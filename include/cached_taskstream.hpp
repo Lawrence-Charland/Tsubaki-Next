@@ -8,17 +8,17 @@
 
 #include <filesystem>
 #include <optional>
-#include <vector>
+#include <queue>
 
 namespace tsubaki
 {
 class cached_taskstream : public basic_taskstream
 {
   private:
-    std::vector<std::filesystem::path> cache;
+    std::queue<std::filesystem::path> cache;
 
   public:
-    cached_taskstream(const std::vector<std::filesystem::path> &files)
+    cached_taskstream(const std::queue<std::filesystem::path> &files)
         : cache(files)
     {
     }

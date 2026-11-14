@@ -10,15 +10,15 @@ namespace tsubaki
 
 void cached_taskstream::push(const std::filesystem::path &new_file)
 {
-    cache.push_back(new_file);
+    cache.push(new_file);
 }
 
 std::optional<std::filesystem::path> cached_taskstream::pop_raw()
 {
     if (cache.empty())
         return {};
-    std::filesystem::path result = cache.back();
-    cache.pop_back();
+    std::filesystem::path result = cache.front();
+    cache.pop();
     return result;
 }
 } // namespace tsubaki
