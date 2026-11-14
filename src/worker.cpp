@@ -173,7 +173,7 @@ work_result work_manager::run(unsigned thread_count)
         g_target = nullptr;
         std::signal(SIGINT, previous);
     }
-    return work_result(chosen_alg, tasks.errors, success.load(), failed.load(),
+    return work_result(chosen_alg, tasks.take_errors(), success.load(), failed.load(),
                        unprocessed.load(),
                        std::chrono::duration<double>(duration).count());
 }

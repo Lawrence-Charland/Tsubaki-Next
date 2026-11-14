@@ -27,7 +27,7 @@ class basic_taskstream
     std::vector<error_entry> errors;
     void report_error(const error_entry& error);
     virtual std::optional<std::filesystem::path> pop();
-    std::vector<error_entry> take_errors();
+    virtual std::vector<error_entry> take_errors();
     virtual ~basic_taskstream() = default;
 
   protected:

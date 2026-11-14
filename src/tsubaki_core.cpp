@@ -192,9 +192,9 @@ int tsubaki_main(int argc, char **argv)
     // Run work
     work_result result = work_manager(tasks, *out, alg, verbose).run(threads);
     *out << "#\n";
-    result.print(*out,true);
+    result.print(*out, true);
     if (out != &std::cout)
-        result.print(std::clog,false);
+        result.print(std::clog, false);
     return result.errors.empty() ? 0 : 1;
 }
 } // namespace tsubaki

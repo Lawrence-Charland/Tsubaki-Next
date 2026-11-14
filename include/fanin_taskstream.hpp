@@ -23,6 +23,7 @@ class fanin_taskstream : public basic_taskstream
 
   public:
     void add_task(std::unique_ptr<basic_taskstream> task);
+    std::vector<error_entry> take_errors() override;
     std::optional<std::filesystem::path> pop() override;
 
   protected:

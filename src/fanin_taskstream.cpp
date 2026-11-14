@@ -4,8 +4,10 @@
 #include "fanin_taskstream.hpp"
 #include "basic_taskstream.hpp"
 
+#include <filesystem>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 namespace tsubaki
 {
@@ -25,14 +27,19 @@ std::optional<std::filesystem::path> fanin_taskstream::pop()
         if (auto result = streams.at(index)->pop())
             return result;
         std::size_t expected = index;
-        if (cursor.compare_exchange_strong(expected, index + 1,
-                                           std::memory_order_acq_rel))
-        {
-            auto incoming = streams.at(index)->take_errors();
-            std::lock_guard<std::mutex> lock(mutex_);
-            errors.insert(errors.end(), incoming.begin(), incoming.end());
-        }
+        cursor.compare_exchange_strong(expected, index + 1,
+                                       std::memory_order_acq_rel);
     }
+}
+
+std::vector<error_entry> fanin_taskstream::take_errors()
+{
+    for (auto &it : streams)
+    {
+        errors.insert(errors.end(), it->errors.begin(), it->errors.end());
+        it->errors.clear();
+    }
+    return errors;
 }
 
 std::optional<std::filesystem::path> fanin_taskstream::pop_raw()
