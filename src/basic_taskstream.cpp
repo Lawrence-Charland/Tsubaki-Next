@@ -42,9 +42,6 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
                     " which is a directory"));
             continue;
         }
-        // Devices, FIFOs and sockets are handed out as they are: reading one is
-        // the caller's explicit decision, and only the caller knows whether it
-        // reaches EOF. Directory walks still filter them in dirscanner::pop().
         return candidate;
     }
 }

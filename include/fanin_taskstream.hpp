@@ -6,21 +6,24 @@
 
 #include "basic_taskstream.hpp"
 
+#include <atomic>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <optional>
-#include <queue>
+#include <vector>
 
 namespace tsubaki
 {
 class fanin_taskstream : public basic_taskstream
 {
   private:
-    std::queue<std::unique_ptr<basic_taskstream>> task_queue;
+    std::vector<std::unique_ptr<basic_taskstream>> streams;
+    std::atomic<std::size_t> cursor{0};
 
   public:
     void add_task(std::unique_ptr<basic_taskstream> task);
-    using basic_taskstream::pop;
+    std::optional<std::filesystem::path> pop() override;
 
   protected:
     std::optional<std::filesystem::path> pop_raw() override;

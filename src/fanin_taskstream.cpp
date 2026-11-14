@@ -12,21 +12,31 @@ namespace tsubaki
 void fanin_taskstream::add_task(std::unique_ptr<basic_taskstream> task)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    task_queue.push(std::move(task));
+    streams.push_back(std::move(task));
+}
+
+std::optional<std::filesystem::path> fanin_taskstream::pop()
+{
+    for (;;)
+    {
+        const std::size_t index = cursor.load(std::memory_order_acquire);
+        if (index >= streams.size())
+            return {};
+        if (auto result = streams.at(index)->pop())
+            return result;
+        std::size_t expected = index;
+        if (cursor.compare_exchange_strong(expected, index + 1,
+                                           std::memory_order_acq_rel))
+        {
+            auto incoming = streams.at(index)->take_errors();
+            std::lock_guard<std::mutex> lock(mutex_);
+            errors.insert(errors.end(), incoming.begin(), incoming.end());
+        }
+    }
 }
 
 std::optional<std::filesystem::path> fanin_taskstream::pop_raw()
 {
-    while (!task_queue.empty())
-    {
-        basic_taskstream &current = *task_queue.front();
-        if (auto result = current.pop())
-            return result;
-
-        auto incoming = current.take_errors();
-        errors.insert(errors.end(), incoming.begin(), incoming.end());
-        task_queue.pop();
-    }
-    return {};
+    return pop();
 }
 } // namespace tsubaki
