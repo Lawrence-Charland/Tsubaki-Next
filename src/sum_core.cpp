@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
-#include "sum_core.hpp"
 #include "argparser.hpp"
 #include "basic_taskstream.hpp"
 #include "cached_taskstream.hpp"
 #include "checksum.hpp"
 #include "cmdline.hpp"
+#include "core_functions.hpp"
 #include "dirscanner.hpp"
+#include "exit_codes.hpp"
 #include "fanin_taskstream.hpp"
-#include "help.hpp"
 #include "listscanner.hpp"
 #include "worker.hpp"
 
@@ -26,47 +26,19 @@
 
 namespace tsubaki
 {
-int sum_main(int argc, char **argv)
+int sum_main(argparser::ap_instance &cmdline)
 {
     using namespace std::filesystem;
 
-    // Basic argument parse
-    argparser::ap_instance cmdline = def_args();
-    cmdline.pre_parse(argc, argv);
-    cmdline.evaluate();
+    cmdline.evaluate(cmdline_group::sum);
 
     const std::string program = path(cmdline.argv_zero()).filename().string();
-
-    // Print the help message first ( it does not need the other arguments )
-    if (cmdline.entry("help").repetition)
-    {
-        std::cout << help_text(program);
-        std::cout.flush();
-        return 0;
-    }
-
-    if (cmdline.entry("version").repetition)
-    {
-        std::cout << "tsubaki " << version << std::endl;
-        return 0;
-    }
 
     // Check errors (early stage)
     if (!cmdline.fine(false))
     {
-        for (auto &err : cmdline.errors())
-        {
-            if (err.second == argparser::ap_result::invalid_arguments)
-                std::cerr << "Error: invalid argument: " << err.first
-                          << std::endl;
-            else
-                std::cerr << "Error: " << argparser::describe(err.second)
-                          << ": " << cmdline.entry(err.first).explanations.at(1)
-                          << std::endl;
-        }
-        std::cerr << "Try '" << program << " --help' for more information."
-                  << std::endl;
-        return 1;
+        error_prompt(std::cerr, cmdline);
+        return TSUBAKI_INVALID_ARGUMENT;
     }
 
     // Basic values
@@ -76,11 +48,12 @@ int sum_main(int argc, char **argv)
     std::queue<path> files;
     std::vector<std::unique_ptr<std::ifstream>> lists;
     std::vector<path> excludes;
-    bool follow_symlinks =
-             static_cast<bool>(cmdline.entry("follow-symlinks").repetition),
-         force_rescan =
-             static_cast<bool>(cmdline.entry("force-rescan").repetition),
-         verbose = static_cast<bool>(cmdline.entry("verbose").repetition);
+    bool follow_symlinks = static_cast<bool>(
+             cmdline.entry(cmdline_entry::follow_symlinks).repetition),
+         force_rescan = static_cast<bool>(
+             cmdline.entry(cmdline_entry::force_rescan).repetition),
+         verbose = static_cast<bool>(
+             cmdline.entry(cmdline_entry::verbose).repetition);
     std::ostream *out;
     std::ofstream fout;
 
@@ -88,19 +61,19 @@ int sum_main(int argc, char **argv)
     {
         // Decide the algorithm
         {
-            auto &content = cmdline.entry("algorithm").content;
+            auto &content = cmdline.entry(cmdline_entry::algorithm).content;
             alg = str_to_alg(content.at(0));
             if (alg == algorithm::error)
             {
                 std::cerr << "Error: unknown algorithm: \"" << content.at(0)
                           << "\"." << std::endl;
-                return 1;
+                return TSUBAKI_INVALID_ARGUMENT;
             }
         }
         // Decide the thread count
         {
             int thds;
-            auto &content = cmdline.entry("threads").content;
+            auto &content = cmdline.entry(cmdline_entry::threads).content;
             if (!content.empty())
             {
                 try
@@ -111,14 +84,14 @@ int sum_main(int argc, char **argv)
                 {
                     std::cerr << "Error: \"" << content.at(0)
                               << "\" is not a valid integer." << std::endl;
-                    return 1;
+                    return TSUBAKI_INVALID_ARGUMENT;
                 }
                 if (thds <= 0)
                 {
                     std::cerr << "Error: thread count must be greater than "
                                  "zero."
                               << std::endl;
-                    return 1;
+                    return TSUBAKI_INVALID_ARGUMENT;
                 }
                 threads = static_cast<unsigned>(thds);
             }
@@ -139,7 +112,7 @@ int sum_main(int argc, char **argv)
         }
         // Decide where to output
         {
-            auto &content = cmdline.entry("output").content;
+            auto &content = cmdline.entry(cmdline_entry::output).content;
             if (content.empty())
                 out = &std::cout;
             else
@@ -150,16 +123,16 @@ int sum_main(int argc, char **argv)
                     std::cerr << "Error: cannot open \"" + content.at(0) +
                                      "\" for writing."
                               << std::endl;
-                    return 1;
+                    return TSUBAKI_FILE_WRITE_FAILED;
                 }
                 out = &fout;
             }
         }
         // Store the excludes
-        for (auto &it : cmdline.entry("excludes").content)
+        for (auto &it : cmdline.entry(cmdline_entry::excludes).content)
             excludes.emplace_back(it);
         // Parse the files ( - stands for stdin )
-        for (auto &it : cmdline.entry("files").content)
+        for (auto &it : cmdline.entry(cmdline_entry::files).content)
         {
             if (it ==
                 "-") // Add a listscanner reads stdin ( safe to multiply add )
@@ -178,7 +151,7 @@ int sum_main(int argc, char **argv)
         }
         tasks.add_task(std::make_unique<cached_taskstream>(files));
         // Get and check the textual file lists
-        for (auto &it : cmdline.entry("lists").content)
+        for (auto &it : cmdline.entry(cmdline_entry::lists).content)
         {
             lists.emplace_back(std::make_unique<std::ifstream>(it));
             if (!lists.back()->good())
@@ -197,6 +170,10 @@ int sum_main(int argc, char **argv)
     result.print(*out, true);
     if (out != &std::cout)
         result.print(std::clog, false);
-    return result.errors.empty() ? 0 : 1;
+    if (result.interrupted)
+        return TSUBAKI_INTERRUPTED;
+    if (!result.errors.empty())
+        return TSUBAKI_HASH_ERROR;
+    return TSUBAKI_SUCCESS;
 }
 } // namespace tsubaki

@@ -18,13 +18,35 @@ two independent attempts side by side: `old` is the author's own version,
 
 ## Scope
 
-The current build produces a single target, `tsubaki`, which computes
-checksums.
+The project builds exactly one executable, `tsubaki`, and will keep doing so.
+Features are added as subcommands of that binary rather than as further targets;
+`sum` is the first one and the only one that exists today.
 
 Everything that needs every checksum in memory before it can decide anything —
-the `cmp` and `dup` style comparisons — is deliberately left out. If such
-functionality comes back, it will most likely come back as its own build
-target, not as a mode of `tsubaki`.
+comparing several sets of results — is deliberately left out for now.
+
+## Roadmap
+
+The pipeline stays one-way: a path is hashed and written out, never collected.
+A comparison is the opposite shape — it can only decide once every set involved
+is in memory — so it will become another subcommand of the same binary, next to
+`sum`. Nothing beyond that is designed yet; what is fixed is the shape it would
+take:
+
+- It is not a new program. A subcommand gets a `subcommands::` constant, its own
+  entry group in `include/cmdline.hpp`, a branch in `main()`'s dispatch, and a
+  driver like `sum_main()`. The parser, the scanners and `checksum_file()` are
+  shared; only the result format and the exit code mapping differ.
+- `timeline_fs` is the structure `include/timeline_fs.hpp` sketches for keeping
+  results comparable: an in-memory tree in which every node carries a
+  *per-snapshot* child list and a per-snapshot checksum map. A time id is added
+  by name, then files and directories are created, updated or removed under that
+  id. Loading any number of ids and walking the tree shows what changed between
+  runs, and the same map shows which files hold identical content.
+
+Nothing of that is built yet: the `timeline_fs` sources are in the tree but no
+target references them, and no comparison entry or driver exists. The module
+layout itself is described in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Build
 
@@ -54,8 +76,14 @@ preset exists with the same layout.
 ## Usage
 
 ```
-tsubaki [options] <algorithm> <file|dir>...
+tsubaki sum [options] <algorithm> <file|dir>...
+tsubaki --help
+tsubaki --version
 ```
+
+The `sum` subcommand is required. `--help` and `--version` are the only
+invocations that do not need it; any other word in the subcommand position is
+rejected as an unknown subcommand.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
 a directory, a file, or `-` for stdin, and the kinds can be mixed in one
@@ -66,7 +94,7 @@ The safe shape is: algorithm first, then every input in one go, then the
 options.
 
 ```sh
-tsubaki sha256 dir1 file2 - -e build -l old.txt
+tsubaki sum sha256 dir1 file2 - -e build -l old.txt
 ```
 
 Options come last because a separated value is taken from the plain arguments
@@ -74,7 +102,7 @@ that physically follow the switch, up to the next one still in the queue: an
 `-e` placed before the inputs would swallow them. `files` is evaluated after
 `excludes` and `lists`, so whatever those two leave behind still reaches it.
 
-No input is required at all: `tsubaki sha256` runs with an empty stream and
+No input is required at all: `tsubaki sum sha256` runs with an empty stream and
 prints the report block alone, with every counter at 0.
 
 ### Options
@@ -103,8 +131,8 @@ line.
 A long option takes its value with `=` and a short option takes it sticky:
 
 ```sh
-tsubaki sha256 . --exclude=build --list=old.txt
-tsubaki sha256 . -ebuild -lold.txt
+tsubaki sum sha256 . --exclude=build --list=old.txt
+tsubaki sum sha256 . -ebuild -lold.txt
 ```
 
 A separated value is the run of plain arguments right after the switch. How many
@@ -112,7 +140,7 @@ of them are taken depends on the option: `-t` and `-o` take one, `-e` and `-l`
 take as many as you give, up to the next switch that is still in the queue.
 
 ```sh
-tsubaki sha256 . -e a b c -l list1 list2   # three excludes, two lists
+tsubaki sum sha256 . -e a b c -l list1 list2   # three excludes, two lists
 ```
 
 `-e` stops at `-l` here, because `lists` is evaluated after `excludes`; each
@@ -130,14 +158,14 @@ earlier option already took:
 ```sh
 # threads runs first and takes "-t 4";
 # excludes then sees "c.txt ." and takes both
-tsubaki sha256 -e c.txt -t 4 .        # no input left: empty run, exit 0
+tsubaki sum sha256 -e c.txt -t 4 .        # no input left: empty run, exit 0
 ```
 
 That is why the safe shape puts the inputs before every option:
 
 ```sh
-tsubaki sha256 dir1 file2 - -e build -l old.txt   # -e takes build, -l takes old.txt
-tsubaki sha256 -e build dir1                      # -e takes dir1 too, nothing left
+tsubaki sum sha256 dir1 file2 - -e build -l old.txt   # -e takes build, -l takes old.txt
+tsubaki sum sha256 -e build dir1                      # -e takes dir1 too, nothing left
 ```
 
 A `\` on its own ends the input list; a plain argument after it is no longer an
@@ -239,6 +267,7 @@ A report block follows, every line of which starts with `#`:
 # Failed:            0
 # Not hashed:        0
 # Duration:          1.23456 seconds
+# Errors:            0
 ```
 
 `Algorithm` is the one chosen for the run, so a `Ctrl-C` does not turn it into
@@ -249,9 +278,10 @@ not included.
 `Processed` is `Hashed + Failed`; files that were not hashed are not counted,
 and neither are kept lines or skipped paths.
 
-When at least one error was recorded, an `# Errors:` count is added, followed by
-a `# Error messages:` block with one `# Value: / Message: / Operation:` line per
-entry:
+An `# Errors:` count is always written, even when it is 0. When at least one
+error was recorded, the count is followed by a `# Error messages:` block with one
+`# Value: / Message: / Operation:` line per entry, and an interrupted run gets a
+`# The process was interrupted halfway through.` line under the count:
 
 ```
 # Errors:            2
@@ -274,8 +304,22 @@ result stream.
 
 ## Exit status
 
-`0` when no error was recorded, `1` otherwise. Argument errors exit with `1` as
-well; `--help` and `--version` exit with `0`.
+| Code | Meaning |
+| --- | --- |
+| `0` | no error was recorded |
+| `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude |
+| `2` | invalid command line: unknown subcommand, unknown algorithm, bad thread count, or leftover arguments |
+| `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
+| `74` | the `--output` file cannot be opened for writing |
+| `130` | the run was interrupted with `Ctrl-C` |
+| `-1` (`255` in a shell) | an unexpected exception escaped `main()` |
+
+`--help` and `--version` exit with `0`. `70` and `74` are the sysexits values
+`EX_SOFTWARE` and `EX_IOERR`; `130` is the shell convention `128 + SIGINT`.
+
+The codes live in `include/exit_codes.hpp` as `TSUBAKI_SUCCESS`,
+`TSUBAKI_HASH_ERROR`, `TSUBAKI_INVALID_ARGUMENT`, `TSUBAKI_FILE_WRITE_FAILED`,
+`TSUBAKI_INTERRUPTED`, `TSUBAKI_FATAL` and `TSUBAKI_UNEXPECTED`.
 
 ## Interrupt
 
@@ -290,8 +334,8 @@ fifth one aborts the process.
 This makes an interrupted run resumable. Feed the output file back as a `-l`
 input: lines that already carry a checksum are kept unchanged, and the `<NONE>`
 lines are hashed again. The report block starts with `#`, so it is ignored and
-the file can be used as it is. An interrupted run still exits 0 as long as
-nothing actually failed.
+the file can be used as it is. An interrupted run exits `130` even when nothing
+actually failed, so a `1` still means a real error.
 
 Pressing `Ctrl-C` five times gives up altogether: the handler writes a message to
 stderr and calls `std::terminate()`.

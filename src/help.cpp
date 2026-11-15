@@ -12,9 +12,13 @@ constexpr std::string_view help_body =
     R"HELP({program} {version} - fast batch checksum calculator
 
 Usage:
-  {program} [options] <algorithm> <file|dir>...
+  {program} sum [options] <algorithm> <file|dir>...
+  {program} --help
+  {program} --version
 
 Positional arguments:
+  sum                    the only subcommand (Stay tuned for more features!).
+                          everything below belongs to it.
   algorithm              checksum algorithm to use; one of:
                          none, md5, sha1, sha224, sha256, sha384, sha512,
                          sha3_256, sha3_512, blake2b512, blake2s256.
@@ -70,19 +74,30 @@ Output format:
   are read as streams, so they can block or never reach EOF.
 
 Examples:
-  {program} sha256 .                          scan the current directory.
-  {program} --thread=8 --output=sum.txt blake2b512 .
+  {program} sum sha256 .                      scan the current directory.
+  {program} sum --thread=8 --output=sum.txt blake2b512 .
                                               use 8 threads and write to sum.txt.
-  {program} sha512 --exclude=.git --exclude=build .
+  {program} sum sha512 --exclude=.git --exclude=build .
                                               skip .git and build.
-  {program} sha256 --list=old.txt --force-rescan g1
+  {program} sum sha256 --list=old.txt --force-rescan g1
                                               rescan the paths in old.txt.
-  find . -name '*.c' | {program} sha1 -       read paths from stdin.
-  {program} sha256 dir file - -e build -l old.txt
+  find . -name '*.c' | {program} sum sha1 -   read paths from stdin.
+  {program} sum sha256 dir file - -e build -l old.txt
                                               inputs first, options last.
 
 Exit status:
-  0 if no error was recorded, 1 otherwise.
+  0    no error was recorded.
+  1    at least one error was recorded: a checksum failure, a missing path, an
+       unopenable list file, or a missing exclude.
+  2    invalid command line: unknown subcommand, unknown algorithm, bad thread
+       count, or leftover arguments.
+  70   fatal start-up failure (argc is 0).
+  74   the --output file cannot be opened for writing.
+  130  the run was interrupted with Ctrl-C.
+  255  an unexpected exception escaped; TSUBAKI_UNEXPECTED is -1 internally.
+
+Repository:
+  https://github.com/Lawrence-Charland/Tsubaki-Next
 )HELP";
 
 std::string replace_placeholder(std::string_view body, std::string_view key,

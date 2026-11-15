@@ -15,11 +15,30 @@ Tsubaki-Next 是早先 Tsubaki 的精神续作。留下的只有名字和目标�
 
 ## 范围
 
-当前只构建一个目标 `tsubaki`，它只做校验和计算。
+本项目只构建一个可执行文件 `tsubaki`，而且会一直如此。新功能以**子命令**的形式加
+进这个二进制，而不是再开新目标：`sum` 是第一个，也是目前唯一的子命令。
 
-所有"必须先拿到全部校验和才能下结论"的功能——也就是 `cmp`、`dup` 这类比较
-——是刻意不做的。这些功能如果将来回来，大概率会作为独立的构建目标，而不是
-`tsubaki` 的一个模式。
+所有"必须先拿到全部校验和才能下结论"的功能——也就是比较多份结果——目前刻意不做。
+
+## 路线图
+
+流水线保持单向：一条路径算完就写出去，从不收集。而比较是反过来的形状——参与比较的
+结果全部进了内存才能下结论——所以它会变成同一个二进制里、`sum` 旁边的另一个子命令。
+除此之外还没有任何设计定下来，定下来的只是它会长成什么样：
+
+- 它不是新程序。一个子命令需要一个 `subcommands::` 常量、`include/cmdline.hpp` 里
+  自己的条目分组、`main()` 分发里的一个分支，以及一个像 `sum_main()` 那样的驱动。
+  参数解析库、各扫描器和 `checksum_file()` 都是共用的，不同的只有结果格式和退出码
+  映射。
+- `timeline_fs` 是 `include/timeline_fs.hpp` 为"让结果可以相互比较"画出的结构：
+  一棵内存树，每个节点各自带一份**按快照区分**的子节点表和一份按快照区分的校验和表。
+  先按名字登记一个时间 id，再在那个 id 下建目录、建文件、更新或删除。载入任意多个
+  id 并同时遍历这棵树，就能看出各次运行之间变了什么；同一张表也能看出哪些文件内容
+  相同。
+
+这些都还没纳入构建：`timeline_fs` 的源码在树里，但没有任何目标引用它，也没有任何
+比较用的条目或驱动。模块划分本身见
+[ARCHITECTURE.zh-cn.md](ARCHITECTURE.zh-cn.md)。
 
 ## 构建
 
@@ -47,8 +66,13 @@ cmake --preset linux-gcc-release \
 ## 用法
 
 ```
-tsubaki [选项] <算法> <文件|目录>...
+tsubaki sum [选项] <算法> <文件|目录>...
+tsubaki --help
+tsubaki --version
 ```
+
+`sum` 子命令是必需的，只有 `--help` 和 `--version` 不需要它；子命令位置上换成别的
+词会按未知子命令报错。
 
 `算法` 是位置参数，它后面的输入也是。输入可以是目录、文件，或者 `-`（标准输入），
 可以混着写。单独一个 `\` 结束输入列表，它后面的普通参数不再当作输入。
@@ -56,14 +80,14 @@ tsubaki [选项] <算法> <文件|目录>...
 稳妥的写法是：算法放最前，然后一口气写完全部输入源，最后再写选项。
 
 ```sh
-tsubaki sha256 目录1 文件2 - -e build -l old.txt
+tsubaki sum sha256 目录1 文件2 - -e build -l old.txt
 ```
 
 选项放最后，是因为分离式取值只从开关后面那段普通参数里拿，直到下一个还在队列里的
 开关为止：把 `-e` 写在输入前面会把输入吃掉。`files` 又排在 `excludes` 和 `lists`
 之后评估，所以那两个选项剩下的东西仍然会流到它手里。
 
-输入一个都不给也行：`tsubaki sha256` 会以一条空流跑完，只打印报告块，各计数
+输入一个都不给也行：`tsubaki sum sha256` 会以一条空流跑完，只打印报告块，各计数
 全为 0。
 
 ### 选项
@@ -91,15 +115,15 @@ tsubaki sha256 目录1 文件2 - -e build -l old.txt
 长选项用 `=` 赋值，短选项用粘滞写法：
 
 ```sh
-tsubaki sha256 . --exclude=build --list=old.txt
-tsubaki sha256 . -ebuild -lold.txt
+tsubaki sum sha256 . --exclude=build --list=old.txt
+tsubaki sum sha256 . -ebuild -lold.txt
 ```
 
 分离式写法取的是开关后面紧跟的那一串普通参数，取几个由选项决定：`-t` 和 `-o` 只取
 一个，`-e` 和 `-l` 你给几个取几个，直到碰到下一个还在队列里的开关。
 
 ```sh
-tsubaki sha256 . -e a b c -l list1 list2   # 三个排除项、两个列表
+tsubaki sum sha256 . -e a b c -l list1 list2   # 三个排除项、两个列表
 ```
 
 这里 `-e` 会在 `-l` 前停住，因为 `lists` 排在 `excludes` 之后评估；每个条目各取
@@ -115,14 +139,14 @@ tsubaki sha256 . -e a b c -l list1 list2   # 三个排除项、两个列表
 ```sh
 # threads 先跑，取走 "-t 4"；
 # 然后 excludes 看到的是 "c.txt ."，两个都收
-tsubaki sha256 -e c.txt -t 4 .        # 没剩输入：空跑一次，退出码 0
+tsubaki sum sha256 -e c.txt -t 4 .        # 没剩输入：空跑一次，退出码 0
 ```
 
 所以稳妥的写法是把输入全部放在选项前面：
 
 ```sh
-tsubaki sha256 目录1 文件2 - -e build -l old.txt  # -e 取 build，-l 取 old.txt
-tsubaki sha256 -e build 目录1                     # -e 把 目录1 也收了，输入为空
+tsubaki sum sha256 目录1 文件2 - -e build -l old.txt  # -e 取 build，-l 取 old.txt
+tsubaki sum sha256 -e build 目录1                     # -e 把 目录1 也收了，输入为空
 ```
 
 单独一个 `\` 结束输入列表；它后面的普通参数不再算输入，所以除非被别的选项吃掉，
@@ -208,6 +232,7 @@ sha3_256  sha3_512  blake2b512  blake2s256
 # Failed:            0
 # Not hashed:        0
 # Duration:          1.23456 seconds
+# Errors:            0
 ```
 
 `Algorithm` 是本次运行选定的算法，被 `Ctrl-C` 打断也不会在报告里变成 `none`。
@@ -216,8 +241,9 @@ sha3_256  sha3_512  blake2b512  blake2s256
 `Processed` 等于 `Hashed + Failed`，未计算校验和的文件不计入；被保留的行和跳过
 的路径也不算在内。
 
-只要记录过至少一条错误，就会多出 `# Errors:` 条数行，后面跟一个
-`# Error messages:` 块，每条一行 `# Value: / Message: / Operation:`：
+`# Errors:` 条数行总会打印，即使为 0 也在。记录过至少一条错误时，条数行后面跟一个
+`# Error messages:` 块，每条一行 `# Value: / Message: / Operation:`；被打断的运行
+会在条数下面多出一行 `# The process was interrupted halfway through.`：
 
 ```
 # Errors:            2
@@ -237,8 +263,22 @@ sha3_256  sha3_512  blake2b512  blake2s256
 
 ## 退出状态
 
-没有记录任何错误时为 `0`，否则为 `1`；参数错误同样是 `1`，`--help` 和
-`--version` 则为 `0`。
+| 退出码 | 含义 |
+| --- | --- |
+| `0` | 没有记录任何错误 |
+| `1` | 记录过至少一条错误：校验失败、不存在的路径、打不开的列表文件、不存在的排除项 |
+| `2` | 命令行无效：未知子命令、未知算法、线程数不对，或者有多余参数 |
+| `70` | 启动即失败：`argc` 为 0，进程拒绝运行 |
+| `74` | `--output` 指定的文件打不开 |
+| `130` | 运行被 `Ctrl-C` 打断 |
+| `-1`（shell 里看到的是 `255`） | 有异常逃出了 `main()` |
+
+`--help` 和 `--version` 的退出码是 `0`。`70` 和 `74` 取自 sysexits 的
+`EX_SOFTWARE` 和 `EX_IOERR`；`130` 就是 shell 的 `128 + SIGINT`。
+
+这些码定义在 `include/exit_codes.hpp` 里：`TSUBAKI_SUCCESS`、`TSUBAKI_HASH_ERROR`、
+`TSUBAKI_INVALID_ARGUMENT`、`TSUBAKI_FILE_WRITE_FAILED`、`TSUBAKI_INTERRUPTED`、
+`TSUBAKI_FATAL` 和 `TSUBAKI_UNEXPECTED`。
 
 ## 中断
 
@@ -250,7 +290,7 @@ sha3_256  sha3_512  blake2b512  blake2s256
 
 这让中断可以续算：把那次的结果文件直接当 `-l` 的输入喂回去，已经带校验和的行原样
 保留，`<NONE>` 行重新计算。报告块以 `#` 开头会被忽略，所以结果文件不用先过滤。
-只要没有真的失败，被中断的运行退出码仍然是 0。
+被中断的运行即使没有任何失败，退出码也是 `130`，所以 `1` 仍然代表真的出错。
 
 连按五次 `Ctrl-C` 则彻底放弃：处理函数往 stderr 写一行消息并调用
 `std::terminate()`。

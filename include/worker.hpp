@@ -23,14 +23,15 @@ class work_result
     unsigned success;
     unsigned failed;
     unsigned unprocessed;
+    bool interrupted = false;
     double duration;
 
     work_result() = default;
     work_result(algorithm _alg, const std::vector<error_entry> &_errors,
                 unsigned _success, unsigned _failed, unsigned _unprocessed,
-                double _duration)
+                double _duration, bool _int = false)
         : alg(_alg), errors(_errors), success(_success), failed(_failed),
-          unprocessed(_unprocessed), duration(_duration)
+          unprocessed(_unprocessed), duration(_duration), interrupted(_int)
     {
     }
     work_result operator+(const work_result &target)

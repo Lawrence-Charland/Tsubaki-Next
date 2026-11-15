@@ -34,10 +34,10 @@ void work_result::print(std::ostream &os, bool with_errors)
     os << "# Duration:          "
        << std::chrono::duration<double>(duration).count() << " seconds"
        << std::endl;
-    if (errors.empty())
-        return;
     os << "# Errors:            " << errors.size() << std::endl;
-    if (!with_errors)
+    if (interrupted)
+        os << "#\n# The process was interrupted halfway through." << std::endl;
+    if (!with_errors || errors.empty())
         return;
     os << "#\n# Error messages:" << std::endl;
     for (auto &it : errors)
@@ -51,17 +51,17 @@ namespace
 {
 std::atomic<algorithm> *volatile g_target = nullptr;
 
-std::atomic<unsigned> volatile int_time = 0;
+std::atomic<unsigned> volatile int_count = 0;
 
 const constexpr char *term_msg =
     "\nTerminated after Ctrl+C was pressed 5 times.\n";
 
 void on_interrupt(int)
 {
-    int_time++;
+    int_count++;
     if (g_target)
         g_target->store(algorithm::none, std::memory_order_relaxed);
-    if (int_time == 5)
+    if (int_count == 5)
     {
         write(2, term_msg, strlen(term_msg));
         std::terminate();
@@ -174,9 +174,10 @@ work_result work_manager::run(unsigned thread_count)
         g_target = nullptr;
         std::signal(SIGINT, previous);
     }
-    return work_result(chosen_alg, tasks.take_errors(), success.load(), failed.load(),
-                       unprocessed.load(),
-                       std::chrono::duration<double>(duration).count());
+    return work_result(chosen_alg, tasks.take_errors(), success.load(),
+                       failed.load(), unprocessed.load(),
+                       std::chrono::duration<double>(duration).count(),
+                       static_cast<bool>(int_count.load()));
 }
 
 } // namespace tsubaki

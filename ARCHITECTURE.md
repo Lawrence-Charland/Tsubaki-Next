@@ -10,10 +10,10 @@ workers pulls paths from that stream and hashes them; one writer turns each
 finished result into a line of output.
 
 ```
-  argv ──> cmdline ──> sum_core     ──> dirscanner      ─┐
-                                    ├─> listscanner     ─┼─> fanin ─> work_manager ─> out
-                                    └─> cached_taskstream ┘                ├─> printer (stderr)
-                                                                            └─> work_result ─> report
+  argv ──> main ──> cmdline ──> sum_core ──> dirscanner      ─┐
+                                         ├─> listscanner     ─┼─> fanin ─> work_manager ─> out
+                                         └─> cached_taskstream ┘                ├─> printer (stderr)
+                                                                                 └─> work_result ─> report
 ```
 
 There is no intermediate "file list" object. Nothing is sorted, counted or
@@ -21,36 +21,69 @@ filtered after scanning: a path is hashed as soon as a worker gets it.
 
 ## Startup sequence
 
-`main()` (in `src/tsubaki_main.cpp`) only wraps `tsubaki::sum_main()` in a
-try/catch and turns an escaped exception into an error message plus exit code 1.
-
-`sum_main()` does the following, in order:
+`main()` (in `src/main.cpp`) owns the subcommand dispatch and everything that
+is not specific to a subcommand:
 
 1. `def_args()` builds an `argparser::ap_instance` from the entry definitions in
-   `include/cmdline.hpp`.
-2. `pre_parse(argc, argv)` splits the arguments into styled tokens;
-   `evaluate()` matches them against the entries.
-3. The program name is taken from `argv[0]`, and `--help` and `--version` are
-   checked **before** validation. Both therefore work with no other arguments
-   present, and both win over every argument error. Help text comes from
-   `help_text()` in `src/help.cpp`; the version string is the CMake project
-   version, injected as `TSUBAKI_VERSION`.
-4. `fine(false)` runs the validation. Every failed entry is reported with
+   `include/cmdline.hpp`; `pre_parse()` splits the arguments into styled tokens.
+2. `evaluate(cmdline_group::general)` matches the `general` group: the `subcmd`
+   positional, which takes exactly one word, plus the `--help` and `--version`
+   flags. The program name is taken from `argv[0]`.
+3. `--help` and `--version` are checked **before** validation. Both therefore
+   work without a subcommand, and both win over every argument error. Help text
+   comes from `help_text()` in `src/help.cpp`; the version string is the CMake
+   project version, injected as `TSUBAKI_VERSION`.
+4. `fine()` validates the `general` entries. A missing `subcmd` is reported
+   here, followed by a hint to run `--help`.
+5. The value of `subcmd` is compared with `subcommands::sum`. `sum` hands the
+   preparsed instance to `tsubaki::sum_main()` and returns its exit code;
+   anything else is rejected as an unknown subcommand with
+   `TSUBAKI_INVALID_ARGUMENT`. The call sits in a try/catch that turns an
+   escaped exception into an error message plus `TSUBAKI_UNEXPECTED`.
+
+`sum_main(cmdline)` does the following, in order:
+
+1. `evaluate(cmdline_group::sum)` matches the remaining arguments against the
+   entries of the `sum` group; entries of the `general` group keep their
+   results.
+2. `fine(false)` runs the validation. Every failed entry is reported with
    `argparser::describe()`, followed by a hint to run `--help`.
-5. Values are read out of the entries and checked: the algorithm is mapped
+3. Values are read out of the entries and checked: the algorithm is mapped
    through `str_to_alg()`, the thread count is parsed (falling back to
    `std::thread::hardware_concurrency()`), and the output stream is opened.
-6. Inputs are turned into producers and added to a `fanin_taskstream`: one
+4. Inputs are turned into producers and added to a `fanin_taskstream`: one
    `dirscanner` per directory, one `listscanner` per `-` or list file, and one
    `cached_taskstream` for the plain file arguments. The queue is built in that
    order: directories and `-` markers as they appear on the command line, then
    the cached files, then the `-l` lists. The cached stream is added even when
    it is empty, and an empty input list is legal: `files` has no minimum count,
    so nothing is a valid run that just prints an empty report.
-7. `work_manager(tasks, *out, alg, verbose).run(threads)` starts the workers and
+5. `work_manager(tasks, *out, alg, verbose).run(threads)` starts the workers and
    returns a `work_result`.
-8. `sum_main` writes `#` and then calls `result.print(*out, true)` on the output
-   stream, and turns `errors.empty()` into the exit code.
+6. `sum_main` writes `#` and then calls `result.print(*out, true)` on the output
+   stream, and maps the run onto an exit code: `TSUBAKI_INTERRUPTED` when the
+   run was interrupted, `TSUBAKI_HASH_ERROR` when an error was recorded, and
+   `TSUBAKI_SUCCESS` otherwise. Argument problems returned
+   `TSUBAKI_INVALID_ARGUMENT` earlier, and an `--output` file that cannot be
+   opened returns `TSUBAKI_FILE_WRITE_FAILED`.
+
+## Exit codes
+
+The codes live in `include/exit_codes.hpp` and are shared by `main()` and
+`sum_main()`:
+
+| Macro | Value | Returned when |
+| --- | --- | --- |
+| `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry |
+| `TSUBAKI_HASH_ERROR` | 1 | at least one error entry was recorded |
+| `TSUBAKI_INVALID_ARGUMENT` | 2 | the command line was rejected: unknown subcommand, unknown algorithm, bad thread count, or leftover arguments |
+| `TSUBAKI_FILE_WRITE_FAILED` | 74 | the `--output` file cannot be opened (`EX_IOERR`) |
+| `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
+| `TSUBAKI_FATAL` | 70 | `argc` is 0, so `main()` refuses to run (`EX_SOFTWARE`) |
+| `TSUBAKI_UNEXPECTED` | -1 | an exception escaped `main()`; the shell sees 255 |
+
+`interrupted` wins over `errors`: an interrupted run reports `130` even when it
+also collected errors.
 
 ## Command line layer
 
@@ -66,7 +99,9 @@ The parts of its behaviour that surface here:
 - `pre_parse` tags every token as simple, single-dash, double-dash or
   `argv_zero`; everything after `--` becomes simple. A `-x` or `--foo` that
   matches no declared entry also stays simple, so a misspelled option is left to
-  a positional and surfaces as a missing file, not as an option error.
+  a positional — the subcommand slot, the algorithm, or the file list — and
+  surfaces as an unknown subcommand, an unknown algorithm, or a missing file,
+  not as an option error.
 - Long names take `--name` or `--name=value`, short names take `-v`, bundled
   `-vs`, or a sticky value `-ovalue`. A separated value (`--output out.txt`) is
   supported by the library itself.
@@ -76,15 +111,26 @@ The parts of its behaviour that surface here:
   token ends the collection early and is consumed with it.
 - `evaluate()` walks the entries in declaration order and erases what each one
   consumed, so the declaration order decides who sees a separated value.
+  `evaluate(group)` does the same for one group only and leaves the entries of
+  the other groups untouched.
 - `fine()` and `errors()` summarise the per-entry results, optionally reporting
   whatever was left unconsumed as `invalid_arguments`.
 - The library makes no compatibility promise; the vendored copy is pinned to a
   single commit.
 
-Entries are defined once, in `include/cmdline.hpp`; their declaration order is
-the evaluation order: threads, output, the flags, algorithm, excludes, lists,
-files, version, help.
+Entries are defined once, in `include/cmdline.hpp`, and carry a group:
+`general` for `subcmd`/`--help`/`--version`, `sum` for everything else. `main()`
+evaluates `general`; `sum_main()` evaluates `sum`. Inside a group the declaration
+order is the evaluation order: threads, output, the flags, algorithm, excludes,
+lists, files for `sum`, and subcmd, version, help for `general`. The names are
+`inline constexpr` constants in `cmdline_entry`, so the definitions and the
+`entry()` lookups share one spelling; a hyphen in the name becomes an
+underscore in the identifier.
 
+- `subcmd` is the first entry of the `general` group and a positional with a
+  count of exactly one, so it takes the first plain argument whatever it is.
+  That is why `tsubaki sha256 .` is rejected as an unknown subcommand instead of
+  being read as an algorithm.
 - `excludes` and `lists` come before `files`, so their values are taken before
   the positional looks at anything, and a separated value (`-e build`) works as
   long as no file argument follows it.
@@ -95,7 +141,7 @@ files, version, help.
   `fine(false)` reports it as `invalid_arguments`.
 - `-h`/`--help` is a flag, and the help check returns before validation, so
   `--help=something` still prints the help and exits 0: the parser records
-  `flag_unexpected_values`, but `sum_main` never asks. The same applies to
+  `flag_unexpected_values`, but `main` never asks. The same applies to
   `-V`/`--version`. A short name only compares its first character, so `-h1` is
   read as `-h`.
 
@@ -279,25 +325,29 @@ writing the report itself, so the caller decides where and how it is printed.
 - `wait()` joins the workers, sets the algorithm to `none` (which stops the
   printer loop), and joins the printer.
 - When everything is joined, `run()` returns a snapshot: the algorithm it
-  started with, the collected errors, the three counters, and the wall-clock
-  time spent between starting and joining.
+  started with, the collected errors, the three counters, the interrupt flag,
+  and the wall-clock time spent between starting and joining.
 
 The constructor takes a `catch_sigint` flag, on by default. With it off, `run()`
 installs no SIGINT handler and leaves `Ctrl-C` to the caller, which is what an
 embedding driver wants.
 
 `work_result` is a plain value with `alg`, `errors`, `success`, `failed`,
-`unprocessed` and `duration`. `operator+` merges two results of the same
-algorithm (errors appended, counters and durations added), which is there for a
-future setup with more than one manager. `print(os, with_errors)` writes the
-report block: `Algorithm`, `Processed` (= hashed + failed), `Hashed`, `Failed`,
-`Not hashed`, `Duration`, and, when `errors` is not empty, an `Errors` count
-followed by the `# Error messages:` list. With `with_errors = false` the count
-is written but the per-entry lines are left out.
+`unprocessed`, `interrupted` and `duration`. `operator+` merges two results of
+the same algorithm (errors appended, counters and durations added), which is
+there for a future setup with more than one manager. `print(os, with_errors)`
+writes the report block: `Algorithm`, `Processed` (= hashed + failed),
+`Hashed`, `Failed`, `Not hashed`, `Duration`, an `Errors` count — written even
+when it is 0 — and, for an interrupted run, a one-line note under the count.
+When there are errors, the `# Error messages:` list follows. With
+`with_errors = false` the count and the note are written but the per-entry lines
+are left out.
 
-`sum_main` writes `#` and calls `result.print(*out, true)`, and returns 0 when
-`errors` is empty. `failed` itself does not decide the exit code; every
-checksum failure also leaves an error entry, so in practice the two agree.
+`sum_main` writes `#` and calls `result.print(*out, true)`, then returns
+`TSUBAKI_INTERRUPTED` if `interrupted` is set, `TSUBAKI_HASH_ERROR` if any error
+was recorded, and `TSUBAKI_SUCCESS` otherwise. `failed` itself does not decide
+the exit code; every checksum failure also leaves an error entry, so in practice
+the two agree.
 
 `SIGINT` is implemented through the algorithm value, not through a separate
 flag: the handler stores `algorithm::none` into the worker's atomic, and every
@@ -306,7 +356,9 @@ still popped, printed and counted as `Not hashed`, so the report accounts for
 everything the scanners produced. A worker already inside a blocking `open()` or
 an endless read never returns to that check, so one `Ctrl-C` does not free it;
 the handler also bumps an atomic counter, and on the fifth `Ctrl-C` it writes a
-fixed message with `write(2, ...)` and calls `std::terminate()`.
+fixed message with `write(2, ...)` and calls `std::terminate()`. The counter
+becomes `work_result::interrupted`, which adds a note to the report block and
+makes `sum_main` return `TSUBAKI_INTERRUPTED` (130).
 
 ## Output streams
 
@@ -345,7 +397,7 @@ file that cannot be opened.
 ## Data flow example
 
 ```
-tsubaki sha256 . -e build -l old.txt
+tsubaki sum sha256 . -e build -l old.txt
 ```
 
 1. `files` collects `.`; `-e build` is a separated value, read by `excludes`
@@ -383,6 +435,12 @@ door open for a caller that wants more.
 
 ## Extension points
 
+- **New subcommand**: add a constant to `subcommands`, give its entries their
+  own `cmdline_group`, add a branch to `main()`, and write a driver shaped like
+  `sum_main()` that evaluates its own group. Only the entries of that group are
+  parsed by the subcommand, so unrelated switches cannot interfere. Comparing
+  several sets of results is the next feature planned this way;
+  `include/timeline_fs.hpp` is an unfinished sketch for it and is not built.
 - **New input source**: derive from `basic_taskstream`, implement `pop_raw()`,
   and add an entry to `def_args()` if it needs syntax of its own. The fan-in does
   not care how many producers exist.
@@ -392,11 +450,6 @@ door open for a caller that wants more.
   `include/checksum.hpp` (`algorithm`, `str_to_alg()` and `alg_to_str()` are
   generated from it), a case in `to_evp()`, and the name in the algorithm list
   of the help text (`src/help.cpp`), which is written by hand.
-- **New build target**: the API is deliberately narrow, so another executable
-  (for example one that needs every checksum at once, like a comparison tool)
-  can reuse `checksum_file()`, the scanners and the argument parser without
-  sharing `work_manager` or the result format. That is a separate program, not
-  a mode of `tsubaki`.
 
 ## Source map
 
@@ -417,8 +470,10 @@ door open for a caller that wants more.
 
 | Path | Contents |
 | --- | --- |
-| `src/tsubaki_main.cpp` | entry point and the last-resort exception handler |
-| `src/sum_core.cpp` | startup sequence, argument checks, stream construction |
+| `src/main.cpp` | subcommand dispatch, `general` argument group, last-resort exception handler |
+| `include/core_functions.hpp` | `sum_main()` declaration |
+| `include/exit_codes.hpp` | the exit-code macros shared by `main()` and `sum_main()` |
+| `src/sum_core.cpp` | `sum` argument group checks, startup sequence, stream construction |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
@@ -431,7 +486,7 @@ door open for a caller that wants more.
 | `include/help.hpp`, `src/help.cpp` | help text |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |
 
-`src/tmptest.cpp`, `src/timeline_fs.cpp` and `include/timeline_fs.hpp` are an
-unfinished experiment (a later build target). They are not part of the `tsubaki`
-source map, and the commented-out `kousei` block in `CMakeLists.txt` still names
-a `src/kousei_main.cpp` that does not exist.
+`src/tmptest.cpp`, `src/timeline_fs.cpp` and `include/timeline_fs.hpp` are not
+part of the `tsubaki` source map: they are an unfinished sketch for comparing
+several sets of results. No CMake target references them, so they are neither
+compiled nor tested.

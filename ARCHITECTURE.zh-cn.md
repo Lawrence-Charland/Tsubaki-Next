@@ -9,10 +9,10 @@
 每条结果变成一行输出。
 
 ```
-  argv ──> cmdline ──> sum_core     ──> dirscanner      ─┐
-                                    ├─> listscanner     ─┼─> fanin ─> work_manager ─> 输出
-                                    └─> cached_taskstream ┘                ├─> printer (stderr)
-                                                                            └─> work_result ─> 报告块
+  argv ──> main ──> cmdline ──> sum_core ──> dirscanner      ─┐
+                                         ├─> listscanner     ─┼─> fanin ─> work_manager ─> 输出
+                                         └─> cached_taskstream ┘                ├─> printer (stderr)
+                                                                                 └─> work_result ─> 报告块
 ```
 
 中间没有"文件列表"这一层。扫描之后不再排序、不再统计、不再过滤：谁取到一条
@@ -20,32 +20,58 @@
 
 ## 启动流程
 
-`main()`（在 `src/tsubaki_main.cpp` 里）只做一件事：把 `tsubaki::sum_main()` 包在
-try/catch 里，逃出来的异常变成一条错误信息和退出码 1。
-
-`sum_main()` 按顺序做这些事：
+`main()`（在 `src/main.cpp` 里）负责子命令分发，以及所有与子命令无关的事：
 
 1. `def_args()` 用 `include/cmdline.hpp` 里的条目定义构造
-   `argparser::ap_instance`。
-2. `pre_parse(argc, argv)` 把参数切成带风格的 token，`evaluate()` 把它们匹配到
-   各条目上。
-3. 从 `argv[0]` 取程序名；`--help` 和 `--version` 在**校验之前**检查，所以两者
-   都不需要其它参数就能用，也优先于其它参数错误。帮助文本来自
-   `src/help.cpp` 的 `help_text()`；版本字符串就是 CMake 项目版本，由
-   `TSUBAKI_VERSION` 注入。
-4. `fine(false)` 做校验。每个失败的条目都用 `argparser::describe()` 报出来，
+   `argparser::ap_instance`；`pre_parse()` 把参数切成带风格的 token。
+2. `evaluate(cmdline_group::general)` 匹配 `general` 组：只收一个词的 `subcmd`
+   位置参数，加上 `--help` 和 `--version` 两个标志。程序名取自 `argv[0]`。
+3. `--help` 和 `--version` 在**校验之前**检查，所以两者都不需要子命令就能用，
+   也优先于其它参数错误。帮助文本来自 `src/help.cpp` 的 `help_text()`；版本
+   字符串就是 CMake 项目版本，由 `TSUBAKI_VERSION` 注入。
+4. `fine()` 校验 `general` 组的条目。缺 `subcmd` 就在这里报错，末尾补一句提示
+   去跑 `--help`。
+5. `subcmd` 的值与 `subcommands::sum` 比较：相等就把预解析好的实例交给
+   `tsubaki::sum_main()` 并返回它的退出码；否则按未知子命令报错，返回
+   `TSUBAKI_INVALID_ARGUMENT`。这层调用包在 try/catch 里，逃出来的异常变成一条
+   错误信息和 `TSUBAKI_UNEXPECTED`。
+
+`sum_main(cmdline)` 按顺序做这些事：
+
+1. `evaluate(cmdline_group::sum)` 把剩下的参数匹配到 `sum` 组的条目上；`general`
+   组的条目保留之前的结果。
+2. `fine(false)` 做校验。每个失败的条目都用 `argparser::describe()` 报出来，
    末尾补一句提示去跑 `--help`。
-5. 取条目的值并检查：算法经 `str_to_alg()` 映射，线程数解析（失败就退回
+3. 取条目的值并检查：算法经 `str_to_alg()` 映射，线程数解析（失败就退回
    `std::thread::hardware_concurrency()`），输出流打开。
-6. 把输入变成生产者，加进 `fanin_taskstream`：每个目录一个 `dirscanner`，每个
+4. 把输入变成生产者，加进 `fanin_taskstream`：每个目录一个 `dirscanner`，每个
    `-` 或列表文件一个 `listscanner`，普通的文件参数汇总成一个
    `cached_taskstream`。队列就按这个顺序建：命令行上出现的目录和 `-`，然后是
    缓存的文件，最后是 `-l` 列表。即使文件参数为空，这个流也会被加进去；输入
    全空也是合法的——`files` 没有最小个数限制，空跑一次只是打印一份空报告。
-7. `work_manager(tasks, *out, alg, verbose).run(threads)` 启动工作线程，返回一个
+5. `work_manager(tasks, *out, alg, verbose).run(threads)` 启动工作线程，返回一个
    `work_result`。
-8. `sum_main` 往输出流写 `#`，再调 `result.print(*out, true)`，并根据
-   `errors.empty()` 给出退出码。
+6. `sum_main` 往输出流写 `#`，再调 `result.print(*out, true)`，然后把这次运行
+   映射成退出码：被打断时是 `TSUBAKI_INTERRUPTED`，记录过错误时是
+   `TSUBAKI_HASH_ERROR`，否则是 `TSUBAKI_SUCCESS`。更早的参数问题返回
+   `TSUBAKI_INVALID_ARGUMENT`，`--output` 文件打不开则返回
+   `TSUBAKI_FILE_WRITE_FAILED`。
+
+## 退出码
+
+这些码定义在 `include/exit_codes.hpp`，由 `main()` 和 `sum_main()` 共用：
+
+| 宏 | 值 | 何时返回 |
+| --- | --- | --- |
+| `TSUBAKI_SUCCESS` | 0 | 跑完之后没有错误条目 |
+| `TSUBAKI_HASH_ERROR` | 1 | 记录过至少一条错误条目 |
+| `TSUBAKI_INVALID_ARGUMENT` | 2 | 命令行被拒：未知子命令、未知算法、线程数不对，或者有多余参数 |
+| `TSUBAKI_FILE_WRITE_FAILED` | 74 | `--output` 文件打不开（`EX_IOERR`） |
+| `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |
+| `TSUBAKI_FATAL` | 70 | `argc` 为 0，`main()` 拒绝运行（`EX_SOFTWARE`） |
+| `TSUBAKI_UNEXPECTED` | -1 | 有异常逃出 `main()`；shell 里看到的是 255 |
+
+`interrupted` 优先于 `errors`：被打断的运行即使也收集到了错误，报告的也是 `130`。
 
 ## 命令行层
 
@@ -58,8 +84,8 @@ try/catch 里，逃出来的异常变成一条错误信息和退出码 1。
 
 - `pre_parse` 把每个 token 标成 simple、single dash、double dash 或
   `argv_zero`；`--` 之后的一律是 simple。匹配不到任何条目的 `-x`、`--foo` 同样
-  留在 simple 里，所以拼错的选项会被位置参数收走，最后按“文件不存在”报错，而不是
-  报成选项错误。
+  留在 simple 里，所以拼错的选项会被位置参数收走——子命令位、算法或文件列表——
+  最后按未知子命令、未知算法或“文件不存在”报错，而不是报成选项错误。
 - 长名是 `--name` 或 `--name=value`；短名是 `-v`、合并的 `-vs`、或者粘滞的
   `-ovalue`。分离式取值（`--output out.txt`）库本身是支持的。
 - 选项会收集它后面连续的 simple token，直到遇到非 simple 的值或到达上限；标志
@@ -67,14 +93,21 @@ try/catch 里，逃出来的异常变成一条错误信息和退出码 1。
 - 位置参数在 min/max 区间内收集 simple token，barrier token 会让收集提前结束，
   并且和它一起被消费掉。
 - `evaluate()` 按声明顺序逐个处理条目并删掉各自消费的参数，所以谁先谁后决定了一个
-  分离式取值最后落到谁手里。
+  分离式取值最后落到谁手里。`evaluate(group)` 只处理一个组，其它组的条目原样不动。
 - `fine()` 与 `errors()` 汇总各条目的结果，可选地把没被消费掉的参数报成
   `invalid_arguments`。
 - 这个库不承诺兼容性，vendored 的那份副本钉在某个提交上。
 
-条目只在 `include/cmdline.hpp` 里定义一次，声明顺序就是评估顺序：threads、
-output、各个标志、algorithm、excludes、lists、files、version、help。
+条目只在 `include/cmdline.hpp` 里定义一次，并且带一个组：`general` 放
+`subcmd`/`--help`/`--version`，其余都在 `sum` 组。`main()` 评估 `general`，
+`sum_main()` 评估 `sum`。组内的声明顺序就是评估顺序：`sum` 组是 threads、output、
+各个标志、algorithm、excludes、lists、files，`general` 组是 subcmd、version、help。
+条目的名字是 `cmdline_entry` 里的 `inline constexpr` 常量，定义和 `entry()` 查询
+共用同一份拼写；名字里的连字符在标识符里写成下划线。
 
+- `subcmd` 是 `general` 组的第一个条目，也是个数恰好为 1 的位置参数，所以它拿走
+  第一个普通参数，不管那是什么。这就是 `tsubaki sha256 .` 会被当成未知子命令，
+  而不是被读成算法的原因。
 - `excludes` 和 `lists` 排在 `files` 之前，它们的值在位置参数之前就被取走，所以
   分离式取值（`-e build`）能用，前提是它后面不再跟文件参数。
 - 这两项的取值个数都没有上限，因此 `-e build .` 会把 `.` 也当成排除项，让 `files`
@@ -82,7 +115,7 @@ output、各个标志、algorithm、excludes、lists、files、version、help。
 - `files` 是最后一个位置参数，它会一路收集 simple 参数直到 `\` barrier；barrier
   之后的普通参数没人消费，`fine(false)` 会报成 `invalid_arguments`。
 - `-h`/`--help` 是标志，而帮助检查在参数校验之前就返回了，所以 `--help=something`
-  照样打印帮助、退出码 0：解析库会记下 `flag_unexpected_values`，但 `sum_main`
+  照样打印帮助、退出码 0：解析库会记下 `flag_unexpected_values`，但 `main`
   根本没走到校验那一步。`-V`/`--version` 同理。短名只比较第一个字符，因此 `-h1`
   等同于 `-h`。
 
@@ -237,28 +270,32 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 - `wait()` 先 join 工作线程，再把算法置成 `none`（进度循环因此退出），最后 join
   进度线程。
 - 全部 join 完之后，`run()` 返回一份快照：启动时的算法、收集到的错误、三个计数
-  器，以及从启动到 join 结束的墙钟耗时。
+  器、中断标志，以及从启动到 join 结束的墙钟耗时。
 
 构造函数接收一个 `catch_sigint` 开关，默认打开。关掉后 `run()` 不安装 SIGINT 处理
 函数，把 `Ctrl-C` 留给调用方，适合嵌进别的驱动里。
 
 `work_result` 是个纯值对象，字段为 `alg`、`errors`、`success`、`failed`、
-`unprocessed`、`duration`。`operator+` 合并两个同算法的结果（错误追加、计数和耗时
-相加），是为将来开多个 manager 准备的。`print(os, with_errors)` 负责写报告块：
-`Algorithm`、`Processed`（成功 + 失败）、`Hashed`、`Failed`、`Not hashed`、
-`Duration`，以及 `errors` 非空时的 `Errors` 条数和后面的 `# Error messages:` 列表。
-`with_errors = false` 时只写条数，不写逐条内容。
+`unprocessed`、`interrupted`、`duration`。`operator+` 合并两个同算法的结果（错误
+追加、计数和耗时相加），是为将来开多个 manager 准备的。`print(os, with_errors)`
+负责写报告块：`Algorithm`、`Processed`（成功 + 失败）、`Hashed`、`Failed`、
+`Not hashed`、`Duration`、`Errors` 条数（即使为 0 也写），被打断时在条数下面再加
+一行说明；有错误时后面跟 `# Error messages:` 列表。`with_errors = false` 时只写
+条数和说明，不写逐条内容。
 
-`sum_main` 写 `#` 并调 `result.print(*out, true)`，`errors` 为空时返回 0。退出码
-不由 `failed` 决定；不过每个计算失败同时也留下一条错误条目，所以实际上两者是
-一致的。
+`sum_main` 写 `#` 并调 `result.print(*out, true)`，然后依次判断：`interrupted`
+为真返回 `TSUBAKI_INTERRUPTED`，有错误返回 `TSUBAKI_HASH_ERROR`，否则返回
+`TSUBAKI_SUCCESS`。退出码不由 `failed` 决定；不过每个计算失败同时也留下一条错误
+条目，所以实际上两者是一致的。
 
 `SIGINT` 是靠算法值实现的，而不是单独一个标志：处理函数把 `algorithm::none` 存进
 工作线程的原子变量，之后每次 `checksum_file()` 调用都立刻返回 `<NONE>`。剩下的
 路径照样被取出、打印、计入 `Not hashed`，所以报告能为扫描器产出的每个文件留个
 交代。已经卡在阻塞 `open()` 或无限读取里的工作线程回不到那个检查点，所以一次
 `Ctrl-C` 救不出它；处理函数还会递增一个原子计数器，按到第五次时用
-`write(2, ...)` 写一条固定消息并调用 `std::terminate()`。
+`write(2, ...)` 写一条固定消息并调用 `std::terminate()`。这个计数器最后变成
+`work_result::interrupted`，它会给报告块加一行说明，并让 `sum_main` 返回
+`TSUBAKI_INTERRUPTED`（130）。
 
 ## 输出流
 
@@ -291,7 +328,7 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 ## 数据流示例
 
 ```
-tsubaki sha256 . -e build -l old.txt
+tsubaki sum sha256 . -e build -l old.txt
 ```
 
 1. `files` 收走 `.`；`-e build` 是分离式取值，`excludes` 在位置参数之前就把它取走，
@@ -323,6 +360,11 @@ tsubaki sha256 . -e build -l old.txt
 
 ## 扩展点
 
+- **新增子命令**：在 `subcommands` 里加一个常量，给它的条目分配自己的
+  `cmdline_group`，在 `main()` 里加一个分支，再写一个像 `sum_main()` 那样、只
+  评估自己那一组的驱动。子命令只解析自己的组，所以不相干的开关不会互相干扰。下一件
+  计划这样加的功能是比较多份结果；`include/timeline_fs.hpp` 是它尚未完成的草图，
+  没有纳入构建。
 - **新增输入源**：从 `basic_taskstream` 派生，实现 `pop_raw()`；需要自己的语法就
   在 `def_args()` 里加条目。汇流不关心有几个生产者。
 - **换输出端**：`work_manager` 是唯一的消费者，给它换一个 `std::ostream`，或者整个
@@ -330,9 +372,6 @@ tsubaki sha256 . -e build -l old.txt
 - **新增算法**：在 `include/checksum.hpp` 的 `ALGORITHM_LIST` 里加一行
   （`algorithm`、`str_to_alg()`、`alg_to_str()` 都由它生成），在 `to_evp()` 里加
   一个 case，再把它加进帮助文本里的算法清单（`src/help.cpp`，那份是手写的）。
-- **新增构建目标**：这套 API 是刻意收窄的，所以另一个可执行文件（比如需要一次性
-  拿到全部校验和的比较工具）可以复用 `checksum_file()`、各扫描器和参数解析库，
-  而不必共用 `work_manager` 和结果格式。那是另一支程序，不是 `tsubaki` 的一个模式。
 
 ## 源码映射
 
@@ -353,8 +392,10 @@ tsubaki sha256 . -e build -l old.txt
 
 | 路径 | 内容 |
 | --- | --- |
-| `src/tsubaki_main.cpp` | 入口，以及最后的异常兜底 |
-| `src/sum_core.cpp` | 启动流程、参数检查、流的组装 |
+| `src/main.cpp` | 子命令分发、`general` 参数组、最后的异常兜底 |
+| `include/core_functions.hpp` | `sum_main()` 的声明 |
+| `include/exit_codes.hpp` | `main()` 与 `sum_main()` 共用的退出码宏 |
+| `src/sum_core.cpp` | `sum` 参数组的检查、启动流程、流的组装 |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | 基类流与它的 `pop()` 过滤 |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | 目录遍历 |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
@@ -367,6 +408,6 @@ tsubaki sha256 . -e build -l old.txt
 | `include/help.hpp`, `src/help.cpp` | 帮助文本 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |
 
-`src/tmptest.cpp`、`src/timeline_fs.cpp` 和 `include/timeline_fs.hpp` 是尚未完成的
-实验（一个后续的构建目标），不属于 `tsubaki` 的源码映射；`CMakeLists.txt` 里被注释
-掉的 `kousei` 目标仍然写着一个并不存在的 `src/kousei_main.cpp`。
+`src/tmptest.cpp`、`src/timeline_fs.cpp` 和 `include/timeline_fs.hpp` 不属于
+`tsubaki` 的源码映射：它们是"比较多份结果"这件事的未完成草图。没有任何 CMake 目标
+引用它们，所以既不参与编译，也不参与测试。

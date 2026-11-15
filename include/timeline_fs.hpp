@@ -1,5 +1,13 @@
-#ifndef LCPROJECTS_TSUBAKI_KOUSEI_TIMELINE_FS_HPP
-#define LCPROJECTS_TSUBAKI_KOUSEI_TIMELINE_FS_HPP
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 Lawrence Charland
+
+// Time-indexed in-memory filesystem: groundwork for comparing several sets of
+// results, not part of the build yet. Each node keeps one child list and one
+// checksum per time id, so several snapshots share a single tree instead of
+// being copied. See "Extension points" in ARCHITECTURE.md.
+
+#ifndef LCPROJECTS_TSUBAKI_TIMELINE_FS_HPP
+#define LCPROJECTS_TSUBAKI_TIMELINE_FS_HPP
 
 #include <expected>
 #include <filesystem>
@@ -10,7 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace kousei
+namespace tsubaki
 {
 using namespace std::filesystem;
 
@@ -27,12 +35,12 @@ enum class err_code
     unknown_error,
 };
 
-struct error_entry
+struct tlfs_error
 {
     err_code ec;
     std::string ctx;
 
-    error_entry(err_code _ec, const std::string &_ctx) : ec(_ec), ctx(_ctx)
+    tlfs_error(err_code _ec, const std::string &_ctx) : ec(_ec), ctx(_ctx)
     {
     }
 };
@@ -52,13 +60,13 @@ struct node
     std::unordered_map<unsigned short, std::vector<node_ptr>> subnodes;
 
     node(const std::filesystem::path &_name, file_type _type);
-    std::expected<node_ptr, error_entry> find_subnode(unsigned short time_id,
+    std::expected<node_ptr, tlfs_error> find_subnode(unsigned short time_id,
                                                       const path &node_name);
-    std::expected<std::list<node>::const_iterator, error_entry>
+    std::expected<std::list<node>::const_iterator, tlfs_error>
     find_subnode(unsigned short time_id, const path &node_name) const;
-    std::expected<void, error_entry> touch_subnode(unsigned short time_id,
+    std::expected<void, tlfs_error> touch_subnode(unsigned short time_id,
                                                    const node_ptr &new_node);
-    std::expected<std::string_view, error_entry>
+    std::expected<std::string_view, tlfs_error>
     inquire_checksum(unsigned short time_id) const;
     void print_subnodes(unsigned short time_id, std::ostream &os) const;
 
@@ -73,7 +81,7 @@ class timeline_fs
     std::unordered_map<std::string, unsigned short> timemapper;
     std::list<node> node_list;
     void remove_node_internal(unsigned short time_id, const node_ptr &node_);
-    std::expected<node_ptr, error_entry>
+    std::expected<node_ptr, tlfs_error>
     inquire_node_mutable(unsigned short time_id, const node_ptr &from,
                          const path &relative_path);
 
@@ -81,30 +89,30 @@ class timeline_fs
     timeline_fs();
     node_ptr root();
     const_node_ptr root() const;
-    std::expected<unsigned short, error_entry> add_time(const std::string &exp);
-    std::expected<const_node_ptr, error_entry>
+    std::expected<unsigned short, tlfs_error> add_time(const std::string &exp);
+    std::expected<const_node_ptr, tlfs_error>
     inquire_node(unsigned short time_id, const_node_ptr from,
                  const path &relative_path) const;
-    std::expected<node_ptr, error_entry> touch_node(unsigned short time_id,
+    std::expected<node_ptr, tlfs_error> touch_node(unsigned short time_id,
                                                     const node_ptr &ptr,
                                                     const path &node_name,
                                                     file_type type);
-    std::expected<node_ptr, error_entry> make_dir(unsigned short time_id,
+    std::expected<node_ptr, tlfs_error> make_dir(unsigned short time_id,
                                                   const node_ptr &from,
                                                   const path &relative_path);
-    std::expected<node_ptr, error_entry> make_file(unsigned short time_id,
+    std::expected<node_ptr, tlfs_error> make_file(unsigned short time_id,
                                                    const node_ptr &from,
                                                    const path &relative_path);
-    std::expected<void, error_entry> remove_node(unsigned short time_id,
+    std::expected<void, tlfs_error> remove_node(unsigned short time_id,
                                                  const node_ptr &from,
                                                  const path &relative_path);
-    std::expected<void, error_entry>
+    std::expected<void, tlfs_error>
     update_checksum(unsigned short time_id, const node_ptr node_,
                     const std::string &checksum);
-    std::expected<std::string_view, error_entry>
+    std::expected<std::string_view, tlfs_error>
     inquire_checksum(unsigned short time_id, const_node_ptr from,
                      const path &relative_path) const;
 };
-} // namespace kousei
+} // namespace tsubaki
 
 #endif

@@ -51,7 +51,7 @@ out=""
 rc=0
 
 run() {
-    out=$("$BIN" "$@" 2>"$ERR")
+    out=$("$BIN" sum "$@" 2>"$ERR")
     rc=$?
 }
 
@@ -147,7 +147,7 @@ if [ $rc -eq 0 ] &&
    [ "$(field 'Hashed')" = 0 ] &&
    [ "$(field 'Failed')" = 0 ] &&
    [ "$(field 'Not hashed')" = 0 ] &&
-   [ -z "$(field 'Errors')" ]; then
+   [ "$(field 'Errors')" = 0 ]; then
     ok 02 "$name"
 else
     bad 02 "$name" "rc=$rc processed=$(field 'Processed') errors=$(field 'Errors')"
@@ -305,6 +305,41 @@ if [ $rc -eq 0 ] && [ "$(field 'Algorithm')" = "sha256" ] &&
     ok 11 "$name"
 else
     bad 11 "$name" "存在不属于结果行/报告块的行"
+fi
+
+# ---------------------------------------------------------------- 12-15
+# 承诺："退出码：0 无错、1 有错、2 参数无效、74 输出打不开；
+#         sum 子命令必需，--help/--version 例外"。
+section "12-15 子命令与退出码"
+name="缺少 sum 子命令：按未知子命令报错，退出 2"
+out=$("$BIN" sha256 . 2>"$ERR"); rc=$?
+if [ $rc -eq 2 ] && grep -q 'unknown subcommand' "$ERR"; then
+    ok 12 "$name"
+else
+    bad 12 "$name" "rc=$rc $(head -1 "$ERR")"
+fi
+
+name="不需要子命令的 --help / --version"
+if "$BIN" --version >/dev/null 2>&1 && "$BIN" --help >/dev/null 2>&1; then
+    ok 13 "$name"
+else
+    bad 13 "$name" "rc=$?"
+fi
+
+name="参数无效：线程数不是整数，退出 2"
+run sha256 --thread=x
+if [ $rc -eq 2 ]; then
+    ok 14 "$name"
+else
+    bad 14 "$name" "rc=$rc $(head -1 "$ERR")"
+fi
+
+name="输出文件打不开，退出 74"
+run sha256 . -o "$FX/no-such-dir/out.txt"
+if [ $rc -eq 74 ]; then
+    ok 15 "$name"
+else
+    bad 15 "$name" "rc=$rc $(head -1 "$ERR")"
 fi
 
 # ---------------------------------------------------------------- 汇总
