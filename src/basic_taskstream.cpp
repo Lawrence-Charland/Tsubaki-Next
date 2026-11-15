@@ -54,7 +54,6 @@ void basic_taskstream::report_error(const error_entry &error)
 
 std::vector<error_entry> basic_taskstream::take_errors()
 {
-    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<error_entry> snapshot;
     snapshot.swap(errors);
     return snapshot;

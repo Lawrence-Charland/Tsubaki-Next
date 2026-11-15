@@ -10,6 +10,7 @@
 #include <istream>
 #include <optional>
 #include <ostream>
+#include <string>
 
 namespace tsubaki
 {
@@ -18,12 +19,14 @@ class listscanner : public basic_taskstream
   private:
     std::istream &is;
     std::ostream &os;
+    std::string pretty_name;
     bool rescan;
-    bool ended = false;   // 流已经读到终点（正常或出错），只报告一次
+    bool ended = false;
 
   public:
-    listscanner(std::istream &_is, std::ostream &_os, bool _rescan = false)
-        : is(_is), os(_os), rescan(_rescan)
+    listscanner(const std::string &_name, std::istream &_is, std::ostream &_os,
+                bool _rescan = false)
+        : is(_is), os(_os), pretty_name(_name), rescan(_rescan)
     {
     }
     using basic_taskstream::pop;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
-#include "tsubaki_core.hpp"
+#include "sum_core.hpp"
 #include "argparser.hpp"
 #include "basic_taskstream.hpp"
 #include "cached_taskstream.hpp"
@@ -26,7 +26,7 @@
 
 namespace tsubaki
 {
-int tsubaki_main(int argc, char **argv)
+int sum_main(int argc, char **argv)
 {
     using namespace std::filesystem;
 
@@ -161,8 +161,8 @@ int tsubaki_main(int argc, char **argv)
         {
             if (it ==
                 "-") // Add a listscanner reads stdin ( safe to multiply add )
-                tasks.add_task(std::make_unique<listscanner>(std::cin, *out,
-                                                             force_rescan));
+                tasks.add_task(std::make_unique<listscanner>(
+                    "stdin", std::cin, *out, force_rescan));
             else
             {
                 std::error_code ec;
@@ -185,7 +185,7 @@ int tsubaki_main(int argc, char **argv)
                     "while trying to open file list " + it));
             else // Add a listscanner reads ifstream
                 tasks.add_task(std::make_unique<listscanner>(
-                    *lists.back(), *out, force_rescan));
+                    it, *lists.back(), *out, force_rescan));
         }
     }
 

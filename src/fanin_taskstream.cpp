@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <mutex>
+#include <pthread.h>
 #include <utility>
 #include <vector>
 
@@ -34,12 +35,14 @@ std::optional<std::filesystem::path> fanin_taskstream::pop()
 
 std::vector<error_entry> fanin_taskstream::take_errors()
 {
+    std::vector<error_entry> tmp, result;
+    result.swap(errors);
     for (auto &it : streams)
     {
-        errors.insert(errors.end(), it->errors.begin(), it->errors.end());
-        it->errors.clear();
+        tmp = it->take_errors();
+        result.insert(result.end(), tmp.begin(), tmp.end());
     }
-    return errors;
+    return result;
 }
 
 std::optional<std::filesystem::path> fanin_taskstream::pop_raw()

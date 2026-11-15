@@ -30,7 +30,7 @@ add_executable(tsubaki
     src/help.cpp
     src/worker.cpp
     src/cached_taskstream.cpp
-    src/tsubaki_core.cpp
+    src/sum_core.cpp
     ${lc-argparser_SOURCE_DIR}/src/argparser.cpp)
 
 target_compile_definitions(tsubaki PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")

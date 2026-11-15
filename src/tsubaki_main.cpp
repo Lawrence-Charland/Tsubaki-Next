@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
-#include "tsubaki_core.hpp"
+#include "sum_core.hpp"
 
 #include <exception>
 #include <iostream>
@@ -10,7 +10,7 @@ int main(int argc, char **argv)
 {
     try
     {
-        return tsubaki::tsubaki_main(argc, argv);
+        return tsubaki::sum_main(argc, argv);
     }
     catch (const std::exception &e)
     {

@@ -37,7 +37,7 @@ std::optional<std::filesystem::path> listscanner::pop_raw()
     }
     if (is.fail() && !is.eof())
         errors.emplace_back(std::make_error_code(std::errc::io_error),
-                            "while reading file list");
+                            "while reading file list from " + pretty_name);
     ended = true;
     return {};
 }
