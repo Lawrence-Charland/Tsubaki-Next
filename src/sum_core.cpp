@@ -109,13 +109,14 @@ int sum_main(int argc, char **argv)
                 }
                 catch (const std::exception &e)
                 {
-                    std::cerr << "Error: failed to convert \"" << content.at(0)
-                              << "\" to integer." << std::endl;
+                    std::cerr << "Error: \"" << content.at(0)
+                              << "\" is not a valid integer." << std::endl;
                     return 1;
                 }
                 if (thds <= 0)
                 {
-                    std::cerr << "Error: thread count must be > 0."
+                    std::cerr << "Error: thread count must be greater than "
+                                 "zero."
                               << std::endl;
                     return 1;
                 }
@@ -127,8 +128,8 @@ int sum_main(int argc, char **argv)
                 if (thds == 0)
                 {
                     std::cerr << "Warning: std::thread::hardware_concurrency() "
-                                 "returns "
-                                 "0, will fall back to single worker thread."
+                                 "returned 0; falling back to a single worker "
+                                 "thread."
                               << std::endl;
                     threads = 1;
                 }
@@ -146,7 +147,8 @@ int sum_main(int argc, char **argv)
                 fout.open(content.at(0));
                 if (!fout.good())
                 {
-                    std::cerr << "Error: cannot write to file " + content.at(0)
+                    std::cerr << "Error: cannot open \"" + content.at(0) +
+                                     "\" for writing."
                               << std::endl;
                     return 1;
                 }
@@ -182,7 +184,7 @@ int sum_main(int argc, char **argv)
             if (!lists.back()->good())
                 tasks.report_error(error_entry(
                     std::make_error_code(std::errc::no_such_file_or_directory),
-                    "while trying to open file list " + it));
+                    "opening file list " + it));
             else // Add a listscanner reads ifstream
                 tasks.add_task(std::make_unique<listscanner>(
                     it, *lists.back(), *out, force_rescan));

@@ -57,10 +57,11 @@ node::node(const path &_name, file_type _type) : name(_name), type(_type)
 {
     if (!is_single_name(_name))
         throw std::invalid_argument("\"" + _name.string() +
-                                    "\" is not a file name");
+                                    "\" is not a valid file name");
     if (_type != file_type::regular && _type != file_type::directory)
         throw std::invalid_argument("\"" + _name.string() +
-                                    "\" is not regular file or directory.");
+                                    "\" is neither a regular file nor a "
+                                    "directory.");
 }
 
 std::expected<node_ptr, error_entry> node::find_subnode(unsigned short time_id,
@@ -147,7 +148,7 @@ timeline_fs::add_time(const std::string &exp)
 {
     if (timemapper.size() >= USHRT_MAX)
         return std::unexpected(error_entry(err_code::invalid_operation,
-                                           "cannot contain more time id!"));
+                                           "no more time IDs available"));
     for (auto i = randum_time_id();; i = randum_time_id())
     {
         for (auto &it : timemapper)
@@ -222,7 +223,8 @@ timeline_fs::make_dir(unsigned short time_id, const node_ptr &from,
             if (find.value()->type != file_type::directory)
                 return std::unexpected(
                     error_entry(err_code::not_a_directory,
-                                tmp_p.string() + " is not a directory"));
+                                "\"" + tmp_p.string() +
+                                    "\" is not a directory"));
             cursor = find.value();
             continue;
         }
@@ -275,14 +277,16 @@ timeline_fs::remove_node(unsigned short time_id, const node_ptr &from,
                          const path &relative_path)
 {
     if (relative_path.empty())
-        return std::unexpected(error_entry(err_code::invalid_operation,
-                                           "refuse to remove the pwd."));
+        return std::unexpected(error_entry(
+            err_code::invalid_operation,
+            "refusing to remove the current directory."));
     auto target = inquire_node_mutable(time_id, from, relative_path);
     if (!target)
         return std::unexpected(target.error());
     if (target.value() == from || target.value()->parent_node == target.value())
-        return std::unexpected(error_entry(err_code::invalid_operation,
-                                           "refuse to remove the pwd."));
+        return std::unexpected(error_entry(
+            err_code::invalid_operation,
+            "refusing to remove the current directory."));
 
     auto parent = target.value()->parent_node;
     auto siblings = parent->subnodes.find(time_id);

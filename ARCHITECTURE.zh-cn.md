@@ -9,7 +9,7 @@
 每条结果变成一行输出。
 
 ```
-  argv ──> cmdline ──> tsubaki_core ──> dirscanner      ─┐
+  argv ──> cmdline ──> sum_core     ──> dirscanner      ─┐
                                     ├─> listscanner     ─┼─> fanin ─> work_manager ─> 输出
                                     └─> cached_taskstream ┘                ├─> printer (stderr)
                                                                             └─> work_result ─> 报告块
@@ -20,10 +20,10 @@
 
 ## 启动流程
 
-`main()` 只做一件事：把 `tsubaki::tsubaki_main()` 包在 try/catch 里，逃出来的
-异常变成一条错误信息和退出码 1。
+`main()`（在 `src/tsubaki_main.cpp` 里）只做一件事：把 `tsubaki::sum_main()` 包在
+try/catch 里，逃出来的异常变成一条错误信息和退出码 1。
 
-`tsubaki_main()` 按顺序做这些事：
+`sum_main()` 按顺序做这些事：
 
 1. `def_args()` 用 `include/cmdline.hpp` 里的条目定义构造
    `argparser::ap_instance`。
@@ -44,7 +44,8 @@
    全空也是合法的——`files` 没有最小个数限制，空跑一次只是打印一份空报告。
 7. `work_manager(tasks, *out, alg, verbose).run(threads)` 启动工作线程，返回一个
    `work_result`。
-8. `tsubaki_main` 把 `#` 和结果写进输出流，并根据 `errors.empty()` 给出退出码。
+8. `sum_main` 往输出流写 `#`，再调 `result.print(*out, true)`，并根据
+   `errors.empty()` 给出退出码。
 
 ## 命令行层
 
@@ -56,7 +57,9 @@
 落到本程序上能看见的行为有这么几条：
 
 - `pre_parse` 把每个 token 标成 simple、single dash、double dash 或
-  `argv_zero`；`--` 之后的一律是 simple。
+  `argv_zero`；`--` 之后的一律是 simple。匹配不到任何条目的 `-x`、`--foo` 同样
+  留在 simple 里，所以拼错的选项会被位置参数收走，最后按“文件不存在”报错，而不是
+  报成选项错误。
 - 长名是 `--name` 或 `--name=value`；短名是 `-v`、合并的 `-vs`、或者粘滞的
   `-ovalue`。分离式取值（`--output out.txt`）库本身是支持的。
 - 选项会收集它后面连续的 simple token，直到遇到非 simple 的值或到达上限；标志
@@ -78,8 +81,10 @@ output、各个标志、algorithm、excludes、lists、files、version、help。
   收不到东西。
 - `files` 是最后一个位置参数，它会一路收集 simple 参数直到 `\` barrier；barrier
   之后的普通参数没人消费，`fine(false)` 会报成 `invalid_arguments`。
-- `-h`/`--help` 是标志，所以 `--help=something` 是校验错误，而不是帮助请求；
-  `-V`/`--version` 同理。
+- `-h`/`--help` 是标志，而帮助检查在参数校验之前就返回了，所以 `--help=something`
+  照样打印帮助、退出码 0：解析库会记下 `flag_unexpected_values`，但 `sum_main`
+  根本没走到校验那一步。`-V`/`--version` 同理。短名只比较第一个字符，因此 `-h1`
+  等同于 `-h`。
 
 ## 任务流层
 
@@ -103,9 +108,10 @@ std::vector<error_entry> take_errors();
 - 其余存在的类型——字符/块设备、FIFO、socket——原样返回，打开还是读取交给
   工作线程。
 
-这层过滤放在基类里，所以子类只需要回答"下一条路径是什么"。`dirscanner` 同时
-覆盖了 `pop()`，原因只有一个：它是遍历目录项，遇到非文件应该静默跳过，而不是为
-每个子目录记一条错误。这也是目录遍历不会顺手打开 FIFO 或设备的原因。
+这层过滤放在基类里，所以子类只需要回答"下一条路径是什么"。覆盖 `pop()` 的有两个
+类：`dirscanner` 遍历目录项，遇到非文件应当静默跳过，而不是为每个子目录记一条
+错误（这也是目录遍历不会顺手打开 FIFO 或设备的原因）；另一个是
+`fanin_taskstream`，它的游标逻辑见后文。
 
 在这里被过滤掉的路径（缺失、stat 失败、列表里的目录）根本没到工作线程手上，所以
 既不打印也不进三个计数器的任何一个，只留下一条 `error_entry`，而它足以让退出码
@@ -135,17 +141,18 @@ std::vector<error_entry> take_errors();
 不存在的排除项会被丢掉，但先记一条 `error_entry`，所以它同样会让运行退出 1，
 哪怕扫描照常继续。目录不存在、或者路径不是目录时，构造函数会抛
 `std::invalid_argument`；这个异常不会被转换成错误条目——它会逃出
-`tsubaki_main`，由 `main()` 的最后兜底捕获。
+`sum_main`，由 `main()` 的最后兜底捕获。
 
 ### listscanner
 
-从任意 `std::istream` 读行——文件由 `tsubaki_core` 打开，`-` 时用 `std::cin`
+从任意 `std::istream` 读行——文件由 `sum_core` 打开，`-` 时用 `std::cin`
 ——决定保留某行时还要往结果流里写点东西。每个非空行先 trim，以 `#` 开头的行
 忽略。
 
 用 `get_equation()` 在第一个空格处切开。如果前半段正好是 `<NONE>`——本程序给
 未计算文件打的标记——空格后面那段就是路径。否则如果前半段不是全十六进制
-（`is_checksum()`），整行就是路径，空格也算在内。如果前半段**是**十六进制，这一
+（`is_checksum()`），整行就是路径，空格也算在内。没有空格的行根本走不到这个判断，
+所以纯十六进制的文件名单独成行时就是一个普通路径。如果前半段**是**十六进制，这一
 行就是 `<校验和> <路径>`：
 
 - 带 `--force-rescan` 时，把路径交出去重新计算；
@@ -153,40 +160,43 @@ std::vector<error_entry> take_errors();
   参与计算，也不进报告的任何计数。
 
 认不出来的行整行都算路径，名字里的空格因此无害；这也是 `<NONE> <路径>` 的输出能
-直接当输入喂回去的原因。剩下唯一的歧义是全为十六进制字符的名字：它在字面上和校验
-和完全一样，只能靠让前半段不是十六进制来区分（`./名字`、绝对路径）。`<NONE> ` 是
-保留前缀，永远按标记读。
+直接当输入喂回去的原因。剩下唯一的歧义是带空格、且第一个空格前的整段全为十六进制
+的名字：它会被拆成“校验和 + 路径”，只能靠让前半段不是十六进制来保住整行
+（`./名字`、绝对路径）。`<NONE> ` 是保留前缀，永远按标记读。
 
 列表行永远只代表一个文件。行里写目录时，它跟其他路径一样被交出去，然后被
 `pop()` 拒掉，绝不会被展开遍历；只有命令行上的目录参数才会变成 `dirscanner`。
 
 ### cached_taskstream
 
-持有一个路径 vector，从尾部往外给，所以一批普通文件参数是倒序处理的。它自己
-不检查路径是否存在，无效路径由 `basic_taskstream::pop()` 过滤。
+持有一个路径 `std::queue`，从队首往外给，所以一批普通文件参数保持命令行上的顺序。
+它自己不检查路径是否存在，无效路径由 `basic_taskstream::pop()` 过滤。
 
 ### fanin_taskstream
 
-它是若干个任务流的顺序聚合体，自己也是一个 taskstream，线程池因此只看见一条流。`pop_raw()` 看队首的子流：
-子流交出路径就返回；子流枯竭就用 `take_errors()` 把它的错误取出来并进自己的错误
-列表，丢掉这个子流，再看下一个。
+它是若干个任务流的顺序聚合体，自己也是一个 taskstream，线程池因此只看见一条流。
+`pop()` 覆盖了基类版本，按原子游标看当前子流：子流交出路径就返回；子流枯竭就用
+compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃，它们的错误也不在这
+里合并：`take_errors()` 把汇流自己的错误列表和每个子流的列表拼在一起，而它由
+`work_manager::run()` 在工作线程 join 之后调用一次。
 
-因为 `pop_raw()` 跑在 `basic_taskstream::pop()` 的互斥锁里，从子流拉取的整个过程
-是串行的。并行只发生在算哈希这一段；线程一旦要取下一条路径，就得排在其它要路径
-的线程后面。这也意味着某个 `listscanner` 卡在 `std::cin` 上时，堵住的是整条流，
-而不只是一个线程。
+`pop()` 自己不持锁，串行来自子流：子流的 `pop()` 各自加自己的互斥锁。所以只要
+当前子流还有东西可给，所有要路径的线程都排在那一个锁上。并行只发生在算哈希这一段。
+这也意味着某个 `listscanner` 卡在 `std::cin` 上时，堵住的是整条流，而不只是一个
+线程。
 
 ## 线程安全规则
 
-`pop_raw()` 一定在 `mutex_` 持有下运行，而 `errors` 没有自己的锁。
+`pop_raw()` 在基类 `pop()` 调用它时一定持有 `mutex_`（`dirscanner` 覆盖了 `pop()`，
+自己加同一把锁），而 `errors` 没有自己的锁。
 
 - `pop_raw()` 里访问自己的状态不用加锁，但在里面调 `report_error()`、
   `take_errors()`、`pop()` 或 `add_task()` 会自锁：这把 mutex 不可重入。要记错误
   就直接写 `errors`。
 - 只有在持锁时（`pop_raw()` 内）或单线程时（构造期、`take_errors()` 之后）才能碰
   `errors`。
-- 锁顺序是父后子：`fanin` 先锁自己，再锁子流。子流绝不能回调父流的加锁方法，否则
-  两个线程可能互等。
+- 子流绝不能回调父流的加锁方法，否则两个线程可能互等。`fanin` 只在 `add_task()`
+  里锁自己，拉取路径时并不持锁。
 - `pop_raw()` 要短、不要阻塞。`listscanner` 的 `getline` 等 stdin 时就持着锁，堵住
   的是整条流。
 - 错误要返回，不要抛。异常逃出 `pop_raw()` 会落到没有处理器的 worker 上，最终
@@ -234,31 +244,33 @@ std::vector<error_entry> take_errors();
 
 `work_result` 是个纯值对象，字段为 `alg`、`errors`、`success`、`failed`、
 `unprocessed`、`duration`。`operator+` 合并两个同算法的结果（错误追加、计数和耗时
-相加），是为将来开多个 manager 准备的。`operator<<` 负责写报告块：`Algorithm`、
-`Total Processed`（成功 + 失败）、三个计数、`Duration`，以及 `errors` 非空时的
-`Errors` 条数和后面的 `# Error messages:` 列表。
+相加），是为将来开多个 manager 准备的。`print(os, with_errors)` 负责写报告块：
+`Algorithm`、`Processed`（成功 + 失败）、`Hashed`、`Failed`、`Not hashed`、
+`Duration`，以及 `errors` 非空时的 `Errors` 条数和后面的 `# Error messages:` 列表。
+`with_errors = false` 时只写条数，不写逐条内容。
 
-`tsubaki_main` 打印 `#` 和结果（`*out << "#\n" << result`），`errors` 为空时返回
-0。退出码不由 `failed` 决定；不过每个计算失败同时也留下一条错误条目，所以实际上
-两者是一致的。
+`sum_main` 写 `#` 并调 `result.print(*out, true)`，`errors` 为空时返回 0。退出码
+不由 `failed` 决定；不过每个计算失败同时也留下一条错误条目，所以实际上两者是
+一致的。
 
 `SIGINT` 是靠算法值实现的，而不是单独一个标志：处理函数把 `algorithm::none` 存进
 工作线程的原子变量，之后每次 `checksum_file()` 调用都立刻返回 `<NONE>`。剩下的
-路径照样被取出、打印、计入未处理，所以报告能为扫描器产出的每一个文件留个交代。
-已经卡在阻塞 `open()` 或无限读取里的工作线程回不到那个检查点，所以一次 `Ctrl-C`
-救不出它；处理函数还会递增一个原子计数器，按到第五次时用 `write(2, ...)` 写一条
-固定消息并调用 `std::terminate()`。
+路径照样被取出、打印、计入 `Not hashed`，所以报告能为扫描器产出的每个文件留个
+交代。已经卡在阻塞 `open()` 或无限读取里的工作线程回不到那个检查点，所以一次
+`Ctrl-C` 救不出它；处理函数还会递增一个原子计数器，按到第五次时用
+`write(2, ...)` 写一条固定消息并调用 `std::terminate()`。
 
 ## 输出流
 
-`tsubaki_core` 只选定一次输出端：`std::cout`，或者 `--output` 打开的某个文件。
-这个 `std::ostream` 由所有工作线程、列表扫描器（写 `# Kept: <路径>` 标记）和最终
-报告共用。写入都走 `std::osyncstream`，它会把一次完整的插入整体刷出，所以行不会
-交错。
+`sum_core` 只选定一次输出端：`std::cout`，或者 `--output` 打开的某个文件。这个
+`std::ostream` 由所有工作线程、列表扫描器（写 `# Kept: <路径>` 标记）和最终报告
+共用。并发写入都走 `std::osyncstream`，它会把一次完整的插入整体刷出，所以行不会
+交错；报告本身在工作线程 join 之后才写，因此直接写进流。
 
-进度指示是唯一写到 stderr 的东西。构造参数集合阶段发现的问题（`cmdline` 报错、
-输出文件打不开、列表文件找不到）也写 stderr；运行期间发现的错误则进结果流里的
-报告块。
+写到 stderr 的有三类东西：进度指示，构造参数集合阶段的问题（`cmdline` 报错、输出
+文件打不开），以及给了 `--output` 时报告块的第二份拷贝——它用
+`print(std::clog, false)` 输出，所以不含逐条错误信息。其余错误都进结果流里的报告
+块，包括打不开的列表文件。
 
 ## 并发模型
 
@@ -291,7 +303,7 @@ tsubaki sha256 . -e build -l old.txt
    `listscanner` 取。
 5. `old.txt` 里带校验和的行立刻以 `# Kept: <路径>` 加原行写出，从不进入计算路径。
 6. 所有子流枯竭后，汇流返回空，工作线程停下，进度线程停下，`run()` 返回的
-   `work_result` 由 `tsubaki_main` 打印。
+   `work_result` 由 `sum_main` 打印。
 
 ## 为什么现在只有一个 manager
 
@@ -316,8 +328,8 @@ tsubaki sha256 . -e build -l old.txt
 - **换输出端**：`work_manager` 是唯一的消费者，给它换一个 `std::ostream`，或者整个
   替换掉，`basic_taskstream` 不用动。
 - **新增算法**：在 `include/checksum.hpp` 的 `ALGORITHM_LIST` 里加一行
-  （`algorithm`、`str_to_alg()`、`alg_to_str()` 都由它生成），再在 `to_evp()` 里加
-  case。
+  （`algorithm`、`str_to_alg()`、`alg_to_str()` 都由它生成），在 `to_evp()` 里加
+  一个 case，再把它加进帮助文本里的算法清单（`src/help.cpp`，那份是手写的）。
 - **新增构建目标**：这套 API 是刻意收窄的，所以另一个可执行文件（比如需要一次性
   拿到全部校验和的比较工具）可以复用 `checksum_file()`、各扫描器和参数解析库，
   而不必共用 `work_manager` 和结果格式。那是另一支程序，不是 `tsubaki` 的一个模式。
@@ -331,10 +343,10 @@ tsubaki sha256 . -e build -l old.txt
 | `tsubaki::basic_taskstream` | — | 所有任务流类的虚基类：`pop()` 负责过滤候选，`pop_raw()` 是子类实现的钩子，`errors` + `report_error()` + `take_errors()` 承载错误 |
 | `tsubaki::dirscanner` | `basic_taskstream` | 递归遍历目录，处理排除项与软链接 |
 | `tsubaki::listscanner` | `basic_taskstream` | 解析列表文件或 stdin，输出 `# Kept: <路径>` 行 |
-| `tsubaki::cached_taskstream` | `basic_taskstream` | 回放一组固定的路径 |
+| `tsubaki::cached_taskstream` | `basic_taskstream` | 按给定顺序回放一组固定的路径 |
 | `tsubaki::fanin_taskstream` | `basic_taskstream` | 汇流多个子流，用 `unique_ptr` 持有它们 |
 | `tsubaki::work_manager` | — | 工作线程池、进度行、SIGINT 开关 |
-| `tsubaki::work_result` | — | `run()` 返回的值快照，带 `operator+` 与 `operator<<` |
+| `tsubaki::work_result` | — | `run()` 返回的值快照，带 `operator+` 与 `print()` |
 | `tsubaki::error_entry` | — | `std::error_code` 加上出错时的操作描述 |
 
 ### 文件
@@ -342,7 +354,7 @@ tsubaki sha256 . -e build -l old.txt
 | 路径 | 内容 |
 | --- | --- |
 | `src/tsubaki_main.cpp` | 入口，以及最后的异常兜底 |
-| `src/tsubaki_core.cpp` | 启动流程、参数检查、流的组装 |
+| `src/sum_core.cpp` | 启动流程、参数检查、流的组装 |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | 基类流与它的 `pop()` 过滤 |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | 目录遍历 |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
@@ -355,6 +367,6 @@ tsubaki sha256 . -e build -l old.txt
 | `include/help.hpp`, `src/help.cpp` | 帮助文本 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |
 
-`src/kousei_main.cpp`、`src/timeline_fs.cpp` 和 `include/timeline_fs.hpp` 是尚未
-完成的实验（一个还没在 `CMakeLists.txt` 中启用的后续构建目标），不属于 `tsubaki`
-的源码映射。
+`src/tmptest.cpp`、`src/timeline_fs.cpp` 和 `include/timeline_fs.hpp` 是尚未完成的
+实验（一个后续的构建目标），不属于 `tsubaki` 的源码映射；`CMakeLists.txt` 里被注释
+掉的 `kousei` 目标仍然写着一个并不存在的 `src/kousei_main.cpp`。

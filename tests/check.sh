@@ -11,9 +11,9 @@
 #
 # 退出码：0 = 全部通过，1 = 有失败。
 #
-# 第 09 条目前是红的：listscanner 不检查 is.bad()，读失败的列表源
-# 与"列表已读完"返回同一个 false，于是程序报告"成功处理 0 个文件"。
-# 它是已知缺陷，不是脚本坏了。
+# 06、07、09 对应两个修好过的缺陷：A 是 fanin 在子流枯竭时丢掉错误，B 是
+# listscanner 不检查流状态，读失败的列表源和"已读完"无法区分。它们现在都
+# 通过；哪天再变回 XFAIL，就说明缺陷回归了。
 
 set -uo pipefail
 
@@ -55,7 +55,7 @@ run() {
     rc=$?
 }
 
-# 从报告块里取字段，例如 field 'Total Processed'
+# 从报告块里取字段，例如 field 'Processed'
 field() {
     printf '%s\n' "$out" | sed -n "s/^# $1:[[:space:]]*//p" | head -1
 }
@@ -143,14 +143,14 @@ fi
 name="空输入：四个计数全 0，退出码 0"
 run sha256
 if [ $rc -eq 0 ] &&
-   [ "$(field 'Total Processed')" = 0 ] &&
-   [ "$(field 'Succeeded')" = 0 ] &&
+   [ "$(field 'Processed')" = 0 ] &&
+   [ "$(field 'Hashed')" = 0 ] &&
    [ "$(field 'Failed')" = 0 ] &&
-   [ "$(field 'Unprocessed')" = 0 ] &&
+   [ "$(field 'Not hashed')" = 0 ] &&
    [ -z "$(field 'Errors')" ]; then
     ok 02 "$name"
 else
-    bad 02 "$name" "rc=$rc total=$(field 'Total Processed') errors=$(field 'Errors')"
+    bad 02 "$name" "rc=$rc processed=$(field 'Processed') errors=$(field 'Errors')"
 fi
 
 # ---------------------------------------------------------------- 03
@@ -180,11 +180,11 @@ printf '%s %s\n' "$sum" "$fx/a.txt" >"$FX/keep.list"
 
 name="<校验和> <路径> 行只打 # Kept:，不进计数"
 run sha256 -l "$FX/keep.list"
-if [ $rc -eq 0 ] && [ "$(field 'Total Processed')" = 0 ] &&
+if [ $rc -eq 0 ] && [ "$(field 'Processed')" = 0 ] &&
    grep -q "^# Kept: $fx/a.txt" <<<"$out"; then
     ok 04 "$name"
 else
-    bad 04 "$name" "rc=$rc total=$(field 'Total Processed') 无 # Kept: 行"
+    bad 04 "$name" "rc=$rc processed=$(field 'Processed') 无 # Kept: 行"
 fi
 
 # 承诺："<NONE> 行重新计算"，"报告块以 # 开头会被忽略，所以结果文件不用先过滤"。
@@ -199,7 +199,7 @@ run sha256 -l "$FX/none.txt"
 refeed=$out
 run sha256 "$fx"
 if [ "$(results | sort)" = "$(printf '%s\n' "$refeed" | grep -E '^[0-9a-f]{64} ' | sort)" ] &&
-   [ "$(field 'Succeeded')" = 2 ]; then
+   [ "$(field 'Hashed')" = 2 ]; then
     ok 05 "$name"
 else
     bad 05 "$name" "回喂结果与直接计算不一致"
@@ -223,8 +223,8 @@ done
 if [ "$loss" -eq 0 ]; then
     xpass 06 "$name"
 else
-    xfail 06 "$name" "已知缺陷 A：20 次里 $loss 次丢失错误/退出码为 0。\
-fanin 用「子流 pop() 返回空」判定子流已死，但此刻别的线程还在它里面写错误"
+    xfail 06 "$name" "回归（缺陷 A）：20 次里 $loss 次丢失错误/退出码为 0。\
+子流枯竭时若改回「就地取走错误并丢弃子流」，就会和别的线程还在往里写的错误竞争"
 fi
 
 # 承诺："不存在的路径……没有输出行，也不进任何一个计数，只加一条错误记录"。
@@ -239,31 +239,32 @@ done
 if [ "$loss" -eq 0 ]; then
     xpass 07 "$name"
 else
-    xfail 07 "$name" "已知缺陷 A：20 次里 $loss 次丢失错误/退出码为 0（与 06 同源）"
+    xfail 07 "$name" "回归（缺陷 A）：20 次里 $loss 次丢失错误/退出码为 0（与 06 同源）"
 fi
 
 # ---------------------------------------------------------------- 08
-# 承诺："none 只列文件不计算，所有文件都记为未处理"。
+# 承诺："none 只列文件不计算，所有文件都计入 Not hashed"。
 section "08-09 算法与流"
 fx=$FX/t8
 mkdir -p "$fx"
 printf 'a\n' >"$fx/1.txt"
 printf 'b\n' >"$fx/2.txt"
 printf 'c\n' >"$fx/3.txt"
-name="none：全部 <NONE>，Succeeded 0、Unprocessed 3"
+name="none：全部 <NONE>，Hashed 0、Not hashed 3"
 run none "$fx"
 if [ $rc -eq 0 ] &&
    [ "$(printf '%s\n' "$out" | grep -c '^<NONE> ')" = 3 ] &&
-   [ "$(field 'Succeeded')" = 0 ] &&
-   [ "$(field 'Unprocessed')" = 3 ]; then
+   [ "$(field 'Hashed')" = 0 ] &&
+   [ "$(field 'Not hashed')" = 3 ]; then
     ok 08 "$name"
 else
-    bad 08 "$name" "rc=$rc none行=$(printf '%s\n' "$out" | grep -c '^<NONE> ') unprocessed=$(field 'Unprocessed')"
+    bad 08 "$name" "rc=$rc none行=$(printf '%s\n' "$out" | grep -c '^<NONE> ') not_hashed=$(field 'Not hashed')"
 fi
 
 # 承诺（反向）：读失败的列表源必须被报告，而不是被当成"列表已读完"。
-# 已知缺陷：现在 rc=0，报告 0 个文件。
-name="读失败的列表源必须退出非 0（已知缺陷）"
+# 用目录冒充列表文件：打开成功、读取失败，靠 pop_raw() 里的 is.fail() && !is.eof()
+# 兜住（缺陷 B）。
+name="读失败的列表源必须退出非 0（回归守卫）"
 fx=$FX/t9
 mkdir -p "$fx/d"
 printf 'x\n' >"$fx/d/f.txt"
@@ -271,8 +272,8 @@ run sha256 -l "$fx/d"
 if [ $rc -ne 0 ]; then
     xpass 09 "$name"
 else
-    xfail 09 "$name" "已知缺陷 B：rc=0，报告 Total=$(field 'Total Processed')、Errors=$(field 'Errors')。\
-listscanner 未检查 is.bad()，EOF 与 I/O 错误不可区分"
+    xfail 09 "$name" "回归（缺陷 B）：rc=0，报告 Processed=$(field 'Processed')、Errors=$(field 'Errors')。\
+listscanner 把 I/O 错误当成了 EOF"
 fi
 
 # ---------------------------------------------------------------- 10-11
@@ -308,7 +309,7 @@ fi
 
 # ---------------------------------------------------------------- 汇总
 printf '\n--------------------------------\n'
-printf '%d passed, %d failed, %d known-issue\n' "$pass" "$fail" "$xfail"
+printf '%d passed, %d failed, %d known issues\n' "$pass" "$fail" "$xfail"
 if [ "$xfail" -gt 0 ]; then
     printf '已知缺陷（不影响退出码）：\n'
     printf '  - %s\n' "${xfail_names[@]}"

@@ -14,8 +14,7 @@ int main(int argc, char **argv)
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Unexpected error, what():" << std::endl
-                  << e.what() << std::endl;
+        std::cerr << "Unexpected error: " << e.what() << std::endl;
         return 1;
     }
 }

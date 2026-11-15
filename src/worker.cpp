@@ -25,12 +25,12 @@ namespace tsubaki
 {
 void work_result::print(std::ostream &os, bool with_errors)
 {
-    os << "# ----------General Report----------\n";
+    os << "# ---------- Summary ----------\n";
     os << "# Algorithm:         " << alg_to_str(alg) << std::endl;
-    os << "# Total Processed:   " << success + failed << std::endl;
-    os << "# Succeeded:         " << success << std::endl;
+    os << "# Processed:         " << success + failed << std::endl;
+    os << "# Hashed:            " << success << std::endl;
     os << "# Failed:            " << failed << std::endl;
-    os << "# Unprocessed:       " << unprocessed << std::endl;
+    os << "# Not hashed:        " << unprocessed << std::endl;
     os << "# Duration:          "
        << std::chrono::duration<double>(duration).count() << " seconds"
        << std::endl;
@@ -39,11 +39,11 @@ void work_result::print(std::ostream &os, bool with_errors)
     os << "# Errors:            " << errors.size() << std::endl;
     if (!with_errors)
         return;
-    os << "#\n# Error messages: " << std::endl;
+    os << "#\n# Error messages:" << std::endl;
     for (auto &it : errors)
     {
-        os << "# Value= " << it.ec.value() << ", Message= " << it.ec.message()
-           << ", Operation= " << it.op << std::endl;
+        os << "# Value: " << it.ec.value() << ", Message: " << it.ec.message()
+           << ", Operation: " << it.op << std::endl;
     }
 }
 
@@ -53,7 +53,8 @@ std::atomic<algorithm> *volatile g_target = nullptr;
 
 std::atomic<unsigned> volatile int_time = 0;
 
-const constexpr char *term_msg = "\nTerminated for pressing Ctrl+C 5 times.\n";
+const constexpr char *term_msg =
+    "\nTerminated after Ctrl+C was pressed 5 times.\n";
 
 void on_interrupt(int)
 {
@@ -77,7 +78,7 @@ void work_manager::worker()
         if (!checksum)
         {
             tasks.report_error(
-                error_entry(checksum.error(), "while calculating checksum of " +
+                error_entry(checksum.error(), "calculating the checksum of " +
                                                   target.value().string()));
             std::osyncstream(os)
                 << none_checksum << ' ' << target->string() << '\n';
@@ -150,7 +151,7 @@ work_result work_manager::run(unsigned thread_count)
 {
     if (thread_count == 0)
         throw std::invalid_argument(
-            "tsubaki::work_manager::run: bad usage: thread_count must be >0");
+            "tsubaki::work_manager::run: thread_count must be greater than 0");
     static_assert(std::atomic<algorithm>::is_always_lock_free);
     const algorithm chosen_alg = alg.load(std::memory_order_relaxed);
     using sig_handler = void (*)(int);

@@ -105,13 +105,17 @@ tsubaki sha256 . -e a b c -l list1 list2   # 三个排除项、两个列表
 这里 `-e` 会在 `-l` 前停住，因为 `lists` 排在 `excludes` 之后评估；每个条目各取
 自己那一串值。
 
+匹配不到任何条目的开关不会被当成选项错误：它仍然是一个普通参数，会被位置参数收
+进去，然后按“文件不存在”报错。所以把 `--exclude` 敲成 `--exlude=build` 时，错误
+出现在报告的错误块里，而不是一句选项错误。
+
 条目按固定顺序评估，被消费掉的开关会从队列里消失，所以后面的选项能跨过先前已被取走
 的开关继续吃参数：
 
 ```sh
 # threads 先跑，取走 "-t 4"；
 # 然后 excludes 看到的是 "c.txt ."，两个都收
-tsubaki sha256 -e c.txt -t 4 .        # 报错：没剩输入了
+tsubaki sha256 -e c.txt -t 4 .        # 没剩输入：空跑一次，退出码 0
 ```
 
 所以稳妥的写法是把输入全部放在选项前面：
@@ -132,7 +136,7 @@ none  md5  sha1  sha224  sha256  sha384  sha512
 sha3_256  sha3_512  blake2b512  blake2s256
 ```
 
-`none` 只列文件不计算，所有文件都记为未处理。
+`none` 只列文件不计算，所有文件都计入 `Not hashed`。
 
 ## 输入
 
@@ -152,11 +156,12 @@ sha3_256  sha3_512  blake2b512  blake2s256
 参数才会被遍历。以 `#` 开头的行即使本意是路径也算注释，所以名字以 `#` 开头的文件
 要写成 `./#名字` 或绝对路径。
 
-纯十六进制字符的路径会被当成校验和，所以列表里的路径写成 `./名字` 或绝对路径；
-有 `/` 在，这段就不会被误判。带空格的路径不用加引号，认不出来的行整行都算路径。
+如果路径里带空格、而第一个空格前的整段又是纯十六进制，它就会被当成“校验和 +
+路径”，这类条目要写成 `./名字` 或绝对路径；没有空格的纯十六进制文件名不受影响。
+带空格的路径不用加引号，认不出来的行整行都算路径。
 
 `<NONE> <路径>` 也能作为输入，所以一次运行的输出可以直接用 `-l` 喂回去，只重做
-那些没算成的文件。
+那些没有计算校验和的文件。
 
 排除项是用 `equivalent()` 跟目录遍历中遇到的每个条目比较的，因此它既不是通配
 模式，也不是字符串前缀。它只作用于目录扫描：命令行上直接给出的文件、或列表里
@@ -196,34 +201,37 @@ sha3_256  sha3_512  blake2b512  blake2s256
 
 ```
 #
-# ----------General Report----------
+# ---------- Summary ----------
 # Algorithm:         sha256
-# Total Processed:   3
-# Succeeded:         3
+# Processed:         3
+# Hashed:            3
 # Failed:            0
-# Unprocessed:       0
+# Not hashed:        0
 # Duration:          1.23456 seconds
 ```
 
 `Algorithm` 是本次运行选定的算法，被 `Ctrl-C` 打断也不会在报告里变成 `none`。
 `Duration` 量的是从启动工作线程到 join 结束，不含参数解析和扫描准备。
 
-`Total Processed` 等于 `Succeeded + Failed`，未处理的文件不计入；被保留的行和跳过
+`Processed` 等于 `Hashed + Failed`，未计算校验和的文件不计入；被保留的行和跳过
 的路径也不算在内。
 
 只要记录过至少一条错误，就会多出 `# Errors:` 条数行，后面跟一个
-`# Error messages:` 块，每条一行 `# Value= / Message= / Operation=`：
+`# Error messages:` 块，每条一行 `# Value: / Message: / Operation:`：
 
 ```
 # Errors:            2
 #
 # Error messages:
-# Value= 2, Message= No such file or directory, Operation= while fetching file type of plain.txt
+# Value: 2, Message: No such file or directory, Operation: determining the file type of plain.txt
 ```
 
 错误不一定来自计算失败：不存在的输入路径、打不开的列表文件、不存在的排除项都会
 记在这里，所以一次运行的 `Failed` 可以是 0、退出码却是 1（而且不存在的排除项
 虽然报错，扫描本身照常继续）。
+
+用 `--output` 时，报告块还会额外写一份到 stderr（不含逐条错误信息），这样结果
+进文件、摘要仍留在终端上。
 
 进度指示只写 stderr，不混进结果流。
 
@@ -235,7 +243,7 @@ sha3_256  sha3_512  blake2b512  blake2s256
 ## 中断
 
 `Ctrl-C` 会把本次运行切到 `none` 算法：还没开始的文件照样被取出，写成
-`<NONE>` 并计入未处理，因此报告能为扫描器产出的每个文件留个交代。已经进入
+`<NONE>` 并计入 `Not hashed`，因此报告能为扫描器产出的每个文件留个交代。已经进入
 计算函数的文件不会被丢掉；如果那是设备或 FIFO，就意味着它会一直读到 EOF。而卡在
 `open()` 或无限读取里的工作线程根本回不到检查点，所以一次 `Ctrl-C` 停不下它——
 只有第五次才会直接中止进程。

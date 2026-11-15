@@ -118,6 +118,11 @@ tsubaki sha256 . -e a b c -l list1 list2   # three excludes, two lists
 `-e` stops at `-l` here, because `lists` is evaluated after `excludes`; each
 entry takes its own run of values.
 
+A switch that matches no entry is not rejected as an option: it stays a plain
+argument, so a positional collects it and it is reported as a missing file. A
+typo such as `--exlude=build` therefore shows up in the error block, not as an
+option error.
+
 The entries are evaluated in a fixed order, and a switch that has been consumed
 is gone from the queue. A later option can therefore walk past a switch that an
 earlier option already took:
@@ -125,7 +130,7 @@ earlier option already took:
 ```sh
 # threads runs first and takes "-t 4";
 # excludes then sees "c.txt ." and takes both
-tsubaki sha256 -e c.txt -t 4 .        # error: no input left
+tsubaki sha256 -e c.txt -t 4 .        # no input left: empty run, exit 0
 ```
 
 That is why the safe shape puts the inputs before every option:
@@ -147,8 +152,8 @@ none  md5  sha1  sha224  sha256  sha384  sha512
 sha3_256  sha3_512  blake2b512  blake2s256
 ```
 
-`none` only lists the files: no hashing is done, and every file is reported as
-unprocessed.
+`none` only lists the files: no hashing is done, and every file is counted as
+`Not hashed`.
 
 ## Inputs
 
@@ -173,12 +178,13 @@ not expanded; only directory arguments on the command line are walked. A line
 beginning with `#` is a comment even if it was meant as a path, so a file named
 `#name` has to be written as `./#name` or by an absolute path.
 
-A path made only of hex digits would be read as a checksum, so write entries as
-`./name` or as absolute paths. Paths with spaces need no quoting: an
-unrecognised line is taken whole.
+A path whose first space-separated field is all hex digits would be read as a
+checksum followed by a path, so write such entries as `./name` or as absolute
+paths. A hex-only name with no space in it is unaffected. Paths with spaces
+need no quoting: an unrecognised line is taken whole.
 
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
-fed back with `-l` to redo only the files that were left unprocessed.
+fed back with `-l` to redo only the files that were not hashed.
 
 Excludes are compared with `equivalent()` against every entry met during a
 directory walk, so they are neither patterns nor string prefixes. They only
@@ -226,12 +232,12 @@ A report block follows, every line of which starts with `#`:
 
 ```
 #
-# ----------General Report----------
+# ---------- Summary ----------
 # Algorithm:         sha256
-# Total Processed:   3
-# Succeeded:         3
+# Processed:         3
+# Hashed:            3
 # Failed:            0
-# Unprocessed:       0
+# Not hashed:        0
 # Duration:          1.23456 seconds
 ```
 
@@ -240,24 +246,28 @@ A report block follows, every line of which starts with `#`:
 started to the moment they are joined; argument parsing and scanner setup are
 not included.
 
-`Total Processed` is `Succeeded + Failed`; files that were left unprocessed are
-not counted, and neither are kept lines or skipped paths.
+`Processed` is `Hashed + Failed`; files that were not hashed are not counted,
+and neither are kept lines or skipped paths.
 
 When at least one error was recorded, an `# Errors:` count is added, followed by
-a `# Error messages:` block with one `# Value= / Message= / Operation=` line per
+a `# Error messages:` block with one `# Value: / Message: / Operation:` line per
 entry:
 
 ```
 # Errors:            2
 #
 # Error messages:
-# Value= 2, Message= No such file or directory, Operation= while fetching file type of plain.txt
+# Value: 2, Message: No such file or directory, Operation: determining the file type of plain.txt
 ```
 
 An error does not have to come from a checksum failure. A missing input path, an
 unopenable list file, or an exclude that does not exist is recorded here as
 well, so a run can have `Failed: 0` and still exit 1 (and a missing exclude is
 reported even though the scan itself continues normally).
+
+With `--output`, the report block is additionally written to stderr, without
+the per-entry error messages, so the summary stays visible on the terminal while
+the results go to the file.
 
 The progress indicator, when enabled, is written to stderr and never to the
 result stream.
@@ -270,7 +280,7 @@ well; `--help` and `--version` exit with `0`.
 ## Interrupt
 
 `Ctrl-C` switches the run to the `none` algorithm: files that have not started
-yet are still popped, written as `<NONE>` and counted as unprocessed, so the
+yet are still popped, written as `<NONE>` and counted as `Not hashed`, so the
 report accounts for every file the scanners produced. A file that has already
 entered the hashing call is not abandoned; for a device or a FIFO that means it
 keeps reading until EOF. A worker blocked in `open()` or in an endless read

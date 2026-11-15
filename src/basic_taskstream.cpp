@@ -29,7 +29,7 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
         {
             // report_error locks the mutex ( safe to call here )
             report_error(error_entry(
-                ec, "while fetching file type of " + candidate->string()));
+                ec, "determining the file type of " + candidate->string()));
             continue;
         }
         if (std::filesystem::is_regular_file(status))
@@ -38,8 +38,8 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
         {
             report_error(error_entry(
                 std::make_error_code(std::errc::operation_not_permitted),
-                "while trying to calculate " + candidate.value().string() +
-                    " which is a directory"));
+                "calculating the checksum of " + candidate.value().string() +
+                    ", which is a directory"));
             continue;
         }
         return candidate;

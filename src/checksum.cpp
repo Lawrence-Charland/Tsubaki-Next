@@ -42,7 +42,7 @@ const EVP_MD *to_evp(tsubaki::algorithm algo)
     case tsubaki::algorithm::blake2s256:
         return EVP_blake2s256();
     default:
-        throw std::invalid_argument("to_evp: bad usage: unsupported algorithm");
+        throw std::invalid_argument("to_evp: unsupported algorithm");
     }
     return nullptr;
 }

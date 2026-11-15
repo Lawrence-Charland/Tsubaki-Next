@@ -37,7 +37,7 @@ class work_result
     {
         if (alg != target.alg)
             throw std::invalid_argument(
-                "tsubaki::work_result::operator+: bad usage: cannot add work "
+                "tsubaki::work_result::operator+: cannot add work "
                 "results of different algorithms");
         work_result sum = *this;
         sum.errors.insert(sum.errors.end(), target.errors.begin(),

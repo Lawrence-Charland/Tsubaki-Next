@@ -54,8 +54,8 @@ inline algorithm str_to_alg(const std::string &literal)
 inline std::string alg_to_str(const algorithm &alg)
 {
     if (alg == algorithm::error)
-        throw std::invalid_argument("tsubaki::alg_to_string: bad usage: alg "
-                                    "can not be algorithm::error.");
+        throw std::invalid_argument("tsubaki::alg_to_string: algorithm::error "
+                                    "has no string representation.");
     return mapper.at(static_cast<size_t>(alg));
 }
 

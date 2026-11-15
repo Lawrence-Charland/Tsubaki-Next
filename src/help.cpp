@@ -9,75 +9,77 @@
 namespace tsubaki
 {
 constexpr std::string_view help_body =
-    R"HELP({program} {version} - high-speed batch checksum calculator
+    R"HELP({program} {version} - fast batch checksum calculator
 
 Usage:
   {program} [options] <algorithm> <file|dir>...
 
 Positional arguments:
-  algorithm              checksum algorithm to use, one of:
+  algorithm              checksum algorithm to use; one of:
                          none, md5, sha1, sha224, sha256, sha384, sha512,
                          sha3_256, sha3_512, blake2b512, blake2s256.
-                         "none" only lists the files without calculating.
-  files or directories   files and directories to be processed. A directory is
+                         "none" only lists the files without computing
+                         checksums.
+  files or directories   files and directories to process. A directory is
                          scanned recursively. "-" reads a list of paths from
                          stdin instead of naming a file.
 
 Options:
-  -h, --help                  show this message and exit.
+  -h, --help                  print this help and exit.
   -V, --version               print the version and exit.
   -v, --verbose               print a live progress indicator on stderr.
-  -t<n>, --thread=<n>         number of worker threads; defaults to the
-                              hardware concurrency. Alias: --threads=<n>.
-  -o<file>, --output=<file>   write the result to <file> instead of stdout.
-  -e<path>, --exclude=<path>  skip <path>, or anything below it, while
-                              scanning directories; may be given more than
-                              once. Alias: --excludes=<path>.
+  -t<n>, --thread=<n>         number of worker threads; defaults to the number
+                              of hardware threads. Alias: --threads=<n>.
+  -o<file>, --output=<file>   write the results to <file> instead of stdout.
+  -e<path>, --exclude=<path>  skip <path> and anything below it when scanning
+                              directories; may be given more than once.
+                              Alias: --excludes=<path>.
   -l<file>, --list=<file>     read paths from <file>, one per line; may be
                               given more than once. Alias: --lists=<file>.
   -s, --follow-symlinks       follow symbolic links to directories.
-  -f, --force-rescan          recompute the checksums already listed in the
-                              input lists.
+  -f, --force-rescan          recompute checksums that are already listed in
+                              the input lists.
 
 Option values:
-  A long option takes its value with '=', as in --list=old.txt, and a short
-  option takes it sticky, as in -lold.txt. A separated value is the run of
-  plain arguments after the switch: -t and -o take one, -e and -l take as many
-  as you give, as in "sha256 . -e a b -l list1 list2".
+  A long option takes its value with '=', as in --list=old.txt; a short option
+  takes it attached, as in -lold.txt. A value can also follow the switch
+  separately, as plain arguments: -t and -o take one, while -e and -l take as
+  many as you give, as in "sha256 . -e a b -l list1 list2".
 
-  Entries are matched in a fixed order and a switch that has been taken is
-  removed, so a later option can walk past it. The shape that always works:
-  algorithm first, then every input in one go, then the options.
+  Entries are matched in a fixed order, and a switch that has already been
+  consumed is removed, so a later option can pass over that spot. When in
+  doubt, use this order: the algorithm first, then all the inputs at once,
+  then the options.
 
-  A '\' ends the list of files; a plain argument after it is not a file, and
-  is rejected unless an option takes it. In a shell, write it quoted ('\'),
+  A '\' ends the list of files; a plain argument after it is not treated as a
+  file, and is rejected unless an option takes it. In a shell, quote it ('\'),
   otherwise it escapes the following space and never reaches the program.
 
 File lists:
   Every non-empty line is either a path, or a checksum and a path separated by
-  a space. A line starting with '#' is a comment. A line carrying both a
+  a space. A line starting with '#' is a comment. A line that carries both a
   checksum and a path is kept unchanged (marked with "# Kept: <path>") unless
   --force-rescan is given, in which case only the path is rescanned.
 
 Output format:
   "<checksum> <path>" for every processed file, followed by a report block
-  whose lines start with '#'. A file that fails to open, read or hash is
-  printed as <NONE> and counted as failed. A path that is missing, or a
-  directory in a list, never reaches the hashing step: no output line, no
-  counter, only an error entry. Devices and FIFOs are read as streams, so they
-  can block or never reach EOF.
+  whose lines start with '#'. A file that cannot be opened, read, or hashed is
+  printed as <NONE> and counted as failed. A path that does not exist, or a
+  directory in a list, never reaches the hashing step: it produces no output
+  line, increments no counter, and adds only an error entry. Devices and FIFOs
+  are read as streams, so they can block or never reach EOF.
 
 Examples:
-  {program} sha256 .                            scan the current directory.
+  {program} sha256 .                          scan the current directory.
   {program} --thread=8 --output=sum.txt blake2b512 .
-                                                use 8 threads, write to sum.txt.
+                                              use 8 threads and write to sum.txt.
   {program} sha512 --exclude=.git --exclude=build .
-                                                skip .git and build.
+                                              skip .git and build.
   {program} sha256 --list=old.txt --force-rescan g1
-                                                rescan the paths in old.txt.
-  find . -name '*.c' | {program} sha1 -         read paths from stdin.
+                                              rescan the paths in old.txt.
+  find . -name '*.c' | {program} sha1 -       read paths from stdin.
   {program} sha256 dir file - -e build -l old.txt
-                                                inputs first, options last.
+                                              inputs first, options last.
 
 Exit status:
   0 if no error was recorded, 1 otherwise.
