@@ -342,6 +342,93 @@ else
     bad 15 "$name" "rc=$rc $(head -1 "$ERR")"
 fi
 
+# ---------------------------------------------------------------- 16
+# 承诺："blake2b512_mac 最多 64 字节，blake2s256_mac 最多 32 字节。超了会在
+#        打开任何文件之前按命令行错误拒绝，退出码 2"。
+section "16 密钥长度"
+fx=$FX/t16
+mkdir -p "$fx"
+printf 'x\n' >"$fx/x.bin"
+key32=$(printf 'a%.0s' $(seq 32))
+key33=$(printf 'a%.0s' $(seq 33))
+key64=$(printf 'a%.0s' $(seq 64))
+key65=$(printf 'a%.0s' $(seq 65))
+name="BLAKE2 密钥上限：32/64 字节通过，33/65 字节退出 2"
+run blake2s256_mac -k "$key32" "$fx/x.bin"; rc32s=$rc; n32s=$(count_results)
+run blake2s256_mac -k "$key33" "$fx/x.bin"; rc33s=$rc; n33s=$(count_results)
+err33s=$(head -1 "$ERR")
+run blake2b512_mac -k "$key64" "$fx/x.bin"; rc64b=$rc
+run blake2b512_mac -k "$key65" "$fx/x.bin"; rc65b=$rc
+if [ "$rc32s" -eq 0 ] && [ "$n32s" = 1 ] && [ "$rc33s" -eq 2 ] &&
+   [ "$n33s" = 0 ] && [ "$rc64b" -eq 0 ] && [ "$rc65b" -eq 2 ] &&
+   grep -q 'must be at most 32 bytes' <<<"$err33s"; then
+    ok 16 "$name"
+else
+    bad 16 "$name" "rc: s32=$rc32s s33=$rc33s b64=$rc64b b65=$rc65b 行数: s32=$n32s s33=$n33s stderr=$err33s"
+fi
+
+# ---------------------------------------------------------------- 17-18
+# 承诺："--key-file 从文件读，路径是 - 时从 stdin 读，尾部 CR/LF 去掉；
+#         文件不存在、读不了或是空文件，退出码 114；-k 与 -K 同时给退出 2；
+#         超长密钥退出 2；普通算法忽略；-K - 与 - 输入同给退出 2（stdin 只能指定一次）"。
+section "17-19 密钥文件"
+fx=$FX/t17
+mkdir -p "$fx" "$FX/keydir"
+printf 'hello\n' >"$fx/a.txt"
+printf 'secret\n' >"$FX/key-lf"
+printf 'secret\r\n' >"$FX/key-crlf"
+: >"$FX/key-empty"
+key33=$(printf 'a%.0s' $(seq 33))
+printf '%s\n' "$key33" >"$FX/key-too-long"
+
+name="密钥文件与 -k 结果一致：LF/CRLF/stdin/粘滞写法都行，且不吃输入文件"
+run hmac_sha256 "$fx/a.txt" -k secret
+want=$(results)
+run hmac_sha256 -K "$FX/key-lf" "$fx/a.txt"
+got_file=$(results)
+run hmac_sha256 "$fx/a.txt" --key-file="$FX/key-crlf"
+got_crlf=$(results)
+run hmac_sha256 "$fx/a.txt" -K"$FX/key-lf"
+got_sticky=$(results)
+out=$("$BIN" sum hmac_sha256 "$fx/a.txt" -K - <"$FX/key-lf" 2>"$ERR"); rc=$?
+got_stdin=$(results)
+if [ -n "$want" ] && [ "$got_file" = "$want" ] && [ "$got_crlf" = "$want" ] &&
+   [ "$got_sticky" = "$want" ] && [ "$got_stdin" = "$want" ] && [ "$rc" -eq 0 ]; then
+    ok 17 "$name"
+else
+    bad 17 "$name" "want=${want:0:16} file=${got_file:0:16} crlf=${got_crlf:0:16} sticky=${got_sticky:0:16} stdin=${got_stdin:0:16} rc=$rc"
+fi
+
+name="密钥文件出错路径：缺/空/目录 114，-k+-K 冲突 2，超长 2，普通算法忽略"
+run hmac_sha256 "$fx/a.txt" -K "$FX/no-such-key"; rc_missing=$rc
+run hmac_sha256 "$fx/a.txt" -K "$FX/key-empty"; rc_empty=$rc
+run hmac_sha256 "$fx/a.txt" -K "$FX/keydir"; rc_dir=$rc
+run hmac_sha256 "$fx/a.txt" -k x -K "$FX/key-lf"; rc_both=$rc
+run blake2s256_mac "$fx/a.txt" -K "$FX/key-too-long"; rc_long=$rc
+err_long=$(head -1 "$ERR")
+run sha256 "$fx/a.txt" -K "$FX/no-such-key"; rc_plain=$rc
+plain_warn=$(head -1 "$ERR")
+if [ "$rc_missing" -eq 114 ] && [ "$rc_empty" -eq 114 ] && [ "$rc_dir" -eq 114 ] &&
+   [ "$rc_both" -eq 2 ] && [ "$rc_long" -eq 2 ] &&
+   grep -q 'must be at most 32 bytes' <<<"$err_long" &&
+   [ "$rc_plain" -eq 0 ] && grep -q "doesn't need key" <<<"$plain_warn"; then
+    ok 18 "$name"
+else
+    bad 18 "$name" "rc: missing=$rc_missing empty=$rc_empty dir=$rc_dir both=$rc_both long=$rc_long plain=$rc_plain err=$err_long"
+fi
+
+name="stdin 只能指定一次：-K - 与 - 输入同给时退出 2，不产生结果行"
+out=$("$BIN" sum hmac_sha256 "$fx/a.txt" -K - - \
+      <"$FX/key-lf" 2>"$ERR"); rc=$?
+stdin_names=$(results)
+stdin_err=$(head -1 "$ERR")
+if [ $rc -eq 2 ] && [ -z "$stdin_names" ] &&
+   grep -q 'stdin was used for the key' <<<"$stdin_err"; then
+    ok 19 "$name"
+else
+    bad 19 "$name" "rc=$rc res=${stdin_names:0:16} err=$stdin_err"
+fi
+
 # ---------------------------------------------------------------- 汇总
 printf '\n--------------------------------\n'
 printf '%d passed, %d failed, %d known issues\n' "$pass" "$fail" "$xfail"

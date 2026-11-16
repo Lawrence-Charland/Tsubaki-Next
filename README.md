@@ -5,54 +5,32 @@
 A reimplementation of the Tsubaki checksum tool. It keeps the name and the
 goal, not the old architecture: files are no longer collected into a list
 before anything happens. Scanners feed a shared task stream and a worker pool
-consumes it as paths arrive.
+consumes it as paths arrive. Hashing is done by OpenSSL: plain digests through
+`EVP_MD`, keyed hashes (HMAC and keyed BLAKE2) through `EVP_MAC`.
 
-## Origins
+## Contents
 
-Tsubaki-Next is the spiritual successor of an earlier Tsubaki. The archived
-repository
-[Lawrence-Charland/Tsubaki](https://github.com/Lawrence-Charland/Tsubaki) holds
-two independent attempts side by side: `old` is the author's own version,
-`main` is GDJT-DSR's. That repository is archived;
-[GDJT-DSR/Tsubaki](https://github.com/GDJT-DSR/Tsubaki) is still maintained.
-
-## Scope
-
-The project builds exactly one executable, `tsubaki`, and will keep doing so.
-Features are added as subcommands of that binary rather than as further targets;
-`sum` is the first one and the only one that exists today.
-
-Everything that needs every checksum in memory before it can decide anything —
-comparing several sets of results — is deliberately left out for now.
-
-## Roadmap
-
-The pipeline stays one-way: a path is hashed and written out, never collected.
-A comparison is the opposite shape — it can only decide once every set involved
-is in memory — so it will become another subcommand of the same binary, next to
-`sum`. Nothing beyond that is designed yet; what is fixed is the shape it would
-take:
-
-- It is not a new program. A subcommand gets a `subcommands::` constant, its own
-  entry group in `include/cmdline.hpp`, a branch in `main()`'s dispatch, and a
-  driver like `sum_main()`. The parser, the scanners and `checksum_file()` are
-  shared; only the result format and the exit code mapping differ.
-- `timeline_fs` is the structure `include/timeline_fs.hpp` sketches for keeping
-  results comparable: an in-memory tree in which every node carries a
-  *per-snapshot* child list and a per-snapshot checksum map. A time id is added
-  by name, then files and directories are created, updated or removed under that
-  id. Loading any number of ids and walking the tree shows what changed between
-  runs, and the same map shows which files hold identical content.
-
-Nothing of that is built yet: the `timeline_fs` sources are in the tree but no
-target references them, and no comparison entry or driver exists. The module
-layout itself is described in [ARCHITECTURE.md](ARCHITECTURE.md).
+- [Build](#build)
+- [Usage](#usage)
+  - [Algorithms](#algorithms)
+  - [Options](#options)
+  - [Option values](#option-values)
+  - [Keyed hashes](#keyed-hashes)
+- [Inputs](#inputs)
+- [Output](#output)
+- [Exit status](#exit-status)
+- [Interrupt](#interrupt)
+- [Origins and scope](#origins-and-scope)
+- [Roadmap](#roadmap)
+- [Architecture](#architecture)
+- [License](#license)
 
 ## Build
 
 Requirements: CMake 3.28+ (that is what `CMakePresets.json` asks for;
 `CMakeLists.txt` itself accepts 3.10), a C++23 compiler, OpenSSL (only
-`libcrypto` is linked), Ninja for the bundled presets.
+`libcrypto` is linked; the keyed algorithms need OpenSSL 3.0 or newer for
+`EVP_MAC`), Ninja for the bundled presets.
 
 ```sh
 cmake --preset linux-gcc-release
@@ -105,19 +83,53 @@ that physically follow the switch, up to the next one still in the queue: an
 No input is required at all: `tsubaki sum sha256` runs with an empty stream and
 prints the report block alone, with every counter at 0.
 
+### Algorithms
+
+`none` only lists the files: no hashing is done, and every file is counted as
+`Not hashed`. Every other name is either a plain digest or a keyed hash.
+
+Plain digests:
+
+```
+md5  sha1  sha224  sha256  sha384  sha512  sha3_256  sha3_512
+blake2b512  blake2s256
+```
+
+Keyed hashes:
+
+```
+hmac_md5  hmac_sha1  hmac_sha224  hmac_sha256  hmac_sha384  hmac_sha512
+hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
+```
+
+An `hmac_*` name is HMAC with the digest that follows the prefix, so
+`hmac_sha3_512` is HMAC-SHA3-512. `blake2b512_mac` and `blake2s256_mac` are
+keyed BLAKE2b-512 and BLAKE2s-256; a keyed BLAKE2 value differs from the
+unkeyed one because the key seeds the compression function.
+
+A keyed algorithm without a key is rejected with exit status 2 and a
+`needs a key` message. A key given to a plain digest is ignored with a warning.
+
+The digests agree with `openssl dgst -<name>`, the HMACs with
+`openssl dgst -<digest> -hmac <key>`, and the BLAKE2 MACs with
+`openssl mac -macopt key:<key> BLAKE2BMAC` (or `BLAKE2SMAC`). The output is
+lowercase hexadecimal, and its length is set by the algorithm.
+
 ### Options
 
-| Option                     | Meaning                                              |
-| -------------------------- | ---------------------------------------------------- |
-| `-h`, `--help`             | print help and exit                                  |
-| `-V`, `--version`          | print the version and exit                           |
-| `-v`, `--verbose`          | live progress indicator on stderr                    |
-| `-t<n>`, `--thread=<n>`    | worker threads, a positive integer; defaults to hardware concurrency |
-| `-o<file>`, `--output=<file>` | write results to `<file>`, created or truncated, instead of stdout |
+| Option                         | Meaning                                                              |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `-h`, `--help`                 | print help and exit                                                  |
+| `-V`, `--version`              | print the version and exit                                           |
+| `-v`, `--verbose`              | live progress indicator on stderr                                    |
+| `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency |
+| `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
+| `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
+| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout   |
 | `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
-| `-l<file>`, `--list=<file>` | read paths from `<file>`; repeatable                |
-| `-s`, `--follow-symlinks`  | follow symbolic links to directories                 |
-| `-f`, `--force-rescan`     | recompute checksums already listed in the input      |
+| `-l<file>`, `--list=<file>`    | read paths from `<file>`; repeatable                                 |
+| `-s`, `--follow-symlinks`      | follow symbolic links to directories                                 |
+| `-f`, `--force-rescan`         | recompute checksums already listed in the input                      |
 
 `--threads`, `--excludes` and `--lists` are accepted as aliases.
 
@@ -133,14 +145,17 @@ A long option takes its value with `=` and a short option takes it sticky:
 ```sh
 tsubaki sum sha256 . --exclude=build --list=old.txt
 tsubaki sum sha256 . -ebuild -lold.txt
+tsubaki sum hmac_sha256 . --key=secret
 ```
 
 A separated value is the run of plain arguments right after the switch. How many
-of them are taken depends on the option: `-t` and `-o` take one, `-e` and `-l`
-take as many as you give, up to the next switch that is still in the queue.
+of them are taken depends on the option: `-t`, `-k`, `-K` and `-o` take exactly
+one, `-e` and `-l` take as many as you give, up to the next switch that is still
+in the queue.
 
 ```sh
 tsubaki sum sha256 . -e a b c -l list1 list2   # three excludes, two lists
+tsubaki sum hmac_sha256 . -k secret            # one key, then no more values
 ```
 
 `-e` stops at `-l` here, because `lists` is evaluated after `excludes`; each
@@ -173,15 +188,40 @@ input, so it is rejected unless another option takes it. In a shell, quote the
 backslash as `'\'`: an unquoted `\ ` escapes the space and never reaches the
 program.
 
-### Algorithms
+### Keyed hashes
 
-```
-none  md5  sha1  sha224  sha256  sha384  sha512
-sha3_256  sha3_512  blake2b512  blake2s256
-```
+A key comes from one of two places, never both:
 
-`none` only lists the files: no hashing is done, and every file is counted as
-`Not hashed`.
+- `--key` takes it as a literal string: the bytes of the argument are used as
+  they are, with no hex or escape decoding, so `-k 00ff` is the four-byte key
+  `0`, `0`, `f`, `f`.
+- `--key-file` reads it from a file, or from stdin when the path is `-`. The
+  whole stream is read and any run of trailing CR/LF is dropped, so
+  `echo secret > key` yields `secret`, while interior newlines, NUL bytes and
+  trailing spaces stay part of the key. A missing, unreadable or empty file
+  exits 114.
+
+`-k` and `-K` together are rejected with exit status 2, and so is `-K -`
+together with a `-` input: stdin may be named only once. With a plain digest,
+either form is ignored with a warning and the key file is not even opened.
+
+One run uses one key for every file; to check the same tree under two keys, run
+the command twice.
+
+Keyed BLAKE2 caps the key length: `blake2b512_mac` takes at most 64 bytes and
+`blake2s256_mac` at most 32. A longer key is rejected with exit status 2 before
+any file is opened; HMAC takes any length.
+
+`--key` puts the key on the command line: while the process runs, any user on
+the machine can read it from `ps` or `/proc/<pid>/cmdline`, and the shell keeps
+a copy in its history. `--key-file` keeps it out of both, but the file itself is
+only as private as its permissions (use `chmod 600`). Either way the key stays
+in process memory while the run lasts. Do not pass a real key on a shared host.
+
+Keyed results are printed like any other: `<checksum> <path>`, with the keyed
+algorithm named in the report block. Nothing marks a line as keyed, so a file
+of HMAC lines can only be told apart from a digest run by the algorithm name in
+the report block it travels with.
 
 ## Inputs
 
@@ -270,10 +310,10 @@ A report block follows, every line of which starts with `#`:
 # Errors:            0
 ```
 
-`Algorithm` is the one chosen for the run, so a `Ctrl-C` does not turn it into
-`none` in the report. `Duration` is measured from the moment the workers are
-started to the moment they are joined; argument parsing and scanner setup are
-not included.
+`Algorithm` is the one chosen for the run. It never changes, so an interrupted
+run still names the algorithm it was hashing with. `Duration` is measured from
+the moment the workers are started to the moment they are joined; argument
+parsing and scanner setup are not included.
 
 `Processed` is `Hashed + Failed`; files that were not hashed are not counted,
 and neither are kept lines or skipped paths.
@@ -302,34 +342,63 @@ the results go to the file.
 The progress indicator, when enabled, is written to stderr and never to the
 result stream.
 
+Write errors are not checked. Every worker line goes out through
+`std::osyncstream`, which flushes the complete insertion, and the report is
+written after the workers are joined; a flush that fails — a full disk, a
+broken descriptor, a file on a removed mount — only leaves the stream in a
+failed state, which the program never inspects. The run keeps its exit status:
+`0` still means "every file was hashed", not "every byte reached the
+destination". The `--output` file is closed by the `std::ofstream` destructor,
+and that error is ignored too.
+
+A pipe with no reader is the one case that is visible: the next write raises
+`SIGPIPE`, whose default action kills the process, and a shell reports `141`.
+Nothing catches or retries it. If the destination can fill up, check the file
+after the run or hash it again; the summary on stderr does not prove that the
+lines were written.
+
 ## Exit status
 
 | Code | Meaning |
 | --- | --- |
 | `0` | no error was recorded |
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude |
-| `2` | invalid command line: unknown subcommand, unknown algorithm, bad thread count, or leftover arguments |
+| `2` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments |
 | `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
 | `74` | the `--output` file cannot be opened for writing |
+| `114` | the `--key-file` cannot be read, or holds no key |
 | `130` | the run was interrupted with `Ctrl-C` |
+| `250` | `Ctrl-C` was pressed five times; the process aborted immediately, so the output can end without its report block |
 | `-1` (`255` in a shell) | an unexpected exception escaped `main()` |
 
+The status reports argument, scanning and hashing problems only. A silent write
+failure does not change it, and a process killed by `SIGPIPE` shows `141` in the
+shell, which is not one of the codes above.
+
 `--help` and `--version` exit with `0`. `70` and `74` are the sysexits values
-`EX_SOFTWARE` and `EX_IOERR`; `130` is the shell convention `128 + SIGINT`.
+`EX_SOFTWARE` and `EX_IOERR`; `130` is the shell convention `128 + SIGINT`;
+`250` is just below the `255` that a shell reports for `-1`, so the two cannot
+be confused. `114` is not a sysexits value; it is reserved here for a key file
+that cannot be read.
 
 The codes live in `include/exit_codes.hpp` as `TSUBAKI_SUCCESS`,
 `TSUBAKI_HASH_ERROR`, `TSUBAKI_INVALID_ARGUMENT`, `TSUBAKI_FILE_WRITE_FAILED`,
-`TSUBAKI_INTERRUPTED`, `TSUBAKI_FATAL` and `TSUBAKI_UNEXPECTED`.
+`TSUBAKI_FILE_READ_FAILED`, `TSUBAKI_INTERRUPTED`, `TSUBAKI_TERMINATED`,
+`TSUBAKI_FATAL` and `TSUBAKI_UNEXPECTED`.
 
 ## Interrupt
 
-`Ctrl-C` switches the run to the `none` algorithm: files that have not started
-yet are still popped, written as `<NONE>` and counted as `Not hashed`, so the
-report accounts for every file the scanners produced. A file that has already
-entered the hashing call is not abandoned; for a device or a FIFO that means it
-keeps reading until EOF. A worker blocked in `open()` or in an endless read
-never gets back to the switch, so a single `Ctrl-C` cannot stop it — only the
-fifth one aborts the process.
+The first `Ctrl-C` raises the manager's interrupt flag. Workers stop before
+hashing the next path: files that have not started yet are still popped,
+written as `<NONE>` and counted as `Not hashed`, so the report accounts for
+every file the scanners produced. A file that has already entered the hashing
+call is not abandoned; for a device or a FIFO that means it keeps reading until
+EOF. A worker blocked in `open()` or in an endless read never gets back to the
+check, so a single `Ctrl-C` cannot stop it.
+
+Pressing `Ctrl-C` five times gives up altogether: the handler writes a fixed
+message to stderr and calls `_exit(250)` on the spot. Nothing is flushed after
+that, so the output can end without its report block and the counters are lost.
 
 This makes an interrupted run resumable. Feed the output file back as a `-l`
 input: lines that already carry a checksum are kept unchanged, and the `<NONE>`
@@ -337,8 +406,46 @@ lines are hashed again. The report block starts with `#`, so it is ignored and
 the file can be used as it is. An interrupted run exits `130` even when nothing
 actually failed, so a `1` still means a real error.
 
-Pressing `Ctrl-C` five times gives up altogether: the handler writes a message to
-stderr and calls `std::terminate()`.
+## Origins and scope
+
+Tsubaki-Next is the spiritual successor of an earlier Tsubaki. The archived
+repository
+[Lawrence-Charland/Tsubaki](https://github.com/Lawrence-Charland/Tsubaki) holds
+two independent attempts side by side: `old` is the author's own version,
+`main` is GDJT-DSR's. That repository is archived;
+[GDJT-DSR/Tsubaki](https://github.com/GDJT-DSR/Tsubaki) is still maintained.
+
+The project builds exactly one executable, `tsubaki`, and will keep doing so.
+Features are added as subcommands of that binary rather than as further targets;
+`sum` is the first one and the only one that exists today.
+
+Everything that needs every checksum in memory before it can decide anything —
+comparing several sets of results — is deliberately left out for now.
+
+## Roadmap
+
+The pipeline stays one-way: a path is hashed and written out, never collected.
+A comparison is the opposite shape — it can only decide once every set involved
+is in memory — so it will become another subcommand of the same binary, next to
+`sum`. Nothing beyond that is designed yet; what is fixed is the shape it would
+take:
+
+- It is not a new program. A subcommand gets a `subcommands::` constant, its own
+  entry group in `include/cmdline.hpp`, a branch in `main()`'s dispatch, and a
+  driver like `sum_main()`. The parser, the scanners and the checksum layer are
+  shared; only the result format and the exit code mapping differ.
+- `timeline_fs` is the structure sketched for keeping results comparable: an
+  in-memory tree in which every node carries a *per-snapshot* child list and a
+  per-snapshot checksum map. A time id is added by name, then files and
+  directories are created, updated or removed under that id. Loading any number
+  of ids and walking the tree shows what changed between runs, and the same map
+  shows which files hold identical content.
+
+Development of `timeline_fs` is paused, so its sources are kept as an
+experiment under [experiments/timeline_fs/](experiments/timeline_fs/) instead
+of the source tree: no target references them, and no comparison entry or
+driver exists. The module layout itself is described in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Architecture
 

@@ -24,8 +24,7 @@ struct error_entry
 class basic_taskstream
 {
   public:
-    std::vector<error_entry> errors;
-    void report_error(const error_entry& error);
+    void report_error(const error_entry &error);
     virtual std::optional<std::filesystem::path> pop();
     virtual std::vector<error_entry> take_errors();
     virtual ~basic_taskstream() = default;
@@ -33,6 +32,7 @@ class basic_taskstream
   protected:
     virtual std::optional<std::filesystem::path> pop_raw() = 0;
     mutable std::mutex mutex_;
+    std::vector<error_entry> errors;
 };
 } // namespace tsubaki
 

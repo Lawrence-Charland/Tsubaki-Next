@@ -19,6 +19,22 @@ finished result into a line of output.
 There is no intermediate "file list" object. Nothing is sorted, counted or
 filtered after scanning: a path is hashed as soon as a worker gets it.
 
+## Contents
+
+- [Startup sequence](#startup-sequence)
+- [Command line layer](#command-line-layer)
+- [Task streams](#task-streams)
+- [Thread-safety rules](#thread-safety-rules)
+- [Hashing](#hashing)
+- [Workers, progress and report](#workers-progress-and-report)
+- [Output streams](#output-streams)
+- [Concurrency model](#concurrency-model)
+- [Exit codes](#exit-codes)
+- [Data flow example](#data-flow-example)
+- [One manager at a time](#one-manager-at-a-time)
+- [Extension points](#extension-points)
+- [Source map](#source-map)
+
 ## Startup sequence
 
 `main()` (in `src/main.cpp`) owns the subcommand dispatch and everything that
@@ -49,8 +65,16 @@ is not specific to a subcommand:
 2. `fine(false)` runs the validation. Every failed entry is reported with
    `argparser::describe()`, followed by a hint to run `--help`.
 3. Values are read out of the entries and checked: the algorithm is mapped
-   through `str_to_alg()`, the thread count is parsed (falling back to
+   through `str_to_alg()`; a keyed algorithm takes its key from `-k` or from
+   `-K` (`get_key()` reads the file, or stdin for `-`, and drops trailing
+   CR/LF), while a plain digest warns and ignores either option without opening
+   the file; the thread count is parsed (falling back to
    `std::thread::hardware_concurrency()`), and the output stream is opened.
+   `check_key_validity()` rejects a key that is empty or too long for the
+   algorithm, and `-K -` together with a `-` input is rejected: stdin may be
+   named only once.
+   Algorithm and key end up in one `checksum_api`, which is passed to the
+   workers instead of a bare `algorithm`.
 4. Inputs are turned into producers and added to a `fanin_taskstream`: one
    `dirscanner` per directory, one `listscanner` per `-` or list file, and one
    `cached_taskstream` for the plain file arguments. The queue is built in that
@@ -58,7 +82,7 @@ is not specific to a subcommand:
    the cached files, then the `-l` lists. The cached stream is added even when
    it is empty, and an empty input list is legal: `files` has no minimum count,
    so nothing is a valid run that just prints an empty report.
-5. `work_manager(tasks, *out, alg, verbose).run(threads)` starts the workers and
+5. `work_manager(tasks, *out, api, verbose).run(threads)` starts the workers and
    returns a `work_result`.
 6. `sum_main` writes `#` and then calls `result.print(*out, true)` on the output
    stream, and maps the run onto an exit code: `TSUBAKI_INTERRUPTED` when the
@@ -66,24 +90,6 @@ is not specific to a subcommand:
    `TSUBAKI_SUCCESS` otherwise. Argument problems returned
    `TSUBAKI_INVALID_ARGUMENT` earlier, and an `--output` file that cannot be
    opened returns `TSUBAKI_FILE_WRITE_FAILED`.
-
-## Exit codes
-
-The codes live in `include/exit_codes.hpp` and are shared by `main()` and
-`sum_main()`:
-
-| Macro | Value | Returned when |
-| --- | --- | --- |
-| `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry |
-| `TSUBAKI_HASH_ERROR` | 1 | at least one error entry was recorded |
-| `TSUBAKI_INVALID_ARGUMENT` | 2 | the command line was rejected: unknown subcommand, unknown algorithm, bad thread count, or leftover arguments |
-| `TSUBAKI_FILE_WRITE_FAILED` | 74 | the `--output` file cannot be opened (`EX_IOERR`) |
-| `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
-| `TSUBAKI_FATAL` | 70 | `argc` is 0, so `main()` refuses to run (`EX_SOFTWARE`) |
-| `TSUBAKI_UNEXPECTED` | -1 | an exception escaped `main()`; the shell sees 255 |
-
-`interrupted` wins over `errors`: an interrupted run reports `130` even when it
-also collected errors.
 
 ## Command line layer
 
@@ -106,7 +112,9 @@ The parts of its behaviour that surface here:
   `-vs`, or a sticky value `-ovalue`. A separated value (`--output out.txt`) is
   supported by the library itself.
 - An option collects the simple tokens that follow it until the next non-simple
-  token or its value limit; flags only count occurrences.
+  token or its value limit; flags only count occurrences. A `max_value_count`
+  of `-1` means no limit at all, which is why every single-value option has to
+  declare `1` explicitly.
 - A positional collects simple tokens within its min/max range, and a barrier
   token ends the collection early and is consumed with it.
 - `evaluate()` walks the entries in declaration order and erases what each one
@@ -121,16 +129,22 @@ The parts of its behaviour that surface here:
 Entries are defined once, in `include/cmdline.hpp`, and carry a group:
 `general` for `subcmd`/`--help`/`--version`, `sum` for everything else. `main()`
 evaluates `general`; `sum_main()` evaluates `sum`. Inside a group the declaration
-order is the evaluation order: threads, output, the flags, algorithm, excludes,
-lists, files for `sum`, and subcmd, version, help for `general`. The names are
-`inline constexpr` constants in `cmdline_entry`, so the definitions and the
-`entry()` lookups share one spelling; a hyphen in the name becomes an
+order is the evaluation order: key-file, key, threads, output, the flags,
+algorithm, excludes, lists, files for `sum`, and subcmd, version, help for
+`general`. The
+names are `inline constexpr` constants in `cmdline_entry`, so the definitions and
+the `entry()` lookups share one spelling; a hyphen in the name becomes an
 underscore in the identifier.
 
 - `subcmd` is the first entry of the `general` group and a positional with a
   count of exactly one, so it takes the first plain argument whatever it is.
   That is why `tsubaki sha256 .` is rejected as an unknown subcommand instead of
   being read as an algorithm.
+- `key-file`, `key`, `threads` and `output` each declare `max_value_count` `1`,
+  so a separated value takes exactly one plain argument and leaves the rest to
+  the later entries. Without that cap the library would hand them every plain
+  token up to the next switch, and `-k secret file.txt` would take `file.txt`
+  as part of the key.
 - `excludes` and `lists` come before `files`, so their values are taken before
   the positional looks at anything, and a separated value (`-e build`) works as
   long as no file argument follows it.
@@ -286,13 +300,50 @@ has no lock of its own.
 
 ## Hashing
 
-`checksum_file()` in `src/checksum.cpp` maps the algorithm to an `EVP_MD`
-(`to_evp()`), opens the file with `O_RDONLY | O_CLOEXEC`, and streams it through
-`EVP_DigestInit_ex` / `EVP_DigestUpdate` / `EVP_DigestFinal_ex`. The read buffer
-is a 64 KiB `thread_local` vector, so each worker allocates it once and reuses
-it. `EINTR` is retried; every other failure is returned as a `std::error_code`
-wrapped in `std::unexpected`, never as an exception. `algorithm::none` short-
-circuits to `<NONE>` without touching the file.
+`include/checksum.hpp` owns the algorithm list and the public entry points;
+`src/checksum.cpp` owns the OpenSSL code. Both ends of the module start from
+`ALGORITHM_LIST`, which generates `algorithm`, the name table, `str_to_alg()`
+and `alg_to_str()`.
+
+Three helpers keep the OpenSSL work in one place:
+
+- `digest_for(algorithm)` maps a plain digest to an `EVP_MD` and returns
+  `nullptr` for everything else.
+- `mac_for(algorithm)` maps a keyed algorithm to a `mac_spec {name, digest}`.
+  HMAC keeps its digest in a parameter (`{"HMAC", "SHA256"}`), while keyed
+  BLAKE2 is a MAC algorithm of its own (`{"BLAKE2BMAC", nullptr}`).
+- `stream_file(path, update)` opens the file with `O_RDONLY | O_CLOEXEC`,
+  streams it in 64 KiB chunks through a `thread_local` vector, retries `EINTR`,
+  and calls `update` on every chunk. `update` returning false becomes
+  `operation_not_supported`.
+
+`checksum_file()` runs that stream through `EVP_DigestInit_ex` /
+`EVP_DigestUpdate` / `EVP_DigestFinal_ex`. `checksum_file_key()` runs the same
+stream through `EVP_MAC_fetch` / `EVP_MAC_CTX_new` / `EVP_MAC_init` /
+`EVP_MAC_update` / `EVP_MAC_final`. The MAC algorithm is fetched by name
+instead of using a per-digest HMAC constructor, so one code path covers every
+keyed algorithm, and `OSSL_MAC_PARAM_DIGEST` is only set when the spec names a
+digest. A key is passed as raw bytes, never decoded.
+
+Both functions return `std::unexpected(std::error_code)` on failure, never
+throw: `errno` for the file, `operation_not_supported` for a crypto call that
+rejects a chunk, `invalid_argument` for an algorithm the mapper does not know,
+and `not_enough_memory` for a context allocation. `algorithm::none`
+short-circuits to `<NONE>` without touching the file, in both. The digest or
+MAC is rendered with `to_hex()` in lowercase.
+
+`checksum_api` is the value that carries the choice from `sum_main` to the
+workers: `alg` plus the optional `key`, and `calc(path)` as its only entry
+point. `calc()` routes on `is_keyed(alg)`: a keyed algorithm goes to
+`checksum_file_key()`, and everything else goes to `checksum_file()`.
+
+The key policy lives in two `constexpr` helpers next to `ALGORITHM_LIST`:
+`max_key_length()` returns 64 for `blake2b512_mac`, 32 for `blake2s256_mac` and
+0 for "no upper bound", and `check_key_validity()` requires a non-empty key that
+fits that limit (a plain digest accepts any key and ignores it). `sum_main`
+calls it once, before any file is opened, and turns a failure into a specific
+message plus exit status 2; `calc()` calls it again, so a caller that builds a
+`checksum_api` by hand cannot skip the check and MAC with an impossible key.
 
 Reading is done with plain `read()` calls, not `mmap` or `SEEK_DATA`, so a sparse
 file is hashed over its logical length: holes are fed to the digest as zeros.
@@ -302,28 +353,28 @@ use stays at the 64 KiB buffer no matter how large the file claims to be.
 The same `open()` is used for an explicitly named non-regular path, and it is
 blocking: a FIFO with no writer blocks before the first read, and a device that
 never reaches EOF keeps the worker inside the loop. Neither path observes the
-algorithm switch, which is only looked at between files.
-
-The digest is rendered with `to_hex()` in lowercase.
+interrupt flag, which is only looked at between files.
 
 ## Workers, progress and report
 
-`work_manager` owns the worker vector, the progress thread, the atomic
-algorithm, and three atomic counters. `run()` returns a `work_result` instead of
-writing the report itself, so the caller decides where and how it is printed.
+`work_manager` owns the worker vector, the progress thread, a `const
+checksum_api api` (algorithm plus key), an `std::atomic<bool> interrupted`, and
+three atomic counters. `run()` returns a `work_result` instead of writing the
+report itself, so the caller decides where and how it is printed.
 
-- `run(thread_count)` remembers the algorithm it was started with, installs the
-  SIGINT handler, starts `thread_count` workers and the printer, and waits.
-- Each worker loops: `tasks.pop()`, `checksum_file(path, alg.load())`, write one
-  line through an `osyncstream`. A failed checksum prints `<NONE> <path>` and
-  increments `failed`; a success increments `success`, or `unprocessed` when the
-  current algorithm is `none`. A path that `pop()` rejected never gets here, so
-  it has no line and no counter — only an error entry.
+- `run(thread_count)` installs the SIGINT handler, starts `thread_count` workers
+  and the printer, and waits.
+- Each worker loops: `tasks.pop()`; if `interrupted` is already set, print
+  `<NONE> <path>` and increment `unprocessed`; otherwise `api.calc(path)` and
+  write one line through an `osyncstream`. A failed checksum prints
+  `<NONE> <path>` and increments `failed`; a success increments `success`, or
+  `unprocessed` when the algorithm is `none`. A path that `pop()` rejected never
+  gets here, so it has no line and no counter — only an error entry.
 - The printer, unless quiet or running with `none`, repaints a single line every
-  100 ms on stderr. It uses the terminal width of stderr and degenerates to a
-  plain `[N files]` when the width is unknown.
-- `wait()` joins the workers, sets the algorithm to `none` (which stops the
-  printer loop), and joins the printer.
+  100 ms on stderr while `interrupted` is false. It uses the terminal width of
+  stderr and degenerates to a plain `[N files]` when the width is unknown.
+- `wait()` joins the workers, sets `interrupted` (which stops the printer
+  loop), and joins the printer.
 - When everything is joined, `run()` returns a snapshot: the algorithm it
   started with, the collected errors, the three counters, the interrupt flag,
   and the wall-clock time spent between starting and joining.
@@ -349,16 +400,16 @@ was recorded, and `TSUBAKI_SUCCESS` otherwise. `failed` itself does not decide
 the exit code; every checksum failure also leaves an error entry, so in practice
 the two agree.
 
-`SIGINT` is implemented through the algorithm value, not through a separate
-flag: the handler stores `algorithm::none` into the worker's atomic, and every
-later `checksum_file()` call returns `<NONE>` immediately. Remaining paths are
-still popped, printed and counted as `Not hashed`, so the report accounts for
-everything the scanners produced. A worker already inside a blocking `open()` or
-an endless read never returns to that check, so one `Ctrl-C` does not free it;
-the handler also bumps an atomic counter, and on the fifth `Ctrl-C` it writes a
-fixed message with `write(2, ...)` and calls `std::terminate()`. The counter
-becomes `work_result::interrupted`, which adds a note to the report block and
-makes `sum_main` return `TSUBAKI_INTERRUPTED` (130).
+`SIGINT` is a separate flag, not the algorithm value: the handler stores `true`
+into the worker's `std::atomic<bool> interrupted`, and each worker checks it
+right after `tasks.pop()`. Remaining paths are still popped, printed and counted
+as `Not hashed`, so the report accounts for everything the scanners produced; a
+file already inside `api.calc()` finishes normally. A worker already inside a
+blocking `open()` or an endless read never returns to that check, so one
+`Ctrl-C` does not free it. The handler also bumps an atomic counter, and on the
+fifth `Ctrl-C` it writes a fixed message with `write(2, ...)` and calls
+`_exit(250)`. Any `Ctrl-C` sets `work_result::interrupted`, which adds a note to
+the report block and makes `sum_main` return `TSUBAKI_INTERRUPTED` (130).
 
 ## Output streams
 
@@ -376,6 +427,14 @@ stderr carries three things: the progress indicator, the argument-setup failures
 Everything else lands in the report block of the result stream, including a list
 file that cannot be opened.
 
+Neither stream is checked. The workers' lines are emitted through
+`std::osyncstream`, the report is written directly after the join, and the
+`--output` file is closed by the `std::ofstream` destructor; a failed write sets
+the stream state and is never inspected, so `sum_main` still returns
+`TSUBAKI_SUCCESS`. Only `open()` is verified, before any work starts. `SIGPIPE`
+keeps its default action, so a pipe whose reader went away kills the process
+rather than surfacing as a write error.
+
 ## Concurrency model
 
 | Thread | Count | Work |
@@ -386,13 +445,36 @@ file that cannot be opened.
 
 - One mutex per taskstream. The mutex covers `pop_raw()` and the error vector;
   it is held only while a path is being taken out.
-- Atomics: the algorithm, the three counters, the interrupt counter, and the
-  signal target pointer. The pointer is `volatile` because the handler writes
-  it; the algorithm and the interrupt counter are `std::atomic` because the
-  handler stores into them.
+- Atomics: the `interrupted` flag, the three counters, the interrupt counter,
+  and the signal target pointer. The pointer is `volatile` because the handler
+  writes it; `interrupted` and the interrupt counter are `std::atomic` because
+  the handler stores into them. The algorithm is not shared state: it lives in
+  the manager's `const checksum_api` and never changes during a run.
 - No lock is held while hashing, so file I/O is fully parallel.
 - Nothing in the pipeline reorders results: output order is completion order,
   not scan order.
+
+## Exit codes
+
+The codes live in `include/exit_codes.hpp` and are shared by `main()` and
+`sum_main()`:
+
+| Macro | Value | Returned when |
+| --- | --- | --- |
+| `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry |
+| `TSUBAKI_HASH_ERROR` | 1 | at least one error entry was recorded |
+| `TSUBAKI_INVALID_ARGUMENT` | 2 | the command line was rejected: unknown subcommand, unknown algorithm, a keyed algorithm without a key, `-K -` together with a `-` input, bad thread count, or leftover arguments |
+| `TSUBAKI_FATAL` | 70 | `argc` is 0, so `main()` refuses to run (`EX_SOFTWARE`) |
+| `TSUBAKI_FILE_WRITE_FAILED` | 74 | the `--output` file cannot be opened (`EX_IOERR`) |
+| `TSUBAKI_FILE_READ_FAILED` | 114 | `--key-file` cannot be read or holds no key |
+| `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
+| `TSUBAKI_TERMINATED` | 250 | the fifth `Ctrl-C` called `_exit()` from the handler, so no report was written |
+| `TSUBAKI_UNEXPECTED` | -1 | an exception escaped `main()`; the shell sees 255 |
+
+`interrupted` wins over `errors`: an interrupted run reports `130` even when it
+also collected errors. None of these codes describes a silent write failure;
+`SIGPIPE` (141 in a shell) is the one write-side failure that is visible, and it
+kills the process instead.
 
 ## Data flow example
 
@@ -406,7 +488,9 @@ tsubaki sum sha256 . -e build -l old.txt
    becomes a `listscanner`.
 3. Both are added to the fan-in, plus an empty `cached_taskstream`.
 4. Workers pull paths: first from the `dirscanner` (walking the tree), then from
-   the `listscanner` once the directory is exhausted.
+   the `listscanner` once the directory is exhausted. Every path goes through
+   `checksum_api::calc()`, so the same run shape works with `hmac_sha256` once
+   `-k` supplied a key.
 5. Kept lines from `old.txt` are written immediately as `# Kept: <path>` plus
    the original line; they never enter the hashing path.
 6. When all children are exhausted, the fan-in returns nothing, the workers
@@ -430,7 +514,7 @@ therefore mostly bookkeeping:
 
 None of that is hard, but none of it buys much either: the bottleneck is I/O and
 hashing, and pulling a path is the only serialised step. One manager keeps the
-program small, and `work_result::operator+` plus the signal switch leave the
+program small, and `work_result::operator+` plus the interrupt flag leave the
 door open for a caller that wants more.
 
 ## Extension points
@@ -439,17 +523,20 @@ door open for a caller that wants more.
   own `cmdline_group`, add a branch to `main()`, and write a driver shaped like
   `sum_main()` that evaluates its own group. Only the entries of that group are
   parsed by the subcommand, so unrelated switches cannot interfere. Comparing
-  several sets of results is the next feature planned this way;
-  `include/timeline_fs.hpp` is an unfinished sketch for it and is not built.
+  several sets of results is the next feature planned this way; an experimental
+  sketch of its data structure lives in `experiments/timeline_fs/` and is not
+  built.
 - **New input source**: derive from `basic_taskstream`, implement `pop_raw()`,
   and add an entry to `def_args()` if it needs syntax of its own. The fan-in does
   not care how many producers exist.
 - **New output sink**: `work_manager` is the only consumer; give it a different
   `std::ostream` or replace it, keeping `basic_taskstream` untouched.
 - **New algorithm**: add one line to `ALGORITHM_LIST` in
-  `include/checksum.hpp` (`algorithm`, `str_to_alg()` and `alg_to_str()` are
-  generated from it), a case in `to_evp()`, and the name in the algorithm list
-  of the help text (`src/help.cpp`), which is written by hand.
+  `include/checksum.hpp`, which generates `algorithm`, `str_to_alg()` and
+  `alg_to_str()`. A plain digest also needs a case in `digest_for()`; a keyed
+  one needs a case in `mac_for()`, an enumerator in `is_keyed()`, a limit in
+  `max_key_length()` when the algorithm caps the key, and its name in the
+  algorithm list of the help text (`src/help.cpp`), which is written by hand.
 
 ## Source map
 
@@ -462,7 +549,8 @@ door open for a caller that wants more.
 | `tsubaki::listscanner` | `basic_taskstream` | parses a list file or stdin and writes `# Kept: <path>` lines |
 | `tsubaki::cached_taskstream` | `basic_taskstream` | replays a fixed queue of paths, in the order given |
 | `tsubaki::fanin_taskstream` | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
-| `tsubaki::work_manager` | — | worker pool, progress line, SIGINT switch |
+| `tsubaki::checksum_api` | — | carries the chosen algorithm and key, and routes `calc()` to the digest or the MAC path |
+| `tsubaki::work_manager` | — | worker pool, progress line, interrupt flag |
 | `tsubaki::work_result` | — | value snapshot returned by `run()`, with `operator+` and `print()` |
 | `tsubaki::error_entry` | — | `std::error_code` plus the operation that failed |
 
@@ -479,14 +567,15 @@ door open for a caller that wants more.
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
 | `include/cached_taskstream.hpp`, `src/cached_taskstream.cpp` | fixed path replay |
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | multi-source merge |
-| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`, `str_to_alg()` / `alg_to_str()`, EVP hashing |
+| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`, `str_to_alg()` / `alg_to_str()`, `is_keyed()`, `checksum_api`, `EVP_MD` and `EVP_MAC` hashing |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
-| `include/utilities.hpp`, `src/utilities.cpp` | string helpers, terminal width, fd guard |
+| `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |
 | `include/help.hpp`, `src/help.cpp` | help text |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |
 
-`src/tmptest.cpp`, `src/timeline_fs.cpp` and `include/timeline_fs.hpp` are not
-part of the `tsubaki` source map: they are an unfinished sketch for comparing
-several sets of results. No CMake target references them, so they are neither
-compiled nor tested.
+`experiments/timeline_fs/` is not part of the `tsubaki` source map: it holds an
+experimental sketch for comparing several sets of results
+(`include/timeline_fs.hpp`, `src/timeline_fs.cpp`, and the scratch driver
+`src/tmptest.cpp`). No CMake target references it, so it is neither compiled nor
+tested.

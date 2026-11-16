@@ -24,7 +24,7 @@ std::optional<std::filesystem::path> listscanner::pop_raw()
         trim_str(line);
         if (line.empty() || line.at(0) == '#')
             continue;
-        parsed_line = get_equation(line, ' ');
+        parsed_line = get_equation(line, ' ', true);
         if (parsed_line.second.empty())
             return std::filesystem::path(line);
         if (!is_checksum(parsed_line.first))

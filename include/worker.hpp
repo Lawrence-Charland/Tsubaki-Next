@@ -46,7 +46,8 @@ class work_result
         sum.success += target.success;
         sum.failed += target.failed;
         sum.unprocessed += target.unprocessed;
-        sum.duration += target.duration; /*  */
+        sum.duration += target.duration;
+        sum.interrupted = sum.interrupted || target.interrupted;
         return sum;
     }
     void print(std::ostream &os, bool with_errors = true);
@@ -59,7 +60,8 @@ class work_manager
     basic_taskstream &tasks;
     std::vector<std::thread> workers;
     std::thread progress;
-    std::atomic<algorithm> alg;
+    const checksum_api api;
+    std::atomic<bool> interrupted = false;
     std::atomic<unsigned> success = 0;
     std::atomic<unsigned> failed = 0;
     std::atomic<unsigned> unprocessed = 0;
@@ -70,9 +72,10 @@ class work_manager
     void wait();
 
   public:
-    work_manager(basic_taskstream &_tasks, std::ostream &_os, algorithm _alg,
-                 bool verbose = false, bool _catch_sigint = true)
-        : os(_os), tasks(_tasks), quiet(!verbose), alg(_alg),
+    work_manager(basic_taskstream &_tasks, std::ostream &_os,
+                 const checksum_api &_api, bool verbose = false,
+                 bool _catch_sigint = true)
+        : os(_os), tasks(_tasks), quiet(!verbose), api(_api),
           catch_sigint(_catch_sigint)
     {
     }

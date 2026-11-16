@@ -11,12 +11,14 @@
 #include "exit_codes.hpp"
 #include "fanin_taskstream.hpp"
 #include "listscanner.hpp"
+#include "utilities.hpp"
 #include "worker.hpp"
 
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <istream>
 #include <memory>
 #include <queue>
 #include <string>
@@ -43,7 +45,7 @@ int sum_main(argparser::ap_instance &cmdline)
 
     // Basic values
     fanin_taskstream tasks;
-    algorithm alg = algorithm::error;
+    checksum_api api;
     unsigned threads = 0;
     std::queue<path> files;
     std::vector<std::unique_ptr<std::ifstream>> lists;
@@ -53,7 +55,8 @@ int sum_main(argparser::ap_instance &cmdline)
          force_rescan = static_cast<bool>(
              cmdline.entry(cmdline_entry::force_rescan).repetition),
          verbose = static_cast<bool>(
-             cmdline.entry(cmdline_entry::verbose).repetition);
+             cmdline.entry(cmdline_entry::verbose).repetition),
+         key_from_stdin = false;
     std::ostream *out;
     std::ofstream fout;
 
@@ -62,12 +65,82 @@ int sum_main(argparser::ap_instance &cmdline)
         // Decide the algorithm
         {
             auto &content = cmdline.entry(cmdline_entry::algorithm).content;
-            alg = str_to_alg(content.at(0));
-            if (alg == algorithm::error)
+            api.alg = str_to_alg(content.at(0));
+            if (api.alg == algorithm::error)
             {
                 std::cerr << "Error: unknown algorithm: \"" << content.at(0)
                           << "\"." << std::endl;
                 return TSUBAKI_INVALID_ARGUMENT;
+            }
+        }
+        // Check the key
+        {
+            auto &key_cont = cmdline.entry(cmdline_entry::key).content;
+            auto &key_file_cont =
+                cmdline.entry(cmdline_entry::key_file).content;
+            if (!key_cont.empty() && !key_file_cont.empty())
+            {
+                std::cerr << "Error: specifying key and key file at the same "
+                             "time is not allowed."
+                          << std::endl;
+                return TSUBAKI_INVALID_ARGUMENT;
+            }
+            if (!is_keyed(api.alg))
+            {
+                // The key is irrelevant, so never open the file: that keeps
+                // "-K -" from stealing stdin when a list also wants it.
+                if (!key_cont.empty() || !key_file_cont.empty())
+                {
+                    std::cerr << "Warning: \"" << alg_to_str(api.alg)
+                              << "\" doesn't need key." << std::endl;
+                    std::cerr << "Will go ahead anyway ignoring the specified "
+                                 "key."
+                              << std::endl;
+                }
+            }
+            else
+            {
+                std::string key;
+                if (!key_cont.empty())
+                    key = key_cont.at(0);
+                else if (!key_file_cont.empty())
+                {
+                    const bool from_stdin = key_file_cont.at(0) == "-";
+                    key_from_stdin = from_stdin;
+                    std::ifstream ifs_key_file;
+                    std::istream *is_key = &std::cin;
+                    if (!from_stdin)
+                    {
+                        ifs_key_file.open(key_file_cont.at(0));
+                        is_key = &ifs_key_file;
+                    }
+                    auto key_read = get_key(*is_key);
+                    if (!key_read)
+                    {
+                        std::cerr
+                            << "Error: cannot read a key from "
+                            << (from_stdin ? "stdin"
+                                           : "\"" + key_file_cont.at(0) + "\"")
+                            << "." << std::endl;
+                        return TSUBAKI_FILE_READ_FAILED;
+                    }
+                    key = key_read.value();
+                }
+                if (key.empty())
+                {
+                    std::cerr << "Error: \"" << alg_to_str(api.alg)
+                              << "\" needs a key." << std::endl;
+                    return TSUBAKI_INVALID_ARGUMENT;
+                }
+                if (!check_key_validity(key, api.alg))
+                {
+                    std::cerr << "Error: the key for \"" << alg_to_str(api.alg)
+                              << "\" must be at most "
+                              << max_key_length(api.alg) << " bytes."
+                              << std::endl;
+                    return TSUBAKI_INVALID_ARGUMENT;
+                }
+                api.key = key;
             }
         }
         // Decide the thread count
@@ -134,10 +207,20 @@ int sum_main(argparser::ap_instance &cmdline)
         // Parse the files ( - stands for stdin )
         for (auto &it : cmdline.entry(cmdline_entry::files).content)
         {
-            if (it ==
-                "-") // Add a listscanner reads stdin ( safe to multiply add )
+            if (it == "-")
+            {
+                // stdin is already the key source; naming it again as an
+                // input would read the same stream twice.
+                if (key_from_stdin)
+                {
+                    std::cerr << "Error: stdin was used for the key."
+                              << std::endl;
+                    return TSUBAKI_INVALID_ARGUMENT;
+                }
+                // Add a listscanner reads stdin ( safe to multiply add )
                 tasks.add_task(std::make_unique<listscanner>(
                     "stdin", std::cin, *out, force_rescan));
+            }
             else
             {
                 std::error_code ec;
@@ -165,7 +248,7 @@ int sum_main(argparser::ap_instance &cmdline)
     }
 
     // Run work
-    work_result result = work_manager(tasks, *out, alg, verbose).run(threads);
+    work_result result = work_manager(tasks, *out, api, verbose).run(threads);
     *out << "#\n";
     result.print(*out, true);
     if (out != &std::cout)

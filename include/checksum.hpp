@@ -14,6 +14,8 @@
 #include <system_error>
 #include <vector>
 
+#define MIN_HASH_HEXLENGTH 32 // Only record the min length to avoid complexity
+
 namespace tsubaki
 {
 #define ALGORITHM_LIST(X)                                                      \
@@ -27,7 +29,17 @@ namespace tsubaki
     X(sha3_256, "sha3_256")                                                    \
     X(sha3_512, "sha3_512")                                                    \
     X(blake2b512, "blake2b512")                                                \
-    X(blake2s256, "blake2s256")
+    X(blake2s256, "blake2s256")                                                \
+    X(hmac_md5, "hmac_md5")                                                    \
+    X(hmac_sha1, "hmac_sha1")                                                  \
+    X(hmac_sha224, "hmac_sha224")                                              \
+    X(hmac_sha256, "hmac_sha256")                                              \
+    X(hmac_sha384, "hmac_sha384")                                              \
+    X(hmac_sha512, "hmac_sha512")                                              \
+    X(hmac_sha3_256, "hmac_sha3_256")                                          \
+    X(hmac_sha3_512, "hmac_sha3_512")                                          \
+    X(blake2b512_mac, "blake2b512_mac")                                        \
+    X(blake2s256_mac, "blake2s256_mac")
 
 enum class algorithm
 {
@@ -63,6 +75,82 @@ inline constexpr std::string_view none_checksum = "<NONE>";
 
 std::expected<std::string, std::error_code>
 checksum_file(const std::filesystem::path &path, algorithm algo);
+
+std::expected<std::string, std::error_code>
+checksum_file_key(const std::filesystem::path &path, const std::string &key,
+                  algorithm algo);
+
+inline constexpr bool is_keyed(const algorithm &alg)
+{
+    switch (alg)
+    {
+    case algorithm::hmac_md5:
+    case algorithm::hmac_sha1:
+    case algorithm::hmac_sha224:
+    case algorithm::hmac_sha256:
+    case algorithm::hmac_sha384:
+    case algorithm::hmac_sha512:
+    case algorithm::hmac_sha3_256:
+    case algorithm::hmac_sha3_512:
+    case algorithm::blake2b512_mac:
+    case algorithm::blake2s256_mac:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// The longest key an algorithm accepts, in bytes; 0 means there is no upper
+// bound (HMAC) or that the algorithm is not keyed at all.
+inline constexpr std::size_t max_key_length(const algorithm &alg)
+{
+    switch (alg)
+    {
+    case algorithm::blake2b512_mac:
+        return 64;
+    case algorithm::blake2s256_mac:
+        return 32;
+    default:
+        return 0;
+    }
+}
+
+// A keyed algorithm needs a non-empty key that fits its limit; a plain digest
+// ignores the key, so any value passes.
+inline constexpr bool check_key_validity(const std::string &key,
+                                         const algorithm &alg)
+{
+    if (!is_keyed(alg))
+        return true;
+    const std::size_t limit = max_key_length(alg);
+    return !key.empty() && (limit == 0 || key.size() <= limit);
+}
+
+struct checksum_api
+{
+    algorithm alg = algorithm::none;
+    std::string key;
+
+    checksum_api() = default;
+    explicit checksum_api(algorithm _alg) : alg(_alg) {}
+    checksum_api(algorithm _alg, const std::string &_key)
+        : alg(_alg), key(_key)
+    {
+    }
+
+    inline std::expected<std::string, std::error_code>
+    calc(const std::filesystem::path &target) const
+    {
+        if (!is_keyed(alg))
+            return checksum_file(target, alg);
+        // An empty or over-long key is a caller mistake, not a request to MAC
+        // with whatever the caller happened to pass.
+        if (!check_key_validity(key, alg))
+            return std::unexpected(
+                std::make_error_code(std::errc::invalid_argument));
+        return checksum_file_key(target, key, alg);
+    }
+};
 } // namespace tsubaki
 
 #endif

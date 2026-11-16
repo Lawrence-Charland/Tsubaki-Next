@@ -6,17 +6,24 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <iosfwd>
+#include <optional>
 #include <string>
 #include <utility>
 
 namespace tsubaki
 {
-std::pair<std::string, std::string> get_equation(const std::string &target,
-                                                 char separator);
+std::pair<std::string, std::string>
+get_equation(const std::string &target, char separator, bool trim = true);
 
 void trim_str(std::string &target);
 
 bool is_checksum(const std::string &target);
+
+// Reads a key from `is`, keeping interior bytes as they are and dropping any
+// run of trailing CR/LF. An unreadable stream or a key that ends up empty is
+// reported as std::nullopt.
+std::optional<std::string> get_key(std::istream &is);
 
 std::string to_hex(const unsigned char *data, std::size_t len);
 

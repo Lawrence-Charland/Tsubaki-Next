@@ -6,21 +6,20 @@
 
 #include <cerrno>
 #include <cstddef>
-#include <memory>
-#include <stdexcept>
-#include <vector>
 #include <fcntl.h>
-#include <unistd.h>
+#include <memory>
+#include <openssl/core_names.h>
 #include <openssl/evp.h>
+#include <openssl/params.h>
+#include <unistd.h>
+#include <vector>
 
 namespace
 {
-const EVP_MD *to_evp(tsubaki::algorithm algo)
+const EVP_MD *digest_for(tsubaki::algorithm algo)
 {
     switch (algo)
     {
-    case tsubaki::algorithm::none:
-        return nullptr;
     case tsubaki::algorithm::md5:
         return EVP_md5();
     case tsubaki::algorithm::sha1:
@@ -42,9 +41,45 @@ const EVP_MD *to_evp(tsubaki::algorithm algo)
     case tsubaki::algorithm::blake2s256:
         return EVP_blake2s256();
     default:
-        throw std::invalid_argument("to_evp: unsupported algorithm");
+        return nullptr;
     }
-    return nullptr;
+}
+
+// Keyed hashes all go through EVP_MAC: HMAC keeps its digest in a parameter,
+// keyed BLAKE2 is a MAC algorithm of its own.
+struct mac_spec
+{
+    const char *name;   // EVP_MAC algorithm name
+    const char *digest; // digest parameter, nullptr if the MAC has none
+};
+
+mac_spec mac_for(tsubaki::algorithm algo)
+{
+    switch (algo)
+    {
+    case tsubaki::algorithm::hmac_md5:
+        return {"HMAC", "MD5"};
+    case tsubaki::algorithm::hmac_sha1:
+        return {"HMAC", "SHA1"};
+    case tsubaki::algorithm::hmac_sha224:
+        return {"HMAC", "SHA224"};
+    case tsubaki::algorithm::hmac_sha256:
+        return {"HMAC", "SHA256"};
+    case tsubaki::algorithm::hmac_sha384:
+        return {"HMAC", "SHA384"};
+    case tsubaki::algorithm::hmac_sha512:
+        return {"HMAC", "SHA512"};
+    case tsubaki::algorithm::hmac_sha3_256:
+        return {"HMAC", "SHA3-256"};
+    case tsubaki::algorithm::hmac_sha3_512:
+        return {"HMAC", "SHA3-512"};
+    case tsubaki::algorithm::blake2b512_mac:
+        return {"BLAKE2BMAC", nullptr};
+    case tsubaki::algorithm::blake2s256_mac:
+        return {"BLAKE2SMAC", nullptr};
+    default:
+        return {nullptr, nullptr};
+    }
 }
 
 std::unexpected<std::error_code> crypto_failure()
@@ -53,31 +88,22 @@ std::unexpected<std::error_code> crypto_failure()
         std::make_error_code(std::errc::operation_not_supported));
 }
 
-constexpr std::size_t buffer_size = 64 * 1024;
-} // namespace
-
-std::expected<std::string, std::error_code>
-tsubaki::checksum_file(const std::filesystem::path &path, algorithm algo)
+std::unexpected<std::error_code> bad_algorithm()
 {
-    if (algo == algorithm::none)
-        return std::string(none_checksum);
+    return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+}
 
-    const EVP_MD *md = to_evp(algo);
-    if (!md)
-        return crypto_failure();
+constexpr std::size_t buffer_size = 64 * 1024;
 
-    fd_guard fd(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
+// Streams the whole file through `update`, which reports false when the crypto
+// context rejects a chunk. Shared by the digest and the MAC paths.
+template <typename Update>
+std::expected<void, std::error_code>
+stream_file(const std::filesystem::path &path, Update &&update)
+{
+    tsubaki::fd_guard fd(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
     if (fd.get() < 0)
         return std::unexpected(std::error_code(errno, std::system_category()));
-
-    using ctx_ptr = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
-    ctx_ptr ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
-    if (!ctx)
-        return std::unexpected(
-            std::make_error_code(std::errc::not_enough_memory));
-
-    if (EVP_DigestInit_ex(ctx.get(), md, nullptr) != 1)
-        return crypto_failure();
 
     thread_local static std::vector<unsigned char> buffer(buffer_size);
 
@@ -92,11 +118,37 @@ tsubaki::checksum_file(const std::filesystem::path &path, algorithm algo)
                 std::error_code(errno, std::system_category()));
         }
         if (read_size == 0)
-            break;
-        if (EVP_DigestUpdate(ctx.get(), buffer.data(),
-                             static_cast<std::size_t>(read_size)) != 1)
+            return {};
+        if (!update(buffer.data(), static_cast<std::size_t>(read_size)))
             return crypto_failure();
     }
+}
+} // namespace
+
+std::expected<std::string, std::error_code>
+tsubaki::checksum_file(const std::filesystem::path &path, algorithm algo)
+{
+    if (algo == algorithm::none)
+        return std::string(none_checksum);
+
+    const EVP_MD *md = digest_for(algo);
+    if (!md)
+        return bad_algorithm();
+
+    using ctx_ptr = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
+    ctx_ptr ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+    if (!ctx)
+        return std::unexpected(
+            std::make_error_code(std::errc::not_enough_memory));
+
+    if (EVP_DigestInit_ex(ctx.get(), md, nullptr) != 1)
+        return crypto_failure();
+
+    const auto pumped =
+        stream_file(path, [&ctx](const unsigned char *data, std::size_t len)
+                    { return EVP_DigestUpdate(ctx.get(), data, len) == 1; });
+    if (!pumped)
+        return std::unexpected(pumped.error());
 
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digest_len = 0;
@@ -104,4 +156,56 @@ tsubaki::checksum_file(const std::filesystem::path &path, algorithm algo)
         return crypto_failure();
 
     return to_hex(digest, digest_len);
+}
+
+std::expected<std::string, std::error_code>
+tsubaki::checksum_file_key(const std::filesystem::path &path,
+                           const std::string &key, algorithm algo)
+{
+    if (algo == algorithm::none)
+        return std::string(none_checksum);
+
+    const mac_spec spec = mac_for(algo);
+    if (!spec.name)
+        return bad_algorithm();
+
+    using mac_ptr = std::unique_ptr<EVP_MAC, decltype(&EVP_MAC_free)>;
+    mac_ptr mac(EVP_MAC_fetch(nullptr, spec.name, nullptr), &EVP_MAC_free);
+    if (!mac)
+        return crypto_failure();
+
+    using mac_ctx_ptr =
+        std::unique_ptr<EVP_MAC_CTX, decltype(&EVP_MAC_CTX_free)>;
+    mac_ctx_ptr ctx(EVP_MAC_CTX_new(mac.get()), &EVP_MAC_CTX_free);
+    if (!ctx)
+        return std::unexpected(
+            std::make_error_code(std::errc::not_enough_memory));
+
+    OSSL_PARAM params[2];
+    std::size_t param_count = 0;
+    if (spec.digest)
+    {
+        // OpenSSL only reads the name; the setter itself is not const-correct.
+        params[param_count++] = OSSL_PARAM_construct_utf8_string(
+            OSSL_MAC_PARAM_DIGEST, const_cast<char *>(spec.digest), 0);
+    }
+    params[param_count] = OSSL_PARAM_construct_end();
+
+    if (EVP_MAC_init(ctx.get(),
+                     reinterpret_cast<const unsigned char *>(key.data()),
+                     key.size(), params) != 1)
+        return crypto_failure();
+
+    const auto pumped =
+        stream_file(path, [&ctx](const unsigned char *data, std::size_t len)
+                    { return EVP_MAC_update(ctx.get(), data, len) == 1; });
+    if (!pumped)
+        return std::unexpected(pumped.error());
+
+    unsigned char out[EVP_MAX_MD_SIZE];
+    std::size_t out_len = 0;
+    if (EVP_MAC_final(ctx.get(), out, &out_len, sizeof out) != 1)
+        return crypto_failure();
+
+    return to_hex(out, out_len);
 }

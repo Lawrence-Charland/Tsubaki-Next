@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Lawrence Charland
 
 // Scratch driver for timeline_fs: exercises the tree by hand, asserts nothing.
-// Not a test and not built; kept as a sketch of how a comparison would fill it.
+// Not a test and not built; kept with the module as a sketch of how a
+// comparison would fill it.
 
 #include "timeline_fs.hpp"
 #include <iostream>

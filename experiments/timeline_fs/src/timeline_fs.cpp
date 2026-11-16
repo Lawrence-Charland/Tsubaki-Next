@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Lawrence Charland
 
 // Implementation of the time-indexed filesystem sketched in timeline_fs.hpp.
-// Groundwork for comparing several sets of results; not compiled today.
+// Experimental groundwork for comparing several sets of results; not compiled.
 
 #include "timeline_fs.hpp"
 #include <climits>
@@ -28,7 +28,7 @@ bool is_single_name(const path &p)
 
 template <typename NODE_PTR>
 std::expected<NODE_PTR, tlfs_error>
-walk_path(unsigned short time_id, NODE_PTR cursor, const path &relative_path)
+walk_path(time_id_t time_id, NODE_PTR cursor, const path &relative_path)
 {
     for (auto it = relative_path.begin(); it != relative_path.end(); it++)
     {
@@ -49,10 +49,10 @@ walk_path(unsigned short time_id, NODE_PTR cursor, const path &relative_path)
     return cursor;
 }
 
-unsigned short randum_time_id()
+time_id_t randum_time_id()
 {
     thread_local std::mt19937_64 gen{std::random_device{}()};
-    thread_local std::uniform_int_distribution<unsigned short> dist;
+    thread_local std::uniform_int_distribution<time_id_t> dist;
     return dist(gen);
 }
 } // namespace
@@ -70,8 +70,8 @@ node::node(const path &_name, file_type _type) : name(_name), type(_type)
                                     "directory.");
 }
 
-std::expected<node_ptr, tlfs_error> node::find_subnode(unsigned short time_id,
-                                                        const path &node_name)
+std::expected<node_ptr, tlfs_error> node::find_subnode(time_id_t time_id,
+                                                       const path &node_name)
 {
     if (!is_single_name(node_name))
         return std::unexpected(tlfs_error(err_code::not_a_file_name, ""));
@@ -85,7 +85,7 @@ std::expected<node_ptr, tlfs_error> node::find_subnode(unsigned short time_id,
 }
 
 std::expected<const_node_ptr, tlfs_error>
-node::find_subnode(unsigned short time_id, const path &node_name) const
+node::find_subnode(time_id_t time_id, const path &node_name) const
 {
     if (!is_single_name(node_name))
         return std::unexpected(tlfs_error(err_code::not_a_file_name, ""));
@@ -99,7 +99,7 @@ node::find_subnode(unsigned short time_id, const path &node_name) const
 }
 
 std::expected<void, tlfs_error>
-node::touch_subnode(unsigned short time_id,
+node::touch_subnode(time_id_t time_id,
                     const std::list<node>::iterator &new_node)
 {
     if (find_subnode(time_id, new_node->name))
@@ -114,7 +114,7 @@ node::touch_subnode(unsigned short time_id,
 }
 
 std::expected<std::string_view, tlfs_error>
-node::inquire_checksum(unsigned short time_id) const
+node::inquire_checksum(time_id_t time_id) const
 {
     auto inquire = checksums.find(time_id);
     if (inquire == checksums.end())
@@ -122,7 +122,7 @@ node::inquire_checksum(unsigned short time_id) const
     return static_cast<std::string_view>(inquire->second);
 }
 
-void node::print_subnodes(unsigned short time_id, std::ostream &os) const
+void node::print_subnodes(time_id_t time_id, std::ostream &os) const
 {
     auto subnode_list = subnodes.find(time_id);
     if (subnode_list == subnodes.end())
@@ -149,12 +149,12 @@ const_node_ptr timeline_fs::root() const
     return node_list.begin();
 }
 
-std::expected<unsigned short, tlfs_error>
+std::expected<time_id_t, tlfs_error>
 timeline_fs::add_time(const std::string &exp)
 {
     if (timemapper.size() >= USHRT_MAX)
         return std::unexpected(tlfs_error(err_code::invalid_operation,
-                                           "no more time IDs available"));
+                                          "no more time IDs available"));
     for (auto i = randum_time_id();; i = randum_time_id())
     {
         for (auto &it : timemapper)
@@ -167,21 +167,21 @@ timeline_fs::add_time(const std::string &exp)
 }
 
 std::expected<const_node_ptr, tlfs_error>
-timeline_fs::inquire_node(unsigned short time_id, const_node_ptr from,
+timeline_fs::inquire_node(time_id_t time_id, const_node_ptr from,
                           const path &relative_path) const
 {
     return walk_path<const_node_ptr>(time_id, from, relative_path);
 }
 
 std::expected<node_ptr, tlfs_error>
-timeline_fs::inquire_node_mutable(unsigned short time_id, const node_ptr &from,
+timeline_fs::inquire_node_mutable(time_id_t time_id, const node_ptr &from,
                                   const path &relative_path)
 {
     return walk_path<node_ptr>(time_id, from, relative_path);
 }
 
 std::expected<node_ptr, tlfs_error>
-timeline_fs::touch_node(unsigned short time_id, const node_ptr &ptr,
+timeline_fs::touch_node(time_id_t time_id, const node_ptr &ptr,
                         const path &node_name, file_type type)
 {
     try
@@ -206,7 +206,7 @@ timeline_fs::touch_node(unsigned short time_id, const node_ptr &ptr,
 }
 
 std::expected<node_ptr, tlfs_error>
-timeline_fs::make_dir(unsigned short time_id, const node_ptr &from,
+timeline_fs::make_dir(time_id_t time_id, const node_ptr &from,
                       const path &relative_path)
 {
     node_ptr cursor = from;
@@ -227,10 +227,9 @@ timeline_fs::make_dir(unsigned short time_id, const node_ptr &from,
         if (find)
         {
             if (find.value()->type != file_type::directory)
-                return std::unexpected(
-                    tlfs_error(err_code::not_a_directory,
-                                "\"" + tmp_p.string() +
-                                    "\" is not a directory"));
+                return std::unexpected(tlfs_error(err_code::not_a_directory,
+                                                  "\"" + tmp_p.string() +
+                                                      "\" is not a directory"));
             cursor = find.value();
             continue;
         }
@@ -245,7 +244,7 @@ timeline_fs::make_dir(unsigned short time_id, const node_ptr &from,
 }
 
 std::expected<node_ptr, tlfs_error>
-timeline_fs::make_file(unsigned short time_id, const node_ptr &from,
+timeline_fs::make_file(time_id_t time_id, const node_ptr &from,
                        const path &relative_path)
 {
     auto mkdir = make_dir(time_id, from, relative_path.parent_path());
@@ -255,8 +254,7 @@ timeline_fs::make_file(unsigned short time_id, const node_ptr &from,
                       file_type::regular);
 }
 
-void timeline_fs::remove_node_internal(unsigned short time_id,
-                                       const node_ptr &node_)
+void timeline_fs::remove_node_internal(time_id_t time_id, const node_ptr &node_)
 {
     auto subnode_list = node_->subnodes.find(time_id);
     if (subnode_list != node_->subnodes.end())
@@ -279,20 +277,20 @@ void timeline_fs::remove_node_internal(unsigned short time_id,
 }
 
 std::expected<void, tlfs_error>
-timeline_fs::remove_node(unsigned short time_id, const node_ptr &from,
+timeline_fs::remove_node(time_id_t time_id, const node_ptr &from,
                          const path &relative_path)
 {
     if (relative_path.empty())
-        return std::unexpected(tlfs_error(
-            err_code::invalid_operation,
-            "refusing to remove the current directory."));
+        return std::unexpected(
+            tlfs_error(err_code::invalid_operation,
+                       "refusing to remove the current directory."));
     auto target = inquire_node_mutable(time_id, from, relative_path);
     if (!target)
         return std::unexpected(target.error());
     if (target.value() == from || target.value()->parent_node == target.value())
-        return std::unexpected(tlfs_error(
-            err_code::invalid_operation,
-            "refusing to remove the current directory."));
+        return std::unexpected(
+            tlfs_error(err_code::invalid_operation,
+                       "refusing to remove the current directory."));
 
     auto parent = target.value()->parent_node;
     auto siblings = parent->subnodes.find(time_id);
@@ -309,7 +307,7 @@ timeline_fs::remove_node(unsigned short time_id, const node_ptr &from,
 }
 
 std::expected<void, tlfs_error>
-timeline_fs::update_checksum(unsigned short time_id, const node_ptr node_,
+timeline_fs::update_checksum(time_id_t time_id, const node_ptr node_,
                              const std::string &checksum)
 {
     if (node_->type != file_type::regular)
@@ -323,7 +321,7 @@ timeline_fs::update_checksum(unsigned short time_id, const node_ptr node_,
 }
 
 std::expected<std::string_view, tlfs_error>
-timeline_fs::inquire_checksum(unsigned short time_id, const_node_ptr from,
+timeline_fs::inquire_checksum(time_id_t time_id, const_node_ptr from,
                               const path &relative_path) const
 {
     auto node = inquire_node(time_id, from, relative_path);

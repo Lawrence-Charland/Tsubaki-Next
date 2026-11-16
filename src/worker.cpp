@@ -3,6 +3,7 @@
 
 #include "worker.hpp"
 #include "checksum.hpp"
+#include "exit_codes.hpp"
 #include "utilities.hpp"
 
 #include <atomic>
@@ -10,7 +11,6 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
-#include <exception>
 #include <expected>
 #include <filesystem>
 #include <iostream>
@@ -49,7 +49,7 @@ void work_result::print(std::ostream &os, bool with_errors)
 
 namespace
 {
-std::atomic<algorithm> *volatile g_target = nullptr;
+std::atomic<bool> *volatile g_interrupt = nullptr;
 
 std::atomic<unsigned> volatile int_count = 0;
 
@@ -59,12 +59,12 @@ const constexpr char *term_msg =
 void on_interrupt(int)
 {
     int_count++;
-    if (g_target)
-        g_target->store(algorithm::none, std::memory_order_relaxed);
+    if (g_interrupt)
+        g_interrupt->store(true, std::memory_order_relaxed);
     if (int_count == 5)
     {
         write(2, term_msg, strlen(term_msg));
-        std::terminate();
+        _exit(TSUBAKI_TERMINATED);
     }
 }
 } // namespace
@@ -74,7 +74,15 @@ void work_manager::worker()
     std::optional<std::filesystem::path> target;
     while ((target = tasks.pop(), target))
     {
-        auto checksum = checksum_file(target.value(), alg.load());
+        if (interrupted.load(std::memory_order_relaxed))
+        {
+            std::osyncstream(os)
+                << none_checksum << ' ' << target->string() << '\n';
+            unprocessed.fetch_add(1, std::memory_order_relaxed);
+            continue;
+        }
+
+        auto checksum = api.calc(target.value());
         if (!checksum)
         {
             tasks.report_error(
@@ -88,7 +96,7 @@ void work_manager::worker()
         {
             std::osyncstream(os)
                 << checksum.value() << ' ' << target->string() << '\n';
-            if (alg != algorithm::none)
+            if (api.alg != algorithm::none)
                 success.fetch_add(1, std::memory_order_relaxed);
             else
                 unprocessed.fetch_add(1, std::memory_order_relaxed);
@@ -98,7 +106,7 @@ void work_manager::worker()
 
 void work_manager::printer()
 {
-    if (quiet || alg == algorithm::none)
+    if (quiet || api.alg == algorithm::none)
         return;
     std::size_t width;
     std::size_t tick = 0;
@@ -122,7 +130,7 @@ void work_manager::printer()
         last_size = line.size();
         return line;
     };
-    while (alg.load() != algorithm::none)
+    while (!interrupted.load(std::memory_order_relaxed))
     {
         width = terminal_width(stderr);
         {
@@ -143,7 +151,7 @@ void work_manager::wait()
     for (auto &it : workers)
         if (it.joinable())
             it.join();
-    alg.store(algorithm::none);
+    interrupted.store(true, std::memory_order_relaxed);
     progress.join();
 }
 
@@ -152,14 +160,13 @@ work_result work_manager::run(unsigned thread_count)
     if (thread_count == 0)
         throw std::invalid_argument(
             "tsubaki::work_manager::run: thread_count must be greater than 0");
-    static_assert(std::atomic<algorithm>::is_always_lock_free);
-    const algorithm chosen_alg = alg.load(std::memory_order_relaxed);
+    static_assert(std::atomic<bool>::is_always_lock_free);
     using sig_handler = void (*)(int);
     sig_handler previous = SIG_DFL;
     if (catch_sigint)
     {
         previous = std::signal(SIGINT, on_interrupt);
-        g_target = &alg;
+        g_interrupt = &interrupted;
     }
     workers.reserve(thread_count);
     auto steady_start = std::chrono::steady_clock::now();
@@ -171,10 +178,10 @@ work_result work_manager::run(unsigned thread_count)
     auto duration = steady_finish - steady_start;
     if (catch_sigint)
     {
-        g_target = nullptr;
+        g_interrupt = nullptr;
         std::signal(SIGINT, previous);
     }
-    return work_result(chosen_alg, tasks.take_errors(), success.load(),
+    return work_result(api.alg, tasks.take_errors(), success.load(),
                        failed.load(), unprocessed.load(),
                        std::chrono::duration<double>(duration).count(),
                        static_cast<bool>(int_count.load()));

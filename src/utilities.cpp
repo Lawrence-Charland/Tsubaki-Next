@@ -2,21 +2,28 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "utilities.hpp"
+#include "checksum.hpp"
 
 #include <algorithm>
+#include <istream>
 #include <string>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <utility>
 
 namespace tsubaki
 {
 std::pair<std::string, std::string> get_equation(const std::string &target,
-                                                 char separator)
+                                                 char separator, bool trim)
 {
     size_t pos = target.find(separator);
     if (pos == target.npos)
         return {target, ""};
-    return {target.substr(0, pos), target.substr(pos + 1)};
+    std::pair<std::string, std::string> result = {target.substr(0, pos),
+                                                  target.substr(pos + 1)};
+    if (trim)
+        trim_str(result.first), trim_str(result.second);
+    return result;
 }
 
 void trim_str(std::string &target)
@@ -31,7 +38,7 @@ void trim_str(std::string &target)
 
 bool is_checksum(const std::string &target)
 {
-    if (target.empty())
+    if (target.length() < MIN_HASH_HEXLENGTH)
         return false;
 
     for (char c : target)
@@ -42,6 +49,34 @@ bool is_checksum(const std::string &target)
             return false;
     }
     return true;
+}
+
+std::optional<std::string> get_key(std::istream &is)
+{
+    std::string key;
+    std::string line;
+    bool first = true;
+    try
+    {
+        while (std::getline(is, line))
+        {
+            if (!first)
+                key.push_back('\n');
+            key += line;
+            first = false;
+        }
+    }
+    catch (const std::ios_base::failure &)
+    {
+        return std::nullopt;
+    }
+    if (is.bad() || (is.fail() && !is.eof()))
+        return std::nullopt;
+    while (!key.empty() && (key.back() == '\n' || key.back() == '\r'))
+        key.pop_back();
+    if (key.empty())
+        return std::nullopt;
+    return key;
 }
 
 std::string to_hex(const unsigned char *data, std::size_t len)

@@ -21,9 +21,13 @@ Positional arguments:
                           everything below belongs to it.
   algorithm              checksum algorithm to use; one of:
                          none, md5, sha1, sha224, sha256, sha384, sha512,
-                         sha3_256, sha3_512, blake2b512, blake2s256.
+                         sha3_256, sha3_512, blake2b512, blake2s256,
+                         hmac_md5, hmac_sha1, hmac_sha224, hmac_sha256,
+                         hmac_sha384, hmac_sha512, hmac_sha3_256,
+                         hmac_sha3_512, blake2b512_mac, blake2s256_mac.
                          "none" only lists the files without computing
-                         checksums.
+                         checksums. The hmac_* and blake2*_mac algorithms are
+                         keyed hashes and require -k/--key or -K/--key-file.
   files or directories   files and directories to process. A directory is
                          scanned recursively. "-" reads a list of paths from
                          stdin instead of naming a file.
@@ -34,6 +38,19 @@ Options:
   -v, --verbose               print a live progress indicator on stderr.
   -t<n>, --thread=<n>         number of worker threads; defaults to the number
                               of hardware threads. Alias: --threads=<n>.
+  -k<key>, --key=<key>        secret key for the keyed algorithms (hmac_*,
+                              blake2*_mac); ignored with a warning when the
+                              algorithm needs none. Keyed BLAKE2 caps the key
+                              at 64 bytes (blake2b512_mac) or 32 bytes
+                              (blake2s256_mac). The key is part of the
+                              command line, so it shows up in "ps" and in the
+                              shell history; do not pass a real secret on a
+                              shared machine.
+  -K<file>, --key-file=<file> read the key from <file> instead of the command
+                              line; "-" reads it from stdin. Trailing CR/LF are
+                              dropped. Conflicts with -k, and "-" cannot be
+                              named twice (as key source and as an input). A
+                              missing, unreadable or empty file exits 114.
   -o<file>, --output=<file>   write the results to <file> instead of stdout.
   -e<path>, --exclude=<path>  skip <path> and anything below it when scanning
                               directories; may be given more than once.
@@ -47,8 +64,8 @@ Options:
 Option values:
   A long option takes its value with '=', as in --list=old.txt; a short option
   takes it attached, as in -lold.txt. A value can also follow the switch
-  separately, as plain arguments: -t and -o take one, while -e and -l take as
-  many as you give, as in "sha256 . -e a b -l list1 list2".
+  separately, as plain arguments: -t, -k, -K and -o take one, while -e and -l
+  take as many as you give, as in "sha256 . -e a b -l list1 list2".
 
   Entries are matched in a fixed order, and a switch that has already been
   consumed is removed, so a later option can pass over that spot. When in
@@ -73,10 +90,16 @@ Output format:
   line, increments no counter, and adds only an error entry. Devices and FIFOs
   are read as streams, so they can block or never reach EOF.
 
+  Write errors are not checked: a full disk or a broken descriptor leaves the
+  output incomplete, and the exit status does not change. A pipe with no reader
+  kills the process with SIGPIPE instead.
+
 Examples:
   {program} sum sha256 .                      scan the current directory.
   {program} sum --thread=8 --output=sum.txt blake2b512 .
-                                              use 8 threads and write to sum.txt.
+                                              8 threads, results in sum.txt.
+  {program} sum hmac_sha256 . --key=secret    HMAC-SHA256 of every file below.
+  {program} sum hmac_sha256 . -K secret.key   the same, key read from a file.
   {program} sum sha512 --exclude=.git --exclude=build .
                                               skip .git and build.
   {program} sum sha256 --list=old.txt --force-rescan g1
@@ -89,11 +112,15 @@ Exit status:
   0    no error was recorded.
   1    at least one error was recorded: a checksum failure, a missing path, an
        unopenable list file, or a missing exclude.
-  2    invalid command line: unknown subcommand, unknown algorithm, bad thread
-       count, or leftover arguments.
+  2    invalid command line: unknown subcommand, unknown algorithm, a keyed
+       algorithm without a key or with a key too long for it, -k together
+       with -K, stdin named twice, bad thread count, or leftover arguments.
   70   fatal start-up failure (argc is 0).
   74   the --output file cannot be opened for writing.
+  114  the --key-file cannot be read, or holds no key.
   130  the run was interrupted with Ctrl-C.
+  250  Ctrl-C was pressed five times, so the process aborted on the spot; the
+       output can end without its report block.
   255  an unexpected exception escaped; TSUBAKI_UNEXPECTED is -1 internally.
 
 Repository:

@@ -18,6 +18,22 @@
 中间没有"文件列表"这一层。扫描之后不再排序、不再统计、不再过滤：谁取到一条
 路径，谁就立刻开算。
 
+## 目录
+
+- [启动流程](#启动流程)
+- [命令行层](#命令行层)
+- [任务流层](#任务流层)
+- [线程安全规则](#线程安全规则)
+- [哈希计算](#哈希计算)
+- [工作线程、进度与报告](#工作线程进度与报告)
+- [输出流](#输出流)
+- [并发模型](#并发模型)
+- [退出码](#退出码)
+- [数据流示例](#数据流示例)
+- [为什么现在只有一个 manager](#为什么现在只有一个-manager)
+- [扩展点](#扩展点)
+- [源码映射](#源码映射)
+
 ## 启动流程
 
 `main()`（在 `src/main.cpp` 里）负责子命令分发，以及所有与子命令无关的事：
@@ -42,36 +58,25 @@
    组的条目保留之前的结果。
 2. `fine(false)` 做校验。每个失败的条目都用 `argparser::describe()` 报出来，
    末尾补一句提示去跑 `--help`。
-3. 取条目的值并检查：算法经 `str_to_alg()` 映射，线程数解析（失败就退回
-   `std::thread::hardware_concurrency()`），输出流打开。
+3. 取条目的值并检查：算法经 `str_to_alg()` 映射；密钥算法从 `-k` 或 `-K` 取密钥
+   （`get_key()` 读文件，路径是 `-` 时读 stdin，并去掉尾部 CR/LF），普通算法带了
+   任一选项都只发警告，连文件都不会打开；线程数解析（失败就退回
+   `std::thread::hardware_concurrency()`），输出流打开。`check_key_validity()`
+   拒绝空密钥和超长密钥；`-K -` 与 `-` 输入同时出现会被拒绝，同一条 stdin 只能
+   指定一次。算法和密钥最后装进同一个 `checksum_api`，传给工作线程的是它，而不是
+   光秃秃的 `algorithm`。
 4. 把输入变成生产者，加进 `fanin_taskstream`：每个目录一个 `dirscanner`，每个
    `-` 或列表文件一个 `listscanner`，普通的文件参数汇总成一个
    `cached_taskstream`。队列就按这个顺序建：命令行上出现的目录和 `-`，然后是
    缓存的文件，最后是 `-l` 列表。即使文件参数为空，这个流也会被加进去；输入
    全空也是合法的——`files` 没有最小个数限制，空跑一次只是打印一份空报告。
-5. `work_manager(tasks, *out, alg, verbose).run(threads)` 启动工作线程，返回一个
+5. `work_manager(tasks, *out, api, verbose).run(threads)` 启动工作线程，返回一个
    `work_result`。
 6. `sum_main` 往输出流写 `#`，再调 `result.print(*out, true)`，然后把这次运行
    映射成退出码：被打断时是 `TSUBAKI_INTERRUPTED`，记录过错误时是
    `TSUBAKI_HASH_ERROR`，否则是 `TSUBAKI_SUCCESS`。更早的参数问题返回
    `TSUBAKI_INVALID_ARGUMENT`，`--output` 文件打不开则返回
    `TSUBAKI_FILE_WRITE_FAILED`。
-
-## 退出码
-
-这些码定义在 `include/exit_codes.hpp`，由 `main()` 和 `sum_main()` 共用：
-
-| 宏 | 值 | 何时返回 |
-| --- | --- | --- |
-| `TSUBAKI_SUCCESS` | 0 | 跑完之后没有错误条目 |
-| `TSUBAKI_HASH_ERROR` | 1 | 记录过至少一条错误条目 |
-| `TSUBAKI_INVALID_ARGUMENT` | 2 | 命令行被拒：未知子命令、未知算法、线程数不对，或者有多余参数 |
-| `TSUBAKI_FILE_WRITE_FAILED` | 74 | `--output` 文件打不开（`EX_IOERR`） |
-| `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |
-| `TSUBAKI_FATAL` | 70 | `argc` 为 0，`main()` 拒绝运行（`EX_SOFTWARE`） |
-| `TSUBAKI_UNEXPECTED` | -1 | 有异常逃出 `main()`；shell 里看到的是 255 |
-
-`interrupted` 优先于 `errors`：被打断的运行即使也收集到了错误，报告的也是 `130`。
 
 ## 命令行层
 
@@ -89,7 +94,8 @@
 - 长名是 `--name` 或 `--name=value`；短名是 `-v`、合并的 `-vs`、或者粘滞的
   `-ovalue`。分离式取值（`--output out.txt`）库本身是支持的。
 - 选项会收集它后面连续的 simple token，直到遇到非 simple 的值或到达上限；标志
-  只累计出现次数。
+  只累计出现次数。`max_value_count` 缺省是 `-1`，也就是不设上限，所以每个只该
+  取一个值的选项都必须显式写明 `1`。
 - 位置参数在 min/max 区间内收集 simple token，barrier token 会让收集提前结束，
   并且和它一起被消费掉。
 - `evaluate()` 按声明顺序逐个处理条目并删掉各自消费的参数，所以谁先谁后决定了一个
@@ -100,14 +106,18 @@
 
 条目只在 `include/cmdline.hpp` 里定义一次，并且带一个组：`general` 放
 `subcmd`/`--help`/`--version`，其余都在 `sum` 组。`main()` 评估 `general`，
-`sum_main()` 评估 `sum`。组内的声明顺序就是评估顺序：`sum` 组是 threads、output、
-各个标志、algorithm、excludes、lists、files，`general` 组是 subcmd、version、help。
-条目的名字是 `cmdline_entry` 里的 `inline constexpr` 常量，定义和 `entry()` 查询
-共用同一份拼写；名字里的连字符在标识符里写成下划线。
+`sum_main()` 评估 `sum`。组内的声明顺序就是评估顺序：`sum` 组是 key-file、key、
+threads、output、各个标志、algorithm、excludes、lists、files，`general` 组是
+subcmd、version、help。条目的名字是 `cmdline_entry` 里的 `inline constexpr` 常量，定义和
+`entry()` 查询共用同一份拼写；名字里的连字符在标识符里写成下划线。
 
 - `subcmd` 是 `general` 组的第一个条目，也是个数恰好为 1 的位置参数，所以它拿走
   第一个普通参数，不管那是什么。这就是 `tsubaki sha256 .` 会被当成未知子命令，
   而不是被读成算法的原因。
+- `key-file`、`key`、`threads` 和 `output` 都写了 `max_value_count` 为 `1`，
+  所以分离式取值只拿一个普通参数，剩下的留给后面的条目。没有这个上限，解析库会把
+  下一个开关之前的普通参数全给它们，`-k secret file.txt` 就会把 `file.txt` 也算进
+  密钥里。
 - `excludes` 和 `lists` 排在 `files` 之前，它们的值在位置参数之前就被取走，所以
   分离式取值（`-e build`）能用，前提是它后面不再跟文件参数。
 - 这两项的取值个数都没有上限，因此 `-e build .` 会把 `.` 也当成排除项，让 `files`
@@ -237,38 +247,70 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 
 ## 哈希计算
 
-`src/checksum.cpp` 的 `checksum_file()` 把算法映射成 `EVP_MD`（`to_evp()`），以
-`O_RDONLY | O_CLOEXEC` 打开文件，然后经 `EVP_DigestInit_ex` /
-`EVP_DigestUpdate` / `EVP_DigestFinal_ex` 流式处理。读缓冲区是一个 64 KiB 的
-`thread_local` vector，每个工作线程分配一次、反复复用。`EINTR` 重试，其余失败
-都包成 `std::unexpected` 里的 `std::error_code` 返回，从不抛异常。
-`algorithm::none` 直接短路成 `<NONE>`，根本不碰文件。
+算法清单和公开入口在 `include/checksum.hpp`，OpenSSL 的代码在
+`src/checksum.cpp`。模块两头都从 `ALGORITHM_LIST` 出发，它生成 `algorithm`、
+名字表、`str_to_alg()` 和 `alg_to_str()`。
+
+三个辅助函数把 OpenSSL 的活集中在一处：
+
+- `digest_for(algorithm)` 把普通摘要映射成 `EVP_MD`，其余值一律返回 `nullptr`。
+- `mac_for(algorithm)` 把密钥算法映射成 `mac_spec {name, digest}`。HMAC 把摘要
+  放在参数里（如 `{"HMAC", "SHA256"}`），带密钥的 BLAKE2 本身就是一种 MAC 算法
+  （`{"BLAKE2BMAC", nullptr}`）。
+- `stream_file(path, update)` 以 `O_RDONLY | O_CLOEXEC` 打开文件，用一个 64 KiB 的
+  `thread_local` 缓冲区按块读完，`EINTR` 重试，每块交给 `update`；`update` 返回
+  false 就变成 `operation_not_supported`。
+
+`checksum_file()` 把这条流穿过 `EVP_DigestInit_ex` / `EVP_DigestUpdate` /
+`EVP_DigestFinal_ex`。`checksum_file_key()` 把同一条流穿过 `EVP_MAC_fetch` /
+`EVP_MAC_CTX_new` / `EVP_MAC_init` / `EVP_MAC_update` / `EVP_MAC_final`。MAC 算法
+按名字 fetch，而不是给每个摘要配一个 HMAC 构造函数，所以一条代码路径覆盖所有密钥
+算法；只有 `mac_spec` 写了摘要时才设置 `OSSL_MAC_PARAM_DIGEST`。密钥按原始字节
+传入，不做任何解码。
+
+两个函数都用 `std::unexpected(std::error_code)` 报错，从不抛异常：文件错误用
+`errno`，加密调用拒绝某一块是 `operation_not_supported`，映射表不认识的算法是
+`invalid_argument`，上下文分配失败是 `not_enough_memory`。`algorithm::none` 在
+两边都直接短路成 `<NONE>`，根本不碰文件。摘要或 MAC 用 `to_hex()` 转成小写
+十六进制。
+
+`checksum_api` 是把选择从 `sum_main` 带到工作线程的值：`alg` 加可选的 `key`，
+唯一的入口是 `calc(path)`。`calc()` 按 `is_keyed(alg)` 分流：密钥算法走
+`checksum_file_key()`，其余走 `checksum_file()`。
+
+密钥策略放在 `ALGORITHM_LIST` 旁边的两个 `constexpr` 函数里：`max_key_length()`
+对 `blake2b512_mac` 返回 64、对 `blake2s256_mac` 返回 32、其余返回 0 表示不设
+上限；`check_key_validity()` 要求密钥非空且不超过这个上限（普通摘要接受任意密钥
+并忽略它）。`sum_main` 在打开任何文件之前查一次，失败就给出具体消息并退出 2；
+`calc()` 会再查一次，手工构造 `checksum_api` 的调用方也绕不过去，不会拿不可能的
+密钥去 MAC。
 
 读取用的是普通 `read()`，不是 `mmap`，也不查 `SEEK_DATA`，所以稀疏文件按逻辑长度
 计算：空洞会被当作零喂进摘要。开销跟的是 `st_size`，不是实际分配的块数；不管文件
 声称多大，内存占用始终只有那个 64 KiB 缓冲区。
 
 显式命名的非普通路径用的还是同一个阻塞 `open()`：没有写端的 FIFO 会在第一次读之前
-就卡住，永不 EOF 的设备则会把工作线程一直留在循环里。两者都看不到算法切换——那个
-开关只在文件与文件之间检查。
-
-摘要用 `to_hex()` 转成小写十六进制。
+就卡住，永不 EOF 的设备则会把工作线程一直留在循环里。两者都看不到中断标志——那个
+标志只在文件与文件之间检查。
 
 ## 工作线程、进度与报告
 
-`work_manager` 持有工作线程数组、进度线程、原子算法值和三个原子计数器。`run()`
-返回一个 `work_result` 而不是自己写报告，打印到哪里、怎么打印由调用方决定。
+`work_manager` 持有工作线程数组、进度线程、一个 `const checksum_api api`（算法加
+密钥）、一个 `std::atomic<bool> interrupted`，以及三个原子计数器。`run()` 返回一个
+`work_result` 而不是自己写报告，打印到哪里、怎么打印由调用方决定。
 
-- `run(thread_count)` 先记下启动时用的算法，安装 SIGINT 处理函数，起
-  `thread_count` 个工作线程和进度线程，然后等待。
-- 每个工作线程循环：`tasks.pop()`、`checksum_file(path, alg.load())`、用
+- `run(thread_count)` 安装 SIGINT 处理函数，起 `thread_count` 个工作线程和进度
+  线程，然后等待。
+- 每个工作线程循环：`tasks.pop()`；若 `interrupted` 已置位，就打印
+  `<NONE> <路径>` 并让 `unprocessed` 加一；否则调 `api.calc(path)`，再用
   `osyncstream` 写一行。算失败打印 `<NONE> <路径>` 并让 `failed` 加一；算成功让
-  `success` 加一，当前算法是 `none` 时改让 `unprocessed` 加一。被 `pop()` 拒掉的
+  `success` 加一，算法是 `none` 时改让 `unprocessed` 加一。被 `pop()` 拒掉的
   路径根本走不到这里，所以既没有输出行也没有计数，只有一条错误条目。
-- 进度线程在非 quiet、且算法不是 `none` 时，每 100 ms 在 stderr 上重画一行。它用
-  stderr 的终端宽度，宽度未知时退化成朴素的 `[N files]`。
-- `wait()` 先 join 工作线程，再把算法置成 `none`（进度循环因此退出），最后 join
-  进度线程。
+- 进度线程在非 quiet、算法不是 `none` 时，每 100 ms 在 stderr 上重画一行，直到
+  `interrupted` 置位为止。它用 stderr 的终端宽度，宽度未知时退化成朴素的
+  `[N files]`。
+- `wait()` 先 join 工作线程，再把 `interrupted` 置位（进度循环因此退出），最后
+  join 进度线程。
 - 全部 join 完之后，`run()` 返回一份快照：启动时的算法、收集到的错误、三个计数
   器、中断标志，以及从启动到 join 结束的墙钟耗时。
 
@@ -288,14 +330,14 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 `TSUBAKI_SUCCESS`。退出码不由 `failed` 决定；不过每个计算失败同时也留下一条错误
 条目，所以实际上两者是一致的。
 
-`SIGINT` 是靠算法值实现的，而不是单独一个标志：处理函数把 `algorithm::none` 存进
-工作线程的原子变量，之后每次 `checksum_file()` 调用都立刻返回 `<NONE>`。剩下的
-路径照样被取出、打印、计入 `Not hashed`，所以报告能为扫描器产出的每个文件留个
-交代。已经卡在阻塞 `open()` 或无限读取里的工作线程回不到那个检查点，所以一次
-`Ctrl-C` 救不出它；处理函数还会递增一个原子计数器，按到第五次时用
-`write(2, ...)` 写一条固定消息并调用 `std::terminate()`。这个计数器最后变成
-`work_result::interrupted`，它会给报告块加一行说明，并让 `sum_main` 返回
-`TSUBAKI_INTERRUPTED`（130）。
+`SIGINT` 走的是单独一个标志，而不是算法值：处理函数把 `true` 存进工作线程的
+`std::atomic<bool> interrupted`，每个工作线程在 `tasks.pop()` 之后马上检查它。
+剩下的路径照样被取出、打印、计入 `Not hashed`，所以报告能为扫描器产出的每个文件
+留个交代；已经进入 `api.calc()` 的文件会正常算完。已经卡在阻塞 `open()` 或无限
+读取里的工作线程回不到那个检查点，所以一次 `Ctrl-C` 救不出它。处理函数还会递增
+一个原子计数器，按到第五次时用 `write(2, ...)` 写一条固定消息并调用 `_exit(250)`。
+任何一次 `Ctrl-C` 都会让 `work_result::interrupted` 为真，它会给报告块加一行
+说明，并让 `sum_main` 返回 `TSUBAKI_INTERRUPTED`（130）。
 
 ## 输出流
 
@@ -309,6 +351,12 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 `print(std::clog, false)` 输出，所以不含逐条错误信息。其余错误都进结果流里的报告
 块，包括打不开的列表文件。
 
+两条流都不检查。工作线程的行经 `std::osyncstream` 刷出，报告在 join 之后直接
+写入，`--output` 文件由 `std::ofstream` 的析构函数关闭；写失败只会在流上留下失败
+状态，没人查看，所以 `sum_main` 照样返回 `TSUBAKI_SUCCESS`。只有开工之前的
+`open()` 会被检查。`SIGPIPE` 保持默认动作，读端消失时进程直接被杀，而不是变成一个
+写错误。
+
 ## 并发模型
 
 | 线程 | 数量 | 工作 |
@@ -319,11 +367,32 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 
 - 每个 taskstream 一把互斥锁。锁覆盖 `pop_raw()` 和错误数组，只在取路径的那一小
   段时间里被持有。
-- 原子变量：算法、三个计数器、中断计数器、信号处理函数用的目标指针。指针之所以
-  是 `volatile`，是因为信号处理函数会写它；算法和中断计数器用 `std::atomic`，
-  因为处理函数要往里存值。
+- 原子变量：`interrupted` 标志、三个计数器、中断计数器、信号处理函数用的目标指针。
+  指针之所以是 `volatile`，是因为信号处理函数会写它；`interrupted` 和中断计数器
+  用 `std::atomic`，因为处理函数要往里存值。算法不再是共享状态：它待在 manager 的
+  `const checksum_api` 里，运行期间不会变。
 - 算哈希时不持任何锁，文件 I/O 完全并行。
 - 流水线里没有任何地方对结果重排序：输出顺序是完成顺序，不是扫描顺序。
+
+## 退出码
+
+这些码定义在 `include/exit_codes.hpp`，由 `main()` 和 `sum_main()` 共用：
+
+| 宏 | 值 | 何时返回 |
+| --- | --- | --- |
+| `TSUBAKI_SUCCESS` | 0 | 跑完之后没有错误条目 |
+| `TSUBAKI_HASH_ERROR` | 1 | 记录过至少一条错误条目 |
+| `TSUBAKI_INVALID_ARGUMENT` | 2 | 命令行被拒：未知子命令、未知算法、密钥算法没给密钥、`-K -` 与 `-` 同时出现、线程数不对，或者有多余参数 |
+| `TSUBAKI_FATAL` | 70 | `argc` 为 0，`main()` 拒绝运行（`EX_SOFTWARE`） |
+| `TSUBAKI_FILE_WRITE_FAILED` | 74 | `--output` 文件打不开（`EX_IOERR`） |
+| `TSUBAKI_FILE_READ_FAILED` | 114 | `--key-file` 读不了，或者里面没有密钥 |
+| `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |
+| `TSUBAKI_TERMINATED` | 250 | 第五次 `Ctrl-C` 让处理函数直接 `_exit()`，报告没写出来 |
+| `TSUBAKI_UNEXPECTED` | -1 | 有异常逃出 `main()`；shell 里看到的是 255 |
+
+`interrupted` 优先于 `errors`：被打断的运行即使也收集到了错误，报告的也是 `130`。
+这些码都不描述静默的写失败；写端唯一可见的失败是 `SIGPIPE`（shell 看到 141），
+它直接杀掉进程。
 
 ## 数据流示例
 
@@ -337,7 +406,8 @@ tsubaki sum sha256 . -e build -l old.txt
    `listscanner`。
 3. 两者加进汇流，另外再加一个空的 `cached_taskstream`。
 4. 工作线程开始取路径：先从 `dirscanner`（遍历目录树），目录走完后从
-   `listscanner` 取。
+   `listscanner` 取。每条路径都走 `checksum_api::calc()`，所以只要 `-k` 给了密钥，
+   同一条流程换成 `hmac_sha256` 也照跑。
 5. `old.txt` 里带校验和的行立刻以 `# Kept: <路径>` 加原行写出，从不进入计算路径。
 6. 所有子流枯竭后，汇流返回空，工作线程停下，进度线程停下，`run()` 返回的
    `work_result` 由 `sum_main` 打印。
@@ -356,22 +426,24 @@ tsubaki sum sha256 . -e build -l old.txt
 - 错误和退出码来自合并后的 `work_result`。
 
 这些都不难，但也没什么收益：瓶颈在 I/O 和哈希，取路径是唯一串行的步骤。单 manager
-让程序保持简单，而 `work_result::operator+` 和信号开关把门留着，需要时再开。
+让程序保持简单，而 `work_result::operator+` 和中断标志把门留着，需要时再开。
 
 ## 扩展点
 
 - **新增子命令**：在 `subcommands` 里加一个常量，给它的条目分配自己的
   `cmdline_group`，在 `main()` 里加一个分支，再写一个像 `sum_main()` 那样、只
   评估自己那一组的驱动。子命令只解析自己的组，所以不相干的开关不会互相干扰。下一件
-  计划这样加的功能是比较多份结果；`include/timeline_fs.hpp` 是它尚未完成的草图，
-  没有纳入构建。
+  计划这样加的功能是比较多份结果；它的数据结构实验草稿放在
+  `experiments/timeline_fs/`，没有纳入构建。
 - **新增输入源**：从 `basic_taskstream` 派生，实现 `pop_raw()`；需要自己的语法就
   在 `def_args()` 里加条目。汇流不关心有几个生产者。
 - **换输出端**：`work_manager` 是唯一的消费者，给它换一个 `std::ostream`，或者整个
   替换掉，`basic_taskstream` 不用动。
-- **新增算法**：在 `include/checksum.hpp` 的 `ALGORITHM_LIST` 里加一行
-  （`algorithm`、`str_to_alg()`、`alg_to_str()` 都由它生成），在 `to_evp()` 里加
-  一个 case，再把它加进帮助文本里的算法清单（`src/help.cpp`，那份是手写的）。
+- **新增算法**：在 `include/checksum.hpp` 的 `ALGORITHM_LIST` 里加一行，它会生成
+  `algorithm`、`str_to_alg()`、`alg_to_str()`。普通摘要还要在 `digest_for()` 里加
+  一个 case；密钥算法还要在 `mac_for()` 里加一个 case、在 `is_keyed()` 里加一个
+  枚举值；如果该算法限制密钥长度，还要在 `max_key_length()` 里给一个 case；最后
+  把它加进帮助文本里的算法清单（`src/help.cpp`，那份是手写的）。
 
 ## 源码映射
 
@@ -384,7 +456,8 @@ tsubaki sum sha256 . -e build -l old.txt
 | `tsubaki::listscanner` | `basic_taskstream` | 解析列表文件或 stdin，输出 `# Kept: <路径>` 行 |
 | `tsubaki::cached_taskstream` | `basic_taskstream` | 按给定顺序回放一组固定的路径 |
 | `tsubaki::fanin_taskstream` | `basic_taskstream` | 汇流多个子流，用 `unique_ptr` 持有它们 |
-| `tsubaki::work_manager` | — | 工作线程池、进度行、SIGINT 开关 |
+| `tsubaki::checksum_api` | — | 携带选定的算法与密钥，把 `calc()` 分到摘要或 MAC 路径 |
+| `tsubaki::work_manager` | — | 工作线程池、进度行、中断标志 |
 | `tsubaki::work_result` | — | `run()` 返回的值快照，带 `operator+` 与 `print()` |
 | `tsubaki::error_entry` | — | `std::error_code` 加上出错时的操作描述 |
 
@@ -401,13 +474,13 @@ tsubaki sum sha256 . -e build -l old.txt
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
 | `include/cached_taskstream.hpp`, `src/cached_taskstream.cpp` | 固定路径回放 |
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | 多源汇流 |
-| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`、`str_to_alg()` / `alg_to_str()`、EVP 哈希 |
+| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`、`str_to_alg()` / `alg_to_str()`、`is_keyed()`、`checksum_api`、`EVP_MD` 与 `EVP_MAC` 哈希 |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
-| `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、终端宽度、fd 守卫 |
+| `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |
 | `include/help.hpp`, `src/help.cpp` | 帮助文本 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |
 
-`src/tmptest.cpp`、`src/timeline_fs.cpp` 和 `include/timeline_fs.hpp` 不属于
-`tsubaki` 的源码映射：它们是"比较多份结果"这件事的未完成草图。没有任何 CMake 目标
-引用它们，所以既不参与编译，也不参与测试。
+`experiments/timeline_fs/` 不属于 `tsubaki` 的源码映射：它保存着"比较多份结果"
+这件事的实验草稿（`include/timeline_fs.hpp`、`src/timeline_fs.cpp`，以及草稿驱动
+`src/tmptest.cpp`）。没有任何 CMake 目标引用它，所以既不参与编译，也不参与测试。

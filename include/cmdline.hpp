@@ -22,6 +22,8 @@ namespace cmdline_entry
 inline constexpr const char *subcmd = "subcmd";
 inline constexpr const char *version = "version";
 inline constexpr const char *help = "help";
+inline constexpr const char *key = "key";
+inline constexpr const char *key_file = "key_file";
 inline constexpr const char *threads = "threads";
 inline constexpr const char *output = "output";
 inline constexpr const char *follow_symlinks = "follow-symlinks";
@@ -90,6 +92,28 @@ static inline ap_instance def_args()
                     {ap_defkey::long_name,"help"},
                     {ap_defkey::short_name,"h"},
                     {ap_defkey::max_repetition,"1"},
+                }
+            ),
+            ap_entry(
+                cmdline_entry::key_file,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::explanations,"-K or --key-file"},
+                    {ap_defkey::long_name,"key-file"},
+                    {ap_defkey::short_name,"K"},
+                    {ap_defkey::max_value_count,"1"},
+                }
+            ),
+            ap_entry(
+                cmdline_entry::key,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::explanations,"-k or --key"},
+                    {ap_defkey::long_name,"key"},
+                    {ap_defkey::short_name,"k"},
+                    {ap_defkey::max_value_count,"1"},
                 }
             ),
             ap_entry( // Handled in src/sum_core.cpp
