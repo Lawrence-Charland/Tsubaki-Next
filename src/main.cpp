@@ -38,6 +38,11 @@ int main(int argc, char **argv)
             std::cout << program << " " << TSUBAKI_VERSION << std::endl;
             return TSUBAKI_SUCCESS;
         }
+        if (cmdline.entry(tsubaki::cmdline_entry::list_alg).repetition)
+        {
+            tsubaki::list_algorithm(std::cout);
+            return TSUBAKI_SUCCESS;
+        }
         if (!cmdline.fine())
         {
             tsubaki::error_prompt(std::cerr, cmdline);

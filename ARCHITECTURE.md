@@ -181,18 +181,22 @@ releases the mutex, and then inspects the candidate outside the lock:
 - `status()` setting an error code — a missing path, a dangling symlink —
   records that error and the loop continues;
 - a directory is recorded as `operation_not_permitted` and the loop continues;
-- anything else that exists — a character or block device, a FIFO, a socket —
-  is returned as it is, and opening or reading it is left to the worker.
+- a socket is recorded the same way: no amount of reading produces a checksum
+  for one, so it is refused instead of being handed to a worker;
+- anything else that exists — a character or block device, a FIFO — is
+  returned as it is, and opening or reading it is left to the worker.
 
 This filter lives in the base class, so producers only have to answer "what is
 the next path". Two classes override `pop()`: `dirscanner`, which walks
-directory entries and therefore skips directories silently instead of recording
-an error for each one it passes; every non-directory it meets — including a
-device or a FIFO — is handed out and opened by a worker. The other is
+directory entries and hands out regular files only; a directory, a device, a
+FIFO or a socket met during a walk is skipped silently rather than recorded as
+an error, because a walk is not an explicit request for a stream. That is what
+keeps `sum sha256 ~` from blocking on a FIFO somebody left behind. The other is
 `fanin_taskstream`, whose cursor logic is described below.
 
-A path rejected here (missing, unstatable, or a directory in a list) never gets
-past `pop()`, so it is not printed and not counted in any of the three counters;
+A path rejected here (missing, unstatable, a socket, or a directory in a list)
+never gets past `pop()`, so it is not printed and not counted in any of the
+three counters;
 it only leaves an `error_entry`, which is enough to make the exit code 1. That
 is why `Failed` can be 0 while the run still fails: `Failed` only counts files
 whose checksum attempt returned an error.
@@ -209,6 +213,13 @@ Constructed with a directory, the exclude list and the symlink flag. It holds a
 constructor rejects a nonexistent path and a non-directory with
 `std::invalid_argument`, and drops excludes that do not exist, recording one
 error per missing exclude.
+
+`pop()` replaces the base-class type check with a stricter one: only regular
+files come back, so a FIFO, a socket or a device in the tree is never handed to
+a worker and cannot block one in `open()`. The check uses `status()`, which
+follows symbolic links, so a link to a regular file is hashed while a link to a
+directory or to a special file is skipped. A path whose type cannot be
+determined is recorded as an error instead of being passed on.
 
 `pop_raw()` calls `skip_if_possible()` first: while the current entry is
 `equivalent()` to one of the excludes, it disables recursion for that entry (if

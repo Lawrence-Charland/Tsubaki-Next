@@ -243,11 +243,14 @@ itself, or a parent of it, matches nothing and is silently ignored — exclude a
 subdirectory instead. Do not use `-e` to drop a directory that you also pass as
 an input; just leave that argument out.
 
-A device or a FIFO is opened and read as a stream, whether it is met during a
-directory walk or named on the command line or in a list. `/dev/null` therefore
-hashes as empty content, `/dev/stdin` hashes whatever arrives on stdin, and
-`/dev/fd/N` from process substitution works as well. Such a stream can block or
-never end; see Interrupt.
+A device or a FIFO named on the command line or in a list is opened and read as
+a stream. `/dev/null` therefore hashes as empty content, `/dev/stdin` hashes
+whatever arrives on stdin, and `/dev/fd/N` from process substitution works as
+well. Such a stream can block or never end; see Interrupt. A socket cannot be
+read, so naming one is an error. A directory walk, by contrast, yields regular
+files only: a device, a FIFO or a socket met while walking is skipped without
+so much as an error entry, and `sum sha256 ~` therefore cannot stall on a pipe
+somebody left behind.
 
 Duplicate entries are not merged: the same path named twice is processed twice.
 

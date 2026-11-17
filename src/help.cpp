@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "help.hpp"
+#include "checksum.hpp"
 
 #include <string>
 #include <string_view>
@@ -29,12 +30,14 @@ Positional arguments:
                          checksums. The hmac_* and blake2*_mac algorithms are
                          keyed hashes and require -k/--key or -K/--key-file.
   files or directories   files and directories to process. A directory is
-                         scanned recursively. "-" reads a list of paths from
-                         stdin instead of naming a file.
+                         scanned recursively, hashing regular files only.
+                         "-" reads a list of paths from stdin instead of
+                         naming a file.
 
 Options:
   -h, --help                  print this help and exit.
   -V, --version               print the version and exit.
+  -a, --algorithm             list the supported algorithms.
   -v, --verbose               print a live progress indicator on stderr;
                               not shown when the algorithm is "none".
   -t<n>, --thread=<n>         number of worker threads; defaults to the number
@@ -89,8 +92,10 @@ Output format:
   whose lines start with '#'. A file that cannot be opened, read, or hashed is
   printed as <NONE> and counted as failed. A path that does not exist, or a
   directory in a list, never reaches the hashing step: it produces no output
-  line, increments no counter, and adds only an error entry. Devices and FIFOs
-  are read as streams, so they can block or never reach EOF.
+  line, increments no counter, and adds only an error entry. A device or a FIFO
+  named explicitly is read as a stream, so it can block or never reach EOF; a
+  socket is refused. A directory scan yields regular files only, so special
+  files met during a walk are skipped.
 
   Write errors are checked at the end through std::ostream::fail(): a full disk,
   a broken descriptor, or a file on a removed mount leaves the stream failed
@@ -156,5 +161,18 @@ std::string help_text(std::string_view program)
     return replace_placeholder(
         replace_placeholder(help_body, "{program}", program), "{version}",
         version);
+}
+
+void list_algorithm(std::ostream &os)
+{
+    size_t w = std::string_view{"ALGORITHM"}.size();
+    for (const auto &it : mapper)
+        w = std::max(w, std::string_view(it).size());
+    w += 2;
+
+    os << std::left << std::setw(w) << "ALGORITHM" << "KEYED\n";
+    for (const auto &it : mapper)
+        os << std::left << std::setw(w) << it
+           << (is_keyed(str_to_alg(it)) ? "Yes" : "No") << '\n';
 }
 } // namespace tsubaki

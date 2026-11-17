@@ -430,6 +430,37 @@ else
     bad 19 "$name" "rc=$rc res=${stdin_names:0:16} err=$stdin_err"
 fi
 
+# ---------------------------------------------------------------- 20-21
+# 承诺："目录遍历只交出普通文件"、"显式命名的设备/FIFO 仍按流读"。
+section "20-21 特殊文件"
+fx=$FX/t20
+mkdir -p "$fx/sub"
+printf 'a\n' >"$fx/a.txt"
+printf 'b\n' >"$fx/sub/b.txt"
+mkfifo "$fx/pipe"
+ln -s ../pipe "$fx/sub/link-pipe"
+
+name="遍历只交普通文件：FIFO 与指向 FIFO 的链接被跳过，不阻塞"
+out=$(timeout 10 "$BIN" sum sha256 "$fx" 2>"$ERR"); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(count_results)" = 2 ] &&
+   [ "$(field 'Errors')" = 0 ] && ! grep -q 'pipe' <<<"$out"; then
+    ok 20 "$name"
+else
+    bad 20 "$name" "rc=$rc（124 表示卡住） 行数=$(count_results) 输出=$(printf '%s\n' "$out" | head -3 | tr '\n' '|')"
+fi
+
+name="显式命名的 FIFO 仍按流读：结果与写入内容一致"
+( timeout 10 bash -c 'printf "hello\n" > "$1"' _ "$fx/pipe" ) &
+writer=$!
+out=$(timeout 10 "$BIN" sum sha256 "$fx/pipe" 2>"$ERR"); rc=$?
+wait "$writer" 2>/dev/null
+want=$(printf 'hello\n' | sha256sum | cut -d' ' -f1)
+if [ "$rc" -eq 0 ] && [ "$(results)" = "$want $fx/pipe" ]; then
+    ok 21 "$name"
+else
+    bad 21 "$name" "rc=$rc 结果=$(results) 期望=$want $fx/pipe"
+fi
+
 # ---------------------------------------------------------------- 汇总
 printf '\n--------------------------------\n'
 printf '%d passed, %d failed, %d known issues\n' "$pass" "$fail" "$xfail"

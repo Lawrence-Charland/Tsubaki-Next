@@ -103,14 +103,19 @@ std::optional<std::filesystem::path> dirscanner::pop()
         if (!candidate)
             return std::nullopt;
         std::error_code ec;
-        if (!std::filesystem::is_directory(candidate.value(), ec))
-            return candidate;
+        const std::filesystem::file_status status =
+            std::filesystem::status(candidate.value(), ec);
         if (ec)
         {
-            std::lock_guard<std::mutex> lock(mutex_);
-            errors.emplace_back(ec, "determining the file type of " +
-                                        candidate->string());
+            report_error(error_entry(ec, "determining the file type of " +
+                                             candidate->string()));
+            continue;
         }
+        // A walk only yields regular files: a FIFO, a socket or a device met
+        // here is skipped instead of reaching a worker, where opening it could
+        // block forever.
+        if (std::filesystem::is_regular_file(status))
+            return candidate;
     }
 }
 } // namespace tsubaki

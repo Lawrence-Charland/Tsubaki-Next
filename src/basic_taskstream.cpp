@@ -42,8 +42,18 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
                     ", which is a directory"));
             continue;
         }
+        if (std::filesystem::is_socket(status))
+        {
+            report_error(error_entry(
+                std::make_error_code(std::errc::operation_not_permitted),
+                "calculating the checksum of " + candidate.value().string() +
+                    ", which is a socket"));
+            continue;
+        }
+        // A device or a FIFO named explicitly is read as a stream; only the
+        // caller knows whether that stream ever reaches EOF. Directory walks
+        // do not get here: dirscanner hands out regular files only.
         return candidate;
-        // But I don't know who needs to compute a hash of a non-regular file.
     }
 }
 
