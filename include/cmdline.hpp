@@ -94,7 +94,27 @@ static inline ap_instance def_args()
                     {ap_defkey::max_repetition,"1"},
                 }
             ),
-            ap_entry(
+            ap_entry( // Handled in src/sum_core.cpp
+                cmdline_entry::excludes,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::explanations,"-e or --exclude(s)"},
+                    {ap_defkey::long_name,"exclude,excludes"},
+                    {ap_defkey::short_name,"e"},
+                }
+            ),
+            ap_entry( // Handled in src/sum_core.cpp
+                cmdline_entry::lists,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::explanations,"-l or --list(s)"},
+                    {ap_defkey::long_name,"list,lists"},
+                    {ap_defkey::short_name,"l"},
+                }
+            ),
+            ap_entry( // Handled in src/main.cpp
                 cmdline_entry::key_file,
                 ap_type::option,
                 {
@@ -105,7 +125,7 @@ static inline ap_instance def_args()
                     {ap_defkey::max_value_count,"1"},
                 }
             ),
-            ap_entry(
+            ap_entry( // Handled in src/main.cpp
                 cmdline_entry::key,
                 ap_type::option,
                 {
@@ -182,32 +202,11 @@ static inline ap_instance def_args()
                 }
             ),
             ap_entry( // Handled in src/sum_core.cpp
-                cmdline_entry::excludes,
-                ap_type::option,
-                {
-                    {ap_defkey::group, cmdline_group::sum},
-                    {ap_defkey::explanations,"-e or --exclude(s)"},
-                    {ap_defkey::long_name,"exclude,excludes"},
-                    {ap_defkey::short_name,"e"},
-                }
-            ),
-            ap_entry( // Handled in src/sum_core.cpp
-                cmdline_entry::lists,
-                ap_type::option,
-                {
-                    {ap_defkey::group, cmdline_group::sum},
-                    {ap_defkey::explanations,"-l or --list(s)"},
-                    {ap_defkey::long_name,"list,lists"},
-                    {ap_defkey::short_name,"l"},
-                }
-            ),
-            ap_entry( // Handled in src/sum_core.cpp
                 cmdline_entry::files,
                 ap_type::positional,
                 {
                     {ap_defkey::group, cmdline_group::sum},
                     {ap_defkey::explanations,"files or directories"},
-                    {ap_defkey::barrier,"\\"},
                 }
             ),
         }

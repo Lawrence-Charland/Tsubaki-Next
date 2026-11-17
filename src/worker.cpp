@@ -36,7 +36,7 @@ void work_result::print(std::ostream &os, bool with_errors)
        << std::endl;
     os << "# Errors:            " << errors.size() << std::endl;
     if (interrupted)
-        os << "#\n# The process was interrupted halfway through." << std::endl;
+        os << "#\n# Warning: The process was interrupted halfway through." << std::endl;
     if (!with_errors || errors.empty())
         return;
     os << "#\n# Error messages:" << std::endl;

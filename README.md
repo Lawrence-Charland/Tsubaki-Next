@@ -2,11 +2,13 @@
 
 [中文](README.zh-cn.md)
 
-A reimplementation of the Tsubaki checksum tool. It keeps the name and the
-goal, not the old architecture: files are no longer collected into a list
-before anything happens. Scanners feed a shared task stream and a worker pool
-consumes it as paths arrive. Hashing is done by OpenSSL: plain digests through
-`EVP_MD`, keyed hashes (HMAC and keyed BLAKE2) through `EVP_MAC`.
+A reimplementation of the Tsubaki checksum tool, with a sharper focus on
+computing checksums themselves. It supports most plain hashes and keyed hashes.
+You can hash one file or several, walk a directory tree and hash every file in
+it, or hash every file named in an existing list. The input sources can be
+combined freely in one run: files named on the command line, directories to
+scan, and list files to read. For directory scans, you can name files or
+directories to exclude.
 
 ## Contents
 
@@ -65,8 +67,7 @@ rejected as an unknown subcommand.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
 a directory, a file, or `-` for stdin, and the kinds can be mixed in one
-command. A `\` on its own ends the input list; a plain argument after it is not
-an input any more.
+command.
 
 The safe shape is: algorithm first, then every input in one go, then the
 options.
@@ -107,7 +108,7 @@ An `hmac_*` name is HMAC with the digest that follows the prefix, so
 keyed BLAKE2b-512 and BLAKE2s-256; a keyed BLAKE2 value differs from the
 unkeyed one because the key seeds the compression function.
 
-A keyed algorithm without a key is rejected with exit status 2 and a
+A keyed algorithm without a key is rejected with exit status 64 and a
 `needs a key` message. A key given to a plain digest is ignored with a warning.
 
 The digests agree with `openssl dgst -<name>`, the HMACs with
@@ -121,8 +122,8 @@ lowercase hexadecimal, and its length is set by the algorithm.
 | ------------------------------ | -------------------------------------------------------------------- |
 | `-h`, `--help`                 | print help and exit                                                  |
 | `-V`, `--version`              | print the version and exit                                           |
-| `-v`, `--verbose`              | live progress indicator on stderr                                    |
-| `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency |
+| `-v`, `--verbose`              | live progress indicator on stderr; not shown for `none`              |
+| `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
 | `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout   |
@@ -166,28 +167,6 @@ argument, so a positional collects it and it is reported as a missing file. A
 typo such as `--exlude=build` therefore shows up in the error block, not as an
 option error.
 
-The entries are evaluated in a fixed order, and a switch that has been consumed
-is gone from the queue. A later option can therefore walk past a switch that an
-earlier option already took:
-
-```sh
-# threads runs first and takes "-t 4";
-# excludes then sees "c.txt ." and takes both
-tsubaki sum sha256 -e c.txt -t 4 .        # no input left: empty run, exit 0
-```
-
-That is why the safe shape puts the inputs before every option:
-
-```sh
-tsubaki sum sha256 dir1 file2 - -e build -l old.txt   # -e takes build, -l takes old.txt
-tsubaki sum sha256 -e build dir1                      # -e takes dir1 too, nothing left
-```
-
-A `\` on its own ends the input list; a plain argument after it is no longer an
-input, so it is rejected unless another option takes it. In a shell, quote the
-backslash as `'\'`: an unquoted `\ ` escapes the space and never reaches the
-program.
-
 ### Keyed hashes
 
 A key comes from one of two places, never both:
@@ -199,9 +178,9 @@ A key comes from one of two places, never both:
   whole stream is read and any run of trailing CR/LF is dropped, so
   `echo secret > key` yields `secret`, while interior newlines, NUL bytes and
   trailing spaces stay part of the key. A missing, unreadable or empty file
-  exits 114.
+  exits 66.
 
-`-k` and `-K` together are rejected with exit status 2, and so is `-K -`
+`-k` and `-K` together are rejected with exit status 64, and so is `-K -`
 together with a `-` input: stdin may be named only once. With a plain digest,
 either form is ignored with a warning and the key file is not even opened.
 
@@ -209,14 +188,15 @@ One run uses one key for every file; to check the same tree under two keys, run
 the command twice.
 
 Keyed BLAKE2 caps the key length: `blake2b512_mac` takes at most 64 bytes and
-`blake2s256_mac` at most 32. A longer key is rejected with exit status 2 before
+`blake2s256_mac` at most 32. A longer key is rejected with exit status 64 before
 any file is opened; HMAC takes any length.
 
 `--key` puts the key on the command line: while the process runs, any user on
 the machine can read it from `ps` or `/proc/<pid>/cmdline`, and the shell keeps
 a copy in its history. `--key-file` keeps it out of both, but the file itself is
 only as private as its permissions (use `chmod 600`). Either way the key stays
-in process memory while the run lasts. Do not pass a real key on a shared host.
+in process memory while the run lasts and never appears anywhere in the
+results. Do not use a real key on a shared host.
 
 Keyed results are printed like any other: `<checksum> <path>`, with the keyed
 algorithm named in the report block. Nothing marks a line as keyed, so a file
@@ -246,10 +226,11 @@ not expanded; only directory arguments on the command line are walked. A line
 beginning with `#` is a comment even if it was meant as a path, so a file named
 `#name` has to be written as `./#name` or by an absolute path.
 
-A path whose first space-separated field is all hex digits would be read as a
-checksum followed by a path, so write such entries as `./name` or as absolute
-paths. A hex-only name with no space in it is unaffected. Paths with spaces
-need no quoting: an unrecognised line is taken whole.
+A path whose first space-separated field is at least 32 hex digits long would
+be read as a checksum followed by a path, so write such entries as `./name` or
+as absolute paths. A shorter hex field, or a hex-only name with no space in it,
+is unaffected. Paths with spaces need no quoting: an unrecognised line is taken
+whole.
 
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
 fed back with `-l` to redo only the files that were not hashed.
@@ -262,12 +243,11 @@ itself, or a parent of it, matches nothing and is silently ignored — exclude a
 subdirectory instead. Do not use `-e` to drop a directory that you also pass as
 an input; just leave that argument out.
 
-Inside a directory walk only regular files are hashed; a device or a FIFO met
-there is skipped silently. An explicitly named input is different: a device or
-a FIFO given on the command line, or written in a list, is opened and read as a
-stream. `/dev/null` therefore hashes as empty content, `/dev/stdin` hashes
-whatever arrives on stdin, and `/dev/fd/N` from process substitution works as
-well. Such a stream can block or never end; see Output and Interrupt.
+A device or a FIFO is opened and read as a stream, whether it is met during a
+directory walk or named on the command line or in a list. `/dev/null` therefore
+hashes as empty content, `/dev/stdin` hashes whatever arrives on stdin, and
+`/dev/fd/N` from process substitution works as well. Such a stream can block or
+never end; see Interrupt.
 
 Duplicate entries are not merged: the same path named twice is processed twice.
 
@@ -291,10 +271,10 @@ Files that were not hashed — interrupted, or the `none` algorithm — are writ
 as `<NONE> <path>`. The same happens to a file that passes the scan but fails to
 open, read or hash; that one is counted as failed.
 
-A path that is missing is filtered out before any worker sees it: it produces
-no output line and none of the counters below. It only adds an entry to the
-error block, which still makes the exit status 1. A directory written in a list
-file is rejected the same way.
+A path that is missing is filtered out when it is taken from the task stream:
+it produces no output line and none of the counters below. It only adds an
+entry to the error block, which still makes the exit status 1. A directory
+written in a list file is rejected the same way.
 
 A report block follows, every line of which starts with `#`:
 
@@ -318,10 +298,11 @@ parsing and scanner setup are not included.
 `Processed` is `Hashed + Failed`; files that were not hashed are not counted,
 and neither are kept lines or skipped paths.
 
-An `# Errors:` count is always written, even when it is 0. When at least one
-error was recorded, the count is followed by a `# Error messages:` block with one
-`# Value: / Message: / Operation:` line per entry, and an interrupted run gets a
-`# The process was interrupted halfway through.` line under the count:
+An `# Errors:` count is always written, even when it is 0. An interrupted run
+adds a `#` separator line and a `# Warning: The process was interrupted halfway
+through.` line under the count; when at least one error was recorded, the count
+is followed by a `# Error messages:` block with one
+`# Value: / Message: / Operation:` line per entry:
 
 ```
 # Errors:            2
@@ -342,20 +323,13 @@ the results go to the file.
 The progress indicator, when enabled, is written to stderr and never to the
 result stream.
 
-Write errors are not checked. Every worker line goes out through
-`std::osyncstream`, which flushes the complete insertion, and the report is
-written after the workers are joined; a flush that fails — a full disk, a
-broken descriptor, a file on a removed mount — only leaves the stream in a
-failed state, which the program never inspects. The run keeps its exit status:
-`0` still means "every file was hashed", not "every byte reached the
-destination". The `--output` file is closed by the `std::ofstream` destructor,
-and that error is ignored too.
-
-A pipe with no reader is the one case that is visible: the next write raises
-`SIGPIPE`, whose default action kills the process, and a shell reports `141`.
-Nothing catches or retries it. If the destination can fill up, check the file
-after the run or hash it again; the summary on stderr does not prove that the
-lines were written.
+Write errors are checked at the end through `std::ostream::fail()`. Every worker
+line is flushed out whole through `std::osyncstream`, and the report is written
+after the workers are joined; a flush that fails — a full disk, a broken
+descriptor, a file on a removed mount — leaves the stream in a failed state, and
+the exit status is `73`. If the results go to a pipe whose reader has already
+closed it, the write raises `SIGPIPE` and the default action kills the process
+(a shell reports 141), so the `73` path is not reached.
 
 ## Exit status
 
@@ -363,23 +337,18 @@ lines were written.
 | --- | --- |
 | `0` | no error was recorded |
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude |
-| `2` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments |
+| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments |
+| `66` | the `--key-file` cannot be read, or holds no key |
 | `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
-| `74` | the `--output` file cannot be opened for writing |
-| `114` | the `--key-file` cannot be read, or holds no key |
+| `73` | the `--output` file cannot be opened for writing, or the output stream fails |
 | `130` | the run was interrupted with `Ctrl-C` |
 | `250` | `Ctrl-C` was pressed five times; the process aborted immediately, so the output can end without its report block |
-| `-1` (`255` in a shell) | an unexpected exception escaped `main()` |
+| `255` | an unexpected exception escaped `main()` |
 
-The status reports argument, scanning and hashing problems only. A silent write
-failure does not change it, and a process killed by `SIGPIPE` shows `141` in the
-shell, which is not one of the codes above.
-
-`--help` and `--version` exit with `0`. `70` and `74` are the sysexits values
-`EX_SOFTWARE` and `EX_IOERR`; `130` is the shell convention `128 + SIGINT`;
-`250` is just below the `255` that a shell reports for `-1`, so the two cannot
-be confused. `114` is not a sysexits value; it is reserved here for a key file
-that cannot be read.
+`--help` and `--version` exit with `0`. `64`, `66`, `70` and `73` are the
+sysexits values `EX_USAGE`, `EX_NOINPUT`, `EX_SOFTWARE` and `EX_CANTCREAT`;
+`130` is the shell convention `128 + SIGINT`; `250` is just below the `255`
+used for an unexpected exception, so the two cannot be confused.
 
 The codes live in `include/exit_codes.hpp` as `TSUBAKI_SUCCESS`,
 `TSUBAKI_HASH_ERROR`, `TSUBAKI_INVALID_ARGUMENT`, `TSUBAKI_FILE_WRITE_FAILED`,

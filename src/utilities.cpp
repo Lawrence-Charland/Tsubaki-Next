@@ -51,7 +51,7 @@ bool is_checksum(const std::string &target)
     return true;
 }
 
-std::optional<std::string> get_key(std::istream &is)
+std::optional<std::string> get_file_content(std::istream &is)
 {
     std::string key;
     std::string line;

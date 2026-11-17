@@ -103,7 +103,7 @@ std::optional<std::filesystem::path> dirscanner::pop()
         if (!candidate)
             return std::nullopt;
         std::error_code ec;
-        if (std::filesystem::is_regular_file(candidate.value(), ec))
+        if (!std::filesystem::is_directory(candidate.value(), ec))
             return candidate;
         if (ec)
         {

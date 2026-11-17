@@ -6,8 +6,8 @@
 
 The program is a pull-based pipeline. Producers implement one method that hands
 out the next path; a single stream object merges the producers; a pool of
-workers pulls paths from that stream and hashes them; one writer turns each
-finished result into a line of output.
+workers pulls paths from that stream and hashes them; each worker writes its
+finished result as one line of output.
 
 ```
   argv ──> main ──> cmdline ──> sum_core ──> dirscanner      ─┐
@@ -66,10 +66,12 @@ is not specific to a subcommand:
    `argparser::describe()`, followed by a hint to run `--help`.
 3. Values are read out of the entries and checked: the algorithm is mapped
    through `str_to_alg()`; a keyed algorithm takes its key from `-k` or from
-   `-K` (`get_key()` reads the file, or stdin for `-`, and drops trailing
-   CR/LF), while a plain digest warns and ignores either option without opening
-   the file; the thread count is parsed (falling back to
-   `std::thread::hardware_concurrency()`), and the output stream is opened.
+   `-K` (`get_file_content()` reads the file, or stdin for `-`, and drops
+   trailing CR/LF), while a plain digest warns and ignores either option
+   without opening the file; the thread count is parsed from `-t` (`std::stoi`
+   throwing, or a non-positive result, is an error) or taken from
+   `std::thread::hardware_concurrency()` when `-t` is absent, falling back to 1
+   if that reports 0; and the output stream is opened.
    `check_key_validity()` rejects a key that is empty or too long for the
    algorithm, and `-K -` together with a `-` input is rejected: stdin may be
    named only once.
@@ -84,12 +86,13 @@ is not specific to a subcommand:
    so nothing is a valid run that just prints an empty report.
 5. `work_manager(tasks, *out, api, verbose).run(threads)` starts the workers and
    returns a `work_result`.
-6. `sum_main` writes `#` and then calls `result.print(*out, true)` on the output
-   stream, and maps the run onto an exit code: `TSUBAKI_INTERRUPTED` when the
-   run was interrupted, `TSUBAKI_HASH_ERROR` when an error was recorded, and
-   `TSUBAKI_SUCCESS` otherwise. Argument problems returned
-   `TSUBAKI_INVALID_ARGUMENT` earlier, and an `--output` file that cannot be
-   opened returns `TSUBAKI_FILE_WRITE_FAILED`.
+6. `sum_main` writes `#`, calls `result.print(*out, true)`, then flushes the
+   stream and checks `fail()`: a failed write returns
+   `TSUBAKI_FILE_WRITE_FAILED`. Otherwise it maps the run onto an exit code:
+   `TSUBAKI_INTERRUPTED` when the run was interrupted, `TSUBAKI_HASH_ERROR`
+   when an error was recorded, and `TSUBAKI_SUCCESS` otherwise. Argument
+   problems returned `TSUBAKI_INVALID_ARGUMENT` earlier, and an `--output` file
+   that cannot be opened also returns `TSUBAKI_FILE_WRITE_FAILED`.
 
 ## Command line layer
 
@@ -129,12 +132,11 @@ The parts of its behaviour that surface here:
 Entries are defined once, in `include/cmdline.hpp`, and carry a group:
 `general` for `subcmd`/`--help`/`--version`, `sum` for everything else. `main()`
 evaluates `general`; `sum_main()` evaluates `sum`. Inside a group the declaration
-order is the evaluation order: key-file, key, threads, output, the flags,
-algorithm, excludes, lists, files for `sum`, and subcmd, version, help for
-`general`. The
-names are `inline constexpr` constants in `cmdline_entry`, so the definitions and
-the `entry()` lookups share one spelling; a hyphen in the name becomes an
-underscore in the identifier.
+order is the evaluation order: excludes, lists, key-file, key, threads, output,
+follow-symlinks, force-rescan, verbose, algorithm, files for `sum`, and subcmd,
+version, help for `general`. The names are `inline constexpr` constants in
+`cmdline_entry`, so the definitions and the `entry()` lookups share one spelling;
+a hyphen in the name becomes an underscore in the identifier.
 
 - `subcmd` is the first entry of the `general` group and a positional with a
   count of exactly one, so it takes the first plain argument whatever it is.
@@ -150,9 +152,8 @@ underscore in the identifier.
   long as no file argument follows it.
 - Neither entry has an upper bound on its value count, so `-e build .` takes `.`
   as a second exclude and leaves `files` empty.
-- `files` is the last positional. It collects simple arguments until the `\`
-  barrier; a plain argument after the barrier is left unconsumed, and
-  `fine(false)` reports it as `invalid_arguments`.
+- `files` is the last positional. It has no barrier and no upper limit, so it
+  takes every remaining simple argument.
 - `-h`/`--help` is a flag, and the help check returns before validation, so
   `--help=something` still prints the help and exits 0: the parser records
   `flag_unexpected_values`, but `main` never asks. The same applies to
@@ -185,16 +186,16 @@ releases the mutex, and then inspects the candidate outside the lock:
 
 This filter lives in the base class, so producers only have to answer "what is
 the next path". Two classes override `pop()`: `dirscanner`, which walks
-directory entries and therefore skips every non-file silently instead of
-recording an error for each subdirectory it passes — that is also what keeps a
-directory walk from opening a FIFO or a device it happens to meet — and
+directory entries and therefore skips directories silently instead of recording
+an error for each one it passes; every non-directory it meets — including a
+device or a FIFO — is handed out and opened by a worker. The other is
 `fanin_taskstream`, whose cursor logic is described below.
 
-A path rejected here (missing, unstatable, or a directory in a list) never
-reaches a worker, so it is not printed and not counted in any of the three
-counters; it only leaves an `error_entry`, which is enough to make the exit code
-1. That is why `Failed` can be 0 while the run still fails: `Failed` only counts
-files whose checksum attempt returned an error.
+A path rejected here (missing, unstatable, or a directory in a list) never gets
+past `pop()`, so it is not printed and not counted in any of the three counters;
+it only leaves an `error_entry`, which is enough to make the exit code 1. That
+is why `Failed` can be 0 while the run still fails: `Failed` only counts files
+whose checksum attempt returned an error.
 
 `error_entry` is a pair of `std::error_code` and a free-form operation string;
 the string is what ends up in the report, so producers are expected to describe
@@ -236,11 +237,11 @@ ignored.
 
 The line is split at the first space by `get_equation()`. If the first part is
 the literal `<NONE>` — the marker this program writes for a file it did not hash
-— the part after the space is the path. Otherwise, if the first part is not
-entirely hexadecimal (`is_checksum()`), the whole line is a path, spaces
-included. A line with no space in it never reaches that test, so a hex-only
-name listed on its own is just a path. If the first part *is* hexadecimal, the
-line is a `<checksum> <path>` pair:
+— the part after the space is the path. Otherwise, if the first part is not at
+least 32 characters of hexadecimal (`is_checksum()`), the whole line is a path,
+spaces included. A line with no space in it never reaches that test, so a
+hex-only name listed on its own is just a path. If the first part *is*
+hexadecimal, the line is a `<checksum> <path>` pair:
 
 - with `--force-rescan`, the path is handed out for hashing;
 - otherwise the line is decoupled from the run: `# Kept: <path>` and the
@@ -287,8 +288,9 @@ thread.
 has no lock of its own.
 
 - Accessing your own state inside `pop_raw()` needs no lock, but calling
-  `report_error()`, `take_errors()`, `pop()` or `add_task()` from there will
-  self-deadlock: the mutex is not recursive. Write to `errors` directly instead.
+  `report_error()` or `pop()` from there self-deadlocks: the mutex is not
+  recursive. `take_errors()` takes no lock, so it does not deadlock, but it
+  races with a concurrent `report_error()`. Write to `errors` directly instead.
 - `errors` may only be touched while the mutex is held (inside `pop_raw()`) or
   from a single thread (construction, or after `take_errors()`).
 - A child must never call back into the parent's locking methods, or two threads
@@ -341,9 +343,10 @@ The key policy lives in two `constexpr` helpers next to `ALGORITHM_LIST`:
 `max_key_length()` returns 64 for `blake2b512_mac`, 32 for `blake2s256_mac` and
 0 for "no upper bound", and `check_key_validity()` requires a non-empty key that
 fits that limit (a plain digest accepts any key and ignores it). `sum_main`
-calls it once, before any file is opened, and turns a failure into a specific
-message plus exit status 2; `calc()` calls it again, so a caller that builds a
-`checksum_api` by hand cannot skip the check and MAC with an impossible key.
+calls it once, before any file is opened, on the key from either `-k` or `-K`,
+and turns a failure into a generic message plus exit status 64. `calc()` does not
+re-check: keeping a valid key is the contract of `checksum_api`, and a caller
+that builds one by hand must honour it.
 
 Reading is done with plain `read()` calls, not `mmap` or `SEEK_DATA`, so a sparse
 file is hashed over its logical length: holes are fed to the digest as zeros.
@@ -384,17 +387,19 @@ installs no SIGINT handler and leaves `Ctrl-C` to the caller, which is what an
 embedding driver wants.
 
 `work_result` is a plain value with `alg`, `errors`, `success`, `failed`,
-`unprocessed`, `interrupted` and `duration`. `operator+` merges two results of
-the same algorithm (errors appended, counters and durations added), which is
-there for a future setup with more than one manager. `print(os, with_errors)`
-writes the report block: `Algorithm`, `Processed` (= hashed + failed),
-`Hashed`, `Failed`, `Not hashed`, `Duration`, an `Errors` count — written even
-when it is 0 — and, for an interrupted run, a one-line note under the count.
+`unprocessed`, `interrupted` and `duration`. A commented-out `operator+` sketches
+how two results of the same algorithm would merge (errors appended, counters and
+durations added) for a future setup with more than one manager. `print(os,
+with_errors)` writes the report block: `Algorithm`, `Processed` (= hashed +
+failed), `Hashed`, `Failed`, `Not hashed`, `Duration`, an `Errors` count —
+written even when it is 0 — and, for an interrupted run, a `#` line and a
+`# Warning: The process was interrupted halfway through.` line under the count.
 When there are errors, the `# Error messages:` list follows. With
 `with_errors = false` the count and the note are written but the per-entry lines
 are left out.
 
-`sum_main` writes `#` and calls `result.print(*out, true)`, then returns
+`sum_main` writes `#`, calls `result.print(*out, true)`, flushes the stream and
+checks `fail()` (returning `TSUBAKI_FILE_WRITE_FAILED` on failure), then returns
 `TSUBAKI_INTERRUPTED` if `interrupted` is set, `TSUBAKI_HASH_ERROR` if any error
 was recorded, and `TSUBAKI_SUCCESS` otherwise. `failed` itself does not decide
 the exit code; every checksum failure also leaves an error entry, so in practice
@@ -420,20 +425,23 @@ That single `std::ostream` is shared by every worker, the list scanners (for
 interleave; the report itself is written after the workers are joined, so it
 goes out directly.
 
-stderr carries three things: the progress indicator, the argument-setup failures
-(`cmdline` errors and an output file that cannot be opened), and — when
-`--output` is given — a second copy of the report block, printed with
-`print(std::clog, false)` so that the per-entry error messages stay out of it.
-Everything else lands in the report block of the result stream, including a list
-file that cannot be opened.
+stderr carries four things: the progress indicator, the argument-setup failures
+(`cmdline` errors and an output file that cannot be opened), the notice printed
+when the final write check fails, and — when `--output` is given — a second copy
+of the report block, printed with `print(std::clog, false)` so that the
+per-entry error messages stay out of it. Everything else lands in the report
+block of the result stream, including a list file that cannot be opened.
 
-Neither stream is checked. The workers' lines are emitted through
-`std::osyncstream`, the report is written directly after the join, and the
-`--output` file is closed by the `std::ofstream` destructor; a failed write sets
-the stream state and is never inspected, so `sum_main` still returns
-`TSUBAKI_SUCCESS`. Only `open()` is verified, before any work starts. `SIGPIPE`
+The result stream is checked at the end; stderr is not. The workers' lines are
+emitted through `std::osyncstream`, the report is written directly after the
+join, and `sum_main` then flushes the stream and checks `fail()`: a flush that
+failed — a full disk, a broken descriptor, a file on a removed mount — leaves
+the stream failed and returns `TSUBAKI_FILE_WRITE_FAILED` (73). The `--output`
+file is still closed by the `std::ofstream` destructor, and that close error is
+not inspected, but a write failure has already shown up in the flush. `SIGPIPE`
 keeps its default action, so a pipe whose reader went away kills the process
-rather than surfacing as a write error.
+(141 in a shell) before the `73` path is reached. Opening the `--output` file
+itself is checked up front, before any work starts.
 
 ## Concurrency model
 
@@ -463,18 +471,18 @@ The codes live in `include/exit_codes.hpp` and are shared by `main()` and
 | --- | --- | --- |
 | `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry |
 | `TSUBAKI_HASH_ERROR` | 1 | at least one error entry was recorded |
-| `TSUBAKI_INVALID_ARGUMENT` | 2 | the command line was rejected: unknown subcommand, unknown algorithm, a keyed algorithm without a key, `-K -` together with a `-` input, bad thread count, or leftover arguments |
+| `TSUBAKI_INVALID_ARGUMENT` | 64 | the command line was rejected: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments (`EX_USAGE`) |
+| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` cannot be read or holds no key (`EX_NOINPUT`) |
 | `TSUBAKI_FATAL` | 70 | `argc` is 0, so `main()` refuses to run (`EX_SOFTWARE`) |
-| `TSUBAKI_FILE_WRITE_FAILED` | 74 | the `--output` file cannot be opened (`EX_IOERR`) |
-| `TSUBAKI_FILE_READ_FAILED` | 114 | `--key-file` cannot be read or holds no key |
+| `TSUBAKI_FILE_WRITE_FAILED` | 73 | the `--output` file cannot be opened, or the result stream fails (`EX_CANTCREAT`) |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
 | `TSUBAKI_TERMINATED` | 250 | the fifth `Ctrl-C` called `_exit()` from the handler, so no report was written |
-| `TSUBAKI_UNEXPECTED` | -1 | an exception escaped `main()`; the shell sees 255 |
+| `TSUBAKI_UNEXPECTED` | 255 | an exception escaped `main()` |
 
 `interrupted` wins over `errors`: an interrupted run reports `130` even when it
-also collected errors. None of these codes describes a silent write failure;
-`SIGPIPE` (141 in a shell) is the one write-side failure that is visible, and it
-kills the process instead.
+also collected errors. A write failure returns `73`; when the result goes to a
+pipe whose reader is gone, `SIGPIPE` kills the process first (a shell reports
+141).
 
 ## Data flow example
 
@@ -500,10 +508,10 @@ tsubaki sum sha256 . -e build -l old.txt
 ## One manager at a time
 
 `work_manager` only needs a `basic_taskstream`, and most of the shared pieces
-are already handled by the interface: `run()` returns a `work_result` that
-`operator+` can merge, the caller prints it, and `catch_sigint = false` lets an
-outer driver own the interrupt. Splitting a run across several managers is
-therefore mostly bookkeeping:
+are already handled by the interface: `run()` returns a `work_result` that a
+merge operator (sketched but commented out) could combine, the caller prints it,
+and `catch_sigint = false` lets an outer driver own the interrupt. Splitting a
+run across several managers is therefore mostly bookkeeping:
 
 - `-t` has to be divided between the managers;
 - each manager paints its own progress line, so they would fight over the same
@@ -514,8 +522,8 @@ therefore mostly bookkeeping:
 
 None of that is hard, but none of it buys much either: the bottleneck is I/O and
 hashing, and pulling a path is the only serialised step. One manager keeps the
-program small, and `work_result::operator+` plus the interrupt flag leave the
-door open for a caller that wants more.
+program small, and the sketched `work_result::operator+` plus the interrupt flag
+leave the door open for a caller that wants more.
 
 ## Extension points
 
@@ -551,7 +559,7 @@ door open for a caller that wants more.
 | `tsubaki::fanin_taskstream` | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
 | `tsubaki::checksum_api` | — | carries the chosen algorithm and key, and routes `calc()` to the digest or the MAC path |
 | `tsubaki::work_manager` | — | worker pool, progress line, interrupt flag |
-| `tsubaki::work_result` | — | value snapshot returned by `run()`, with `operator+` and `print()` |
+| `tsubaki::work_result` | — | value snapshot returned by `run()`, with `print()` and a commented-out `operator+` sketch |
 | `tsubaki::error_entry` | — | `std::error_code` plus the operation that failed |
 
 ### Files

@@ -34,22 +34,22 @@ class work_result
           unprocessed(_unprocessed), duration(_duration), interrupted(_int)
     {
     }
-    work_result operator+(const work_result &target)
-    {
-        if (alg != target.alg)
-            throw std::invalid_argument(
-                "tsubaki::work_result::operator+: cannot add work "
-                "results of different algorithms");
-        work_result sum = *this;
-        sum.errors.insert(sum.errors.end(), target.errors.begin(),
-                          target.errors.end());
-        sum.success += target.success;
-        sum.failed += target.failed;
-        sum.unprocessed += target.unprocessed;
-        sum.duration += target.duration;
-        sum.interrupted = sum.interrupted || target.interrupted;
-        return sum;
-    }
+    // work_result operator+(const work_result &target)
+    // {
+    //     if (alg != target.alg)
+    //         throw std::invalid_argument(
+    //             "tsubaki::work_result::operator+: cannot add work "
+    //             "results of different algorithms");
+    //     work_result sum = *this;
+    //     sum.errors.insert(sum.errors.end(), target.errors.begin(),
+    //                       target.errors.end());
+    //     sum.success += target.success;
+    //     sum.failed += target.failed;
+    //     sum.unprocessed += target.unprocessed;
+    //     sum.duration += target.duration;
+    //     sum.interrupted = sum.interrupted || target.interrupted;
+    //     return sum;
+    // }
     void print(std::ostream &os, bool with_errors = true);
 };
 

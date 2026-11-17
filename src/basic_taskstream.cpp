@@ -28,8 +28,8 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
         if (ec)
         {
             // report_error locks the mutex ( safe to call here )
-            report_error(error_entry(
-                ec, "determining the file type of " + candidate->string()));
+            report_error(error_entry(ec, "determining the file type of " +
+                                             candidate->string()));
             continue;
         }
         if (std::filesystem::is_regular_file(status))
@@ -43,6 +43,7 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
             continue;
         }
         return candidate;
+        // But I don't know who needs to compute a hash of a non-regular file.
     }
 }
 

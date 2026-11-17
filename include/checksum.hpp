@@ -130,11 +130,13 @@ struct checksum_api
 {
     algorithm alg = algorithm::none;
     std::string key;
+    // Will not check the validity, which should be guaranteed external.
 
     checksum_api() = default;
-    explicit checksum_api(algorithm _alg) : alg(_alg) {}
-    checksum_api(algorithm _alg, const std::string &_key)
-        : alg(_alg), key(_key)
+    explicit checksum_api(algorithm _alg) : alg(_alg)
+    {
+    }
+    checksum_api(algorithm _alg, const std::string &_key) : alg(_alg), key(_key)
     {
     }
 
@@ -143,11 +145,6 @@ struct checksum_api
     {
         if (!is_keyed(alg))
             return checksum_file(target, alg);
-        // An empty or over-long key is a caller mistake, not a request to MAC
-        // with whatever the caller happened to pass.
-        if (!check_key_validity(key, alg))
-            return std::unexpected(
-                std::make_error_code(std::errc::invalid_argument));
         return checksum_file_key(target, key, alg);
     }
 };

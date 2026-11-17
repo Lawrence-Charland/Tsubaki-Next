@@ -35,9 +35,11 @@ Positional arguments:
 Options:
   -h, --help                  print this help and exit.
   -V, --version               print the version and exit.
-  -v, --verbose               print a live progress indicator on stderr.
+  -v, --verbose               print a live progress indicator on stderr;
+                              not shown when the algorithm is "none".
   -t<n>, --thread=<n>         number of worker threads; defaults to the number
-                              of hardware threads. Alias: --threads=<n>.
+                              of hardware threads, or 1 if it reports 0.
+                              Alias: --threads=<n>.
   -k<key>, --key=<key>        secret key for the keyed algorithms (hmac_*,
                               blake2*_mac); ignored with a warning when the
                               algorithm needs none. Keyed BLAKE2 caps the key
@@ -48,9 +50,11 @@ Options:
                               shared machine.
   -K<file>, --key-file=<file> read the key from <file> instead of the command
                               line; "-" reads it from stdin. Trailing CR/LF are
-                              dropped. Conflicts with -k, and "-" cannot be
-                              named twice (as key source and as an input). A
-                              missing, unreadable or empty file exits 114.
+                              dropped. Conflicts with -k. With a keyed
+                              algorithm, "-" cannot be named twice (as key
+                              source and as an input), and a missing,
+                              unreadable or empty file exits 66. Ignored with
+                              a warning by a plain digest.
   -o<file>, --output=<file>   write the results to <file> instead of stdout.
   -e<path>, --exclude=<path>  skip <path> and anything below it when scanning
                               directories; may be given more than once.
@@ -72,15 +76,13 @@ Option values:
   doubt, use this order: the algorithm first, then all the inputs at once,
   then the options.
 
-  A '\' ends the list of files; a plain argument after it is not treated as a
-  file, and is rejected unless an option takes it. In a shell, quote it ('\'),
-  otherwise it escapes the following space and never reaches the program.
-
 File lists:
-  Every non-empty line is either a path, or a checksum and a path separated by
-  a space. A line starting with '#' is a comment. A line that carries both a
-  checksum and a path is kept unchanged (marked with "# Kept: <path>") unless
-  --force-rescan is given, in which case only the path is rescanned.
+  Every non-empty line is either a path, or a checksum (at least 32 hex
+  digits) and a path separated by a space. The marker "<NONE>" followed by a
+  space names the path after it. A line starting with '#' is a comment. A line
+  that carries both a checksum and a path is kept unchanged (marked with
+  "# Kept: <path>") unless --force-rescan is given, in which case only the path
+  is rescanned.
 
 Output format:
   "<checksum> <path>" for every processed file, followed by a report block
@@ -90,9 +92,10 @@ Output format:
   line, increments no counter, and adds only an error entry. Devices and FIFOs
   are read as streams, so they can block or never reach EOF.
 
-  Write errors are not checked: a full disk or a broken descriptor leaves the
-  output incomplete, and the exit status does not change. A pipe with no reader
-  kills the process with SIGPIPE instead.
+  Write errors are checked at the end through std::ostream::fail(): a full disk,
+  a broken descriptor, or a file on a removed mount leaves the stream failed
+  and the exit status 73. A pipe with no reader raises SIGPIPE, which kills the
+  process (141 in a shell) before that check.
 
 Examples:
   {program} sum sha256 .                      scan the current directory.
@@ -112,16 +115,17 @@ Exit status:
   0    no error was recorded.
   1    at least one error was recorded: a checksum failure, a missing path, an
        unopenable list file, or a missing exclude.
-  2    invalid command line: unknown subcommand, unknown algorithm, a keyed
+  64   invalid command line: unknown subcommand, unknown algorithm, a keyed
        algorithm without a key or with a key too long for it, -k together
        with -K, stdin named twice, bad thread count, or leftover arguments.
+  66   the --key-file cannot be read, or holds no key.
   70   fatal start-up failure (argc is 0).
-  74   the --output file cannot be opened for writing.
-  114  the --key-file cannot be read, or holds no key.
+  73   the --output file cannot be opened for writing, or the output stream
+       fails.
   130  the run was interrupted with Ctrl-C.
   250  Ctrl-C was pressed five times, so the process aborted on the spot; the
        output can end without its report block.
-  255  an unexpected exception escaped; TSUBAKI_UNEXPECTED is -1 internally.
+  255  an unexpected exception escaped main().
 
 Repository:
   https://github.com/Lawrence-Charland/Tsubaki-Next

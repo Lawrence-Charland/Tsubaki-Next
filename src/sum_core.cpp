@@ -87,8 +87,6 @@ int sum_main(argparser::ap_instance &cmdline)
             }
             if (!is_keyed(api.alg))
             {
-                // The key is irrelevant, so never open the file: that keeps
-                // "-K -" from stealing stdin when a list also wants it.
                 if (!key_cont.empty() || !key_file_cont.empty())
                 {
                     std::cerr << "Warning: \"" << alg_to_str(api.alg)
@@ -114,7 +112,7 @@ int sum_main(argparser::ap_instance &cmdline)
                         ifs_key_file.open(key_file_cont.at(0));
                         is_key = &ifs_key_file;
                     }
-                    auto key_read = get_key(*is_key);
+                    auto key_read = get_file_content(*is_key);
                     if (!key_read)
                     {
                         std::cerr
@@ -134,10 +132,8 @@ int sum_main(argparser::ap_instance &cmdline)
                 }
                 if (!check_key_validity(key, api.alg))
                 {
-                    std::cerr << "Error: the key for \"" << alg_to_str(api.alg)
-                              << "\" must be at most "
-                              << max_key_length(api.alg) << " bytes."
-                              << std::endl;
+                    std::cerr << "Error: the key is not valid for algorithm \""
+                              << alg_to_str(api.alg) << "\"." << std::endl;
                     return TSUBAKI_INVALID_ARGUMENT;
                 }
                 api.key = key;
@@ -209,8 +205,7 @@ int sum_main(argparser::ap_instance &cmdline)
         {
             if (it == "-")
             {
-                // stdin is already the key source; naming it again as an
-                // input would read the same stream twice.
+                // stdin is already the key source; naming it again is invalid.
                 if (key_from_stdin)
                 {
                     std::cerr << "Error: stdin was used for the key."
@@ -253,6 +248,15 @@ int sum_main(argparser::ap_instance &cmdline)
     result.print(*out, true);
     if (out != &std::cout)
         result.print(std::clog, false);
+
+    // Return
+    out->flush();
+    if (out->fail())
+    {
+        std::cerr << "Error: failed to write output; it may be incomplete."
+                  << std::endl;
+        return TSUBAKI_FILE_WRITE_FAILED;
+    }
     if (result.interrupted)
         return TSUBAKI_INTERRUPTED;
     if (!result.errors.empty())
