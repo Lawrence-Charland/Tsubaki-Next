@@ -16,6 +16,7 @@ Usage:
   {program} sum [options] <algorithm> <file|dir>...
   {program} --help
   {program} --version
+  {program} --algorithm
 
 Positional arguments:
   sum                    the only subcommand (Stay tuned for more features!).
@@ -37,7 +38,8 @@ Positional arguments:
 Options:
   -h, --help                  print this help and exit.
   -V, --version               print the version and exit.
-  -a, --algorithm             list the supported algorithms.
+  -a, --algorithm             print the algorithms in a table, marking which
+                              ones are keyed, and exit; needs no subcommand.
   -v, --verbose               print a live progress indicator on stderr;
                               not shown when the algorithm is "none".
   -t<n>, --thread=<n>         number of worker threads; defaults to the number

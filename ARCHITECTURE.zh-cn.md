@@ -41,10 +41,13 @@
 1. `def_args()` 用 `include/cmdline.hpp` 里的条目定义构造
    `argparser::ap_instance`；`pre_parse()` 把参数切成带风格的 token。
 2. `evaluate(cmdline_group::general)` 匹配 `general` 组：只收一个词的 `subcmd`
-   位置参数，加上 `--help` 和 `--version` 两个标志。程序名取自 `argv[0]`。
-3. `--help` 和 `--version` 在**校验之前**检查，所以两者都不需要子命令就能用，
-   也优先于其它参数错误。帮助文本来自 `src/help.cpp` 的 `help_text()`；版本
-   字符串就是 CMake 项目版本，由 `TSUBAKI_VERSION` 注入。
+   位置参数，加上 `--help`、`--version` 和 `--algorithm` 三个标志。程序名取自
+   `argv[0]`。
+3. `--help`、`--version` 和 `--algorithm` 在**校验之前**按这个顺序检查，所以三者
+   都不需要子命令就能用，也都优先于其它参数错误。帮助文本来自 `src/help.cpp` 的
+   `help_text()`；`--algorithm` 打印的是同一文件里 `list_algorithm()` 用哈希代码
+   那个 `ALGORITHM_LIST` 宏生成的表格。版本字符串就是 CMake 项目版本，由
+   `TSUBAKI_VERSION` 注入。
 4. `fine()` 校验 `general` 组的条目。缺 `subcmd` 就在这里报错，末尾补一句提示
    去跑 `--help`。
 5. `subcmd` 的值与 `subcommands::sum` 比较：相等就把预解析好的实例交给
@@ -492,7 +495,7 @@ manager，剩下的主要是琐事：
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |
-| `include/help.hpp`, `src/help.cpp` | 帮助文本 |
+| `include/help.hpp`, `src/help.cpp` | 帮助文本与 `--algorithm` 表格 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |
 
 `experiments/timeline_fs/` 不属于 `tsubaki` 的源码映射：它保存着"比较多份结果"

@@ -43,12 +43,15 @@ is not specific to a subcommand:
 1. `def_args()` builds an `argparser::ap_instance` from the entry definitions in
    `include/cmdline.hpp`; `pre_parse()` splits the arguments into styled tokens.
 2. `evaluate(cmdline_group::general)` matches the `general` group: the `subcmd`
-   positional, which takes exactly one word, plus the `--help` and `--version`
-   flags. The program name is taken from `argv[0]`.
-3. `--help` and `--version` are checked **before** validation. Both therefore
-   work without a subcommand, and both win over every argument error. Help text
-   comes from `help_text()` in `src/help.cpp`; the version string is the CMake
-   project version, injected as `TSUBAKI_VERSION`.
+   positional, which takes exactly one word, plus the `--help`, `--version` and
+   `--algorithm` flags. The program name is taken from `argv[0]`.
+3. `--help`, `--version` and `--algorithm` are checked **before** validation, in
+   that order. All three therefore work without a subcommand, and all three win
+   over every argument error. Help text comes from `help_text()` in
+   `src/help.cpp`, and `--algorithm` prints the table built by
+   `list_algorithm()` there from the same `ALGORITHM_LIST` macro the hashing
+   code uses. The version string is the CMake project version, injected as
+   `TSUBAKI_VERSION`.
 4. `fine()` validates the `general` entries. A missing `subcmd` is reported
    here, followed by a hint to run `--help`.
 5. The value of `subcmd` is compared with `subcommands::sum`. `sum` hands the
@@ -590,7 +593,7 @@ leave the door open for a caller that wants more.
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |
-| `include/help.hpp`, `src/help.cpp` | help text |
+| `include/help.hpp`, `src/help.cpp` | help text and the `--algorithm` table |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |
 
 `experiments/timeline_fs/` is not part of the `tsubaki` source map: it holds an

@@ -59,11 +59,15 @@ preset exists with the same layout.
 tsubaki sum [options] <algorithm> <file|dir>...
 tsubaki --help
 tsubaki --version
+tsubaki --algorithm
 ```
 
-The `sum` subcommand is required. `--help` and `--version` are the only
-invocations that do not need it; any other word in the subcommand position is
-rejected as an unknown subcommand.
+The `sum` subcommand is required. `--help`, `--version` and `--algorithm` (or
+`-a`) are the only invocations that do not need it; any other word in the
+subcommand position is rejected as an unknown subcommand. Those three are
+checked before validation, so they also win over every argument error: running
+`tsubaki -a junk` prints the algorithm table and exits 0. When several of them
+are given, `--help` wins over `--version`, and both win over `--algorithm`.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
 a directory, a file, or `-` for stdin, and the kinds can be mixed in one
@@ -116,12 +120,17 @@ The digests agree with `openssl dgst -<name>`, the HMACs with
 `openssl mac -macopt key:<key> BLAKE2BMAC` (or `BLAKE2SMAC`). The output is
 lowercase hexadecimal, and its length is set by the algorithm.
 
+`tsubaki -a` (or `--algorithm`) prints the same names as a two-column table
+(`ALGORITHM`, `KEYED`), generated from the macro that defines the algorithms,
+so it tracks the implementation instead of repeating the list above by hand.
+
 ### Options
 
 | Option                         | Meaning                                                              |
 | ------------------------------ | -------------------------------------------------------------------- |
 | `-h`, `--help`                 | print help and exit                                                  |
 | `-V`, `--version`              | print the version and exit                                           |
+| `-a`, `--algorithm`            | print the algorithms and whether each one is keyed, then exit; needs no subcommand |
 | `-v`, `--verbose`              | live progress indicator on stderr; not shown for `none`              |
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
