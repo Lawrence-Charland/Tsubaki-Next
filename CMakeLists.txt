@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10...3.28)
 
-project(Tsubaki-Next VERSION 1.2.0 LANGUAGES CXX)
+project(Tsubaki-Next VERSION 2.0.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
