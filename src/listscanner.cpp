@@ -41,4 +41,50 @@ std::optional<task_token> listscanner::pop_raw()
     ended = true;
     return {};
 }
+
+std::optional<task_token> listscanner::pop()
+{
+    for (;;)
+    {
+        std::optional<task_token> candidate;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            candidate = pop_raw();
+        }
+        if (!candidate)
+            return std::nullopt;
+
+        if (trust)
+            return candidate;
+        std::error_code ec;
+        const std::filesystem::file_status status =
+            std::filesystem::status(candidate->p, ec);
+        if (ec)
+        {
+            // report_error locks the mutex ( safe to call here )
+            report_error(error_entry(ec, "determining the file type of " +
+                                             candidate->p.string()));
+            continue;
+        }
+        if (std::filesystem::is_regular_file(status))
+            return candidate;
+        if (std::filesystem::is_directory(status))
+        {
+            report_error(error_entry(
+                std::make_error_code(std::errc::operation_not_permitted),
+                "calculating the checksum of " + candidate->p.string() +
+                    ", which is a directory"));
+            continue;
+        }
+        if (std::filesystem::is_socket(status))
+        {
+            report_error(error_entry(
+                std::make_error_code(std::errc::operation_not_permitted),
+                "calculating the checksum of " + candidate->p.string() +
+                    ", which is a socket"));
+            continue;
+        }
+        return candidate;
+    }
+}
 } // namespace tsubaki

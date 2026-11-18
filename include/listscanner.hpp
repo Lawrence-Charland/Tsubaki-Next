@@ -6,7 +6,6 @@
 
 #include "basic_taskstream.hpp"
 
-#include <filesystem>
 #include <istream>
 #include <optional>
 #include <ostream>
@@ -21,15 +20,17 @@ class listscanner : public basic_taskstream
     std::ostream &os;
     std::string pretty_name;
     bool rescan;
+    bool trust;
     bool ended = false;
 
   public:
     listscanner(const std::string &_name, std::istream &_is, std::ostream &_os,
-                bool _rescan = false)
-        : is(_is), os(_os), pretty_name(_name), rescan(_rescan)
+                bool _rescan, bool _trust)
+        : is(_is), os(_os), pretty_name(_name), rescan(_rescan), trust(_trust)
     {
     }
-    using basic_taskstream::pop;
+
+    std::optional<task_token> pop() override;
 
   protected:
     std::optional<task_token> pop_raw() override;

@@ -218,7 +218,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                 }
                 // Add a listscanner reads stdin ( safe to multiply add )
                 tasks.add_task(std::make_unique<listscanner>(
-                    "stdin", std::cin, *out, force_rescan));
+                    "stdin", std::cin, *out, force_rescan, verify));
             }
             else
             {
@@ -246,7 +246,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                 }
                 // Add a listscanner reads stdin ( safe to multiply add )
                 tasks.add_task(std::make_unique<listscanner>(
-                    "stdin", std::cin, *out, force_rescan));
+                    "stdin", std::cin, *out, force_rescan, verify));
             }
             else
             {
@@ -258,7 +258,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                                     "opening file list " + it));
                 else // Add a listscanner reads ifstream
                     tasks.add_task(std::make_unique<listscanner>(
-                        it, *lists.back(), *out, force_rescan));
+                        it, *lists.back(), *out, force_rescan, verify));
             }
         }
     }
