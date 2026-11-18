@@ -8,7 +8,8 @@
 
 namespace tsubaki
 {
-int sum_main(argparser::ap_instance &cmdline);
-}
+int sum_main(argparser::ap_instance &cmdline, bool internal = false);
+int verify_main(argparser::ap_instance &cmdline);
+} // namespace tsubaki
 
 #endif

@@ -22,6 +22,7 @@ filtered after scanning: a path is hashed as soon as a worker gets it.
 ## Contents
 
 - [Startup sequence](#startup-sequence)
+- [Verification](#verification)
 - [Command line layer](#command-line-layer)
 - [Task streams](#task-streams)
 - [Thread-safety rules](#thread-safety-rules)
@@ -54,17 +55,20 @@ is not specific to a subcommand:
    `TSUBAKI_VERSION`.
 4. `fine()` validates the `general` entries. A missing `subcmd` is reported
    here, followed by a hint to run `--help`.
-5. The value of `subcmd` is compared with `subcommands::sum`. `sum` hands the
-   preparsed instance to `tsubaki::sum_main()` and returns its exit code;
-   anything else is rejected as an unknown subcommand with
-   `TSUBAKI_INVALID_ARGUMENT`. The call sits in a try/catch that turns an
+5. The value of `subcmd` is compared with `subcommands::sum` and
+   `subcommands::verify`. `sum` hands the preparsed instance to
+   `tsubaki::sum_main()` and returns its exit code; `verify` does the same with
+   `tsubaki::verify_main()`. Anything else is rejected as an unknown subcommand
+   with `TSUBAKI_INVALID_OPERATION`. The call sits in a try/catch that turns an
    escaped exception into an error message plus `TSUBAKI_UNEXPECTED`.
 
-`sum_main(cmdline)` does the following, in order:
+`sum_main(cmdline, internal)` does the following, in order:
 
 1. `evaluate(cmdline_group::sum)` matches the remaining arguments against the
    entries of the `sum` group; entries of the `general` group keep their
-   results.
+   results. When `internal` is true — the invocation built by `verify` — the
+   hidden `sum_int` group is evaluated too, which is where the `--verify` flag
+   lives.
 2. `fine(false)` runs the validation. Every failed entry is reported with
    `argparser::describe()`, followed by a hint to run `--help`.
 3. Values are read out of the entries and checked: the algorithm is mapped
@@ -87,15 +91,54 @@ is not specific to a subcommand:
    the cached files, then the `-l` lists. The cached stream is added even when
    it is empty, and an empty input list is legal: `files` has no minimum count,
    so nothing is a valid run that just prints an empty report.
-5. `work_manager(tasks, *out, api, verbose).run(threads)` starts the workers and
-   returns a `work_result`.
+5. `work_manager(tasks, *out, api, verify, verbose, true).run(threads)` starts
+   the workers and returns a `work_result`; `verify` puts the manager in
+   verification mode, and the last argument keeps SIGINT handling local.
 6. `sum_main` writes `#`, calls `result.print(*out, true)`, then flushes the
    stream and checks `fail()`: a failed write returns
    `TSUBAKI_FILE_WRITE_FAILED`. Otherwise it maps the run onto an exit code:
    `TSUBAKI_INTERRUPTED` when the run was interrupted, `TSUBAKI_HASH_ERROR`
    when an error was recorded, and `TSUBAKI_SUCCESS` otherwise. Argument
-   problems returned `TSUBAKI_INVALID_ARGUMENT` earlier, and an `--output` file
+   problems returned `TSUBAKI_INVALID_OPERATION` earlier, and an `--output` file
    that cannot be opened also returns `TSUBAKI_FILE_WRITE_FAILED`.
+
+## Verification
+
+`verify` is a thin driver over the `sum` pipeline, not a second pipeline:
+
+1. `verify_main()` evaluates the `verify` group: its own positional checksum
+   file plus `-v`, `-t`, `-k`, `-K` and `-o`. These options keep the same names
+   as in `sum` but are separate entries logically (see 
+   [Command line layer](#command-line-layer)), so a `sum` option cannot leak in.
+2. It takes the algorithm from the first `# <key>: <value>` comment that names
+   `Algorithm` (`get_comment_value()` in `src/utilities.cpp`). An input that is
+   missing or is not a regular file exits 66. The header is read by opening the
+   file, so a file that passes the type check but cannot be opened looks like a
+   missing header and exits 64, as do an unknown algorithm and `none`. `none`
+   is refused because such a listing carries no checksum to compare.
+3. It refuses an `-o` that resolves to the input file: the input would be
+   truncated before the listing is read.
+4. It rebuilds an internal `sum` command line — the algorithm, `-l <input>`,
+   `-t`, `-k`, `-K`, `-o` and `-v` as they were given, `--force-rescan` and the
+   hidden `--verify` flag — and calls `sum_main(instance, true)`. The flag lives
+   in the `sum_int` group, so a user cannot pass it to `sum`. Without `-o` the
+   output defaults to `<input>.verify`, and a notice naming that file goes to
+   stderr; `-o -` drops the `-o` entry, so `sum` writes to stdout instead.
+5. `listscanner` sees `rescan` set and fills `task_token::sum` from the
+   checksum field of a `<checksum> <path>` line. A bare path or
+   `<NONE> <path>` leaves `sum` empty.
+6. Each worker compares its result with `token.sum` when the manager is in
+   verification mode. An empty `sum` is collected in `unsure`; a mismatch is
+   collected in `changed`. The comparison ignores case, because `is_checksum()`
+   accepts uppercase hex. Both vectors are merged under the manager mutex and
+   printed by `work_result::print()`.
+7. A changed or unsure entry does **not** change the exit status: `sum_main`
+   still returns 1 only for recorded errors, so `verify` reports differences
+   without failing the process. The output is a refreshed listing, with a new
+   checksum for every path that could be hashed, so verifying that output again
+   reports `Changed: 0` as long as the files did not change in the meantime. A
+   path that could not be hashed stays `<NONE>` and comes back as unsure, and a
+   path rejected before hashing has no line in the output at all.
 
 ## Command line layer
 
@@ -132,14 +175,22 @@ The parts of its behaviour that surface here:
 - The library makes no compatibility promise; the vendored copy is pinned to a
   single commit.
 
-Entries are defined once, in `include/cmdline.hpp`, and carry a group:
-`general` for `subcmd`/`--help`/`--version`, `sum` for everything else. `main()`
-evaluates `general`; `sum_main()` evaluates `sum`. Inside a group the declaration
-order is the evaluation order: excludes, lists, key-file, key, threads, output,
-follow-symlinks, force-rescan, verbose, algorithm, files for `sum`, and subcmd,
-version, help for `general`. The names are `inline constexpr` constants in
-`cmdline_entry`, so the definitions and the `entry()` lookups share one spelling;
-a hyphen in the name becomes an underscore in the identifier.
+Entries are defined once, in `include/cmdline.hpp`, and carry one or more
+groups: the pinned library revision keeps the groups of an entry in a set, so a
+single declaration can join several. `general` holds `subcmd`, `--help`,
+`--version` and `--algorithm`; `key-file`, `key`, `threads`, `output` and
+`verbose` belong to both `sum` and `verify`, because they mean the same thing in
+both subcommands; the rest of `sum` is excludes, lists, follow-symlinks,
+force-rescan, algorithm and files; the hidden `sum_int` group holds only
+`--verify`; and `verify` adds only its positional `to_verify`. `main()`
+evaluates `general`, `sum_main()` evaluates `sum` (plus `sum_int` for the
+internal call), and `verify_main()` evaluates `verify`. Inside a group the
+declaration order is the evaluation order: key-file, key, threads, output,
+verbose, excludes, lists, follow-symlinks, force-rescan, algorithm, files for
+`sum`; key-file, key, threads, output, verbose, to_verify for `verify`; and
+subcmd, help, version, list_alg for `general`. The names are `inline constexpr`
+constants in `cmdline_entry`, so the definitions and the `entry()` lookups share
+one spelling; a hyphen in the name becomes an underscore in the identifier.
 
 - `subcmd` is the first entry of the `general` group and a positional with a
   count of exactly one, so it takes the first plain argument whatever it is.
@@ -171,14 +222,21 @@ a hyphen in the name becomes an underscore in the identifier.
 producers implement:
 
 ```cpp
-virtual std::optional<std::filesystem::path> pop();      // public entry
-virtual std::optional<std::filesystem::path> pop_raw() = 0;  // protected
+virtual std::optional<task_token> pop();      // public entry
+virtual std::optional<task_token> pop_raw() = 0;  // protected
 void report_error(const error_entry &);
 std::vector<error_entry> take_errors();
 ```
 
+A `task_token` carries the path being worked on in `p` and a `sum` field.
+Streams that simply walk files leave `sum` empty and fill only `p`, so the path
+returned is exactly `token->p`. `listscanner` is the exception: in rescan mode
+it fills `sum` from the checksum field of a `<checksum> <path>` line, which is
+what a `verify` run compares against.
+
 `pop()` is the only method workers call. It takes the mutex, calls `pop_raw()`,
-releases the mutex, and then inspects the candidate outside the lock:
+releases the mutex, and then inspects the candidate outside the lock (always
+through candidate `p`):
 
 - a regular file is returned;
 - `status()` setting an error code — a missing path, a dangling symlink —
@@ -237,10 +295,14 @@ is the supported shape. Excludes also never apply to files that are named on the
 command line or read from a list, because those do not go through this scanner.
 
 A nonexistent exclude is dropped after an `error_entry` is recorded, so it still
-makes the run exit 1 even though scanning continues. A missing directory or a
-path that is not a directory makes the constructor throw
-`std::invalid_argument`; that exception is not converted into an error entry —
-it escapes `sum_main` and is caught by the last-resort handler in `main()`.
+makes the run exit 1 even though scanning continues. `sum_core` constructs a
+`dirscanner` only after `is_directory()` said yes, so a missing path or a path
+that is not a directory never reaches the constructor: it becomes a file entry
+and `pop()` reports it. The constructor's own guard still throws
+`std::invalid_argument`, but only for a race (the directory disappearing in
+between) or a failing `exists()`; that exception is not converted into an error
+entry — it escapes `sum_main` and is caught by the last-resort handler in
+`main()`.
 
 ### listscanner
 
@@ -375,41 +437,49 @@ interrupt flag, which is only looked at between files.
 ## Workers, progress and report
 
 `work_manager` owns the worker vector, the progress thread, a `const
-checksum_api api` (algorithm plus key), an `std::atomic<bool> interrupted`, and
-three atomic counters. `run()` returns a `work_result` instead of writing the
-report itself, so the caller decides where and how it is printed.
+checksum_api api` (algorithm plus key), an `std::atomic<bool> interrupted`,
+three atomic counters, and — in verification mode — a `changed` and an `unsure`
+vector filled under a mutex. `run()` returns a `work_result` instead of writing
+the report itself, so the caller decides where and how it is printed.
 
-- `run(thread_count)` installs the SIGINT handler, starts `thread_count` workers
-  and the printer, and waits.
+- `run(thread_count)` installs the SIGINT handler (when `catch_sigint` is on),
+  starts `thread_count` workers and the printer, and waits.
 - Each worker loops: `tasks.pop()`; if `interrupted` is already set, print
-  `<NONE> <path>` and increment `unprocessed`; otherwise `api.calc(path)` and
+  `<NONE> <path>` and increment `unprocessed`; otherwise `api.calc(token.p)` and
   write one line through an `osyncstream`. A failed checksum prints
   `<NONE> <path>` and increments `failed`; a success increments `success`, or
-  `unprocessed` when the algorithm is `none`. A path that `pop()` rejected never
-  gets here, so it has no line and no counter — only an error entry.
+  `unprocessed` when the algorithm is `none`. In verification mode a success
+  also goes to `unsure` when the token carried no checksum and to `changed`
+  when the new digest differs from it. A path that `pop()` rejected never gets
+  here, so it has no line and no counter — only an error entry.
 - The printer, unless quiet or running with `none`, repaints a single line every
   100 ms on stderr while `interrupted` is false. It uses the terminal width of
   stderr and degenerates to a plain `[N files]` when the width is unknown.
 - `wait()` joins the workers, sets `interrupted` (which stops the printer
   loop), and joins the printer.
-- When everything is joined, `run()` returns a snapshot: the algorithm it
-  started with, the collected errors, the three counters, the interrupt flag,
-  and the wall-clock time spent between starting and joining.
+- When everything is joined, `run()` returns a snapshot: the algorithm and the
+  verify flag it started with, the collected errors, `changed` and `unsure`, the
+  three counters, the interrupt flag, and the wall-clock time spent between
+  starting and joining.
 
-The constructor takes a `catch_sigint` flag, on by default. With it off, `run()`
-installs no SIGINT handler and leaves `Ctrl-C` to the caller, which is what an
-embedding driver wants.
+The constructor takes the stream, the sink, the `checksum_api`, the `verify`
+flag, a `verbose` flag (off makes the progress line a no-op), and a
+`catch_sigint` flag; `sum_main` passes `true` for the last one. With it off,
+`run()` installs no SIGINT handler and leaves `Ctrl-C` to the caller, which is
+what an embedding driver wants.
 
-`work_result` is a plain value with `alg`, `errors`, `success`, `failed`,
-`unprocessed`, `interrupted` and `duration`. A commented-out `operator+` sketches
-how two results of the same algorithm would merge (errors appended, counters and
-durations added) for a future setup with more than one manager. `print(os,
-with_errors)` writes the report block: `Algorithm`, `Processed` (= hashed +
-failed), `Hashed`, `Failed`, `Not hashed`, `Duration`, an `Errors` count —
-written even when it is 0 — and, for an interrupted run, a `#` line and a
+`work_result` is a plain value with `alg`, `verify`, `errors`, `changed`,
+`unsure`, `success`, `failed`, `unprocessed`, `interrupted` and `duration`;
+nothing in it refers back to the manager, so two results of the same algorithm
+could be merged by appending the vectors and adding the counters and durations.
+`print(os, in_details)` writes the report block: `Algorithm`, `Processed` (=
+hashed + failed), `Hashed`, `Failed`, `Not hashed`, `Duration`, then `Changed`
+and `Unsure` when `verify` is set, an `Errors` count — written even when it is
+0 — and, for an interrupted run, a `#` line and a
 `# Warning: The process was interrupted halfway through.` line under the count.
-When there are errors, the `# Error messages:` list follows. With
-`with_errors = false` the count and the note are written but the per-entry lines
+When there are errors, the `# Error messages:` list follows; in a verify run the
+changed and unsure paths are listed under their counts. With `in_details =
+false` the counts and the note are written, but those lists and the error lines
 are left out.
 
 `sum_main` writes `#`, calls `result.print(*out, true)`, flushes the stream and
@@ -439,12 +509,15 @@ That single `std::ostream` is shared by every worker, the list scanners (for
 interleave; the report itself is written after the workers are joined, so it
 goes out directly.
 
-stderr carries four things: the progress indicator, the argument-setup failures
-(`cmdline` errors and an output file that cannot be opened), the notice printed
-when the final write check fails, and — when `--output` is given — a second copy
-of the report block, printed with `print(std::clog, false)` so that the
-per-entry error messages stay out of it. Everything else lands in the report
-block of the result stream, including a list file that cannot be opened.
+stderr carries everything that is not part of the listing: the progress
+indicator; argument and input problems (`cmdline` errors, an output file that
+cannot be opened, a `verify` input without a usable header); warnings (a key
+given to a plain digest, a `hardware_concurrency()` that returned 0); the
+`verify` notice naming the default `<input>.verify`; the notice printed when the
+final write check fails; and — when the report goes to a file — a second copy of
+it, printed with `print(std::clog, false)` so that the error messages and path
+lists stay out. Everything else lands in the report block of the result stream,
+including a list file that cannot be opened.
 
 The result stream is checked at the end; stderr is not. The workers' lines are
 emitted through `std::osyncstream`, the report is written directly after the
@@ -462,7 +535,7 @@ itself is checked up front, before any work starts.
 | Thread | Count | Work |
 | --- | --- | --- |
 | main | 1 | builds the streams, then calls `run()`, which joins the workers |
-| worker | `-t` | pop one path, hash it, write one line |
+| worker | `-t` | pop one path, hash it, write one line (and compare it in verify mode) |
 | printer | 1 | repaint the progress line every 100 ms |
 
 - One mutex per taskstream. The mutex covers `pop_raw()` and the error vector;
@@ -478,15 +551,15 @@ itself is checked up front, before any work starts.
 
 ## Exit codes
 
-The codes live in `include/exit_codes.hpp` and are shared by `main()` and
-`sum_main()`:
+The codes live in `include/exit_codes.hpp` and are shared by `main()`,
+`sum_main()` and `verify_main()`:
 
 | Macro | Value | Returned when |
 | --- | --- | --- |
-| `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry |
+| `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry; changed and unsure files from `verify` are reported but are not errors |
 | `TSUBAKI_HASH_ERROR` | 1 | at least one error entry was recorded |
-| `TSUBAKI_INVALID_ARGUMENT` | 64 | the command line was rejected: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments (`EX_USAGE`) |
-| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` cannot be read or holds no key (`EX_NOINPUT`) |
+| `TSUBAKI_INVALID_OPERATION` | 64 | the command line was rejected: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses it for a listing without a readable `Algorithm:` header, one written with `none`, or an output that is the input (`EX_USAGE`) |
+| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` cannot be read, the key file holds no key, or the `verify` input is missing or is not a regular file (`EX_NOINPUT`) |
 | `TSUBAKI_FATAL` | 70 | `argc` is 0, so `main()` refuses to run (`EX_SOFTWARE`) |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | the `--output` file cannot be opened, or the result stream fails (`EX_CANTCREAT`) |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
@@ -512,32 +585,12 @@ tsubaki sum sha256 . -e build -l old.txt
 4. Workers pull paths: first from the `dirscanner` (walking the tree), then from
    the `listscanner` once the directory is exhausted. Every path goes through
    `checksum_api::calc()`, so the same run shape works with `hmac_sha256` once
-   `-k` supplied a key.
+   `-k` supplies a key.
 5. Kept lines from `old.txt` are written immediately as `# Kept: <path>` plus
    the original line; they never enter the hashing path.
 6. When all children are exhausted, the fan-in returns nothing, the workers
    stop, the printer stops, and `run()` returns the `work_result` that
    `sum_main` prints.
-
-## One manager at a time
-
-`work_manager` only needs a `basic_taskstream`, and most of the shared pieces
-are already handled by the interface: `run()` returns a `work_result` that a
-merge operator (sketched but commented out) could combine, the caller prints it,
-and `catch_sigint = false` lets an outer driver own the interrupt. Splitting a
-run across several managers is therefore mostly bookkeeping:
-
-- `-t` has to be divided between the managers;
-- each manager paints its own progress line, so they would fight over the same
-  terminal row, or need a shared printer;
-- the inputs have to be partitioned, which is the real work: several managers
-  over one shared fan-in would still serialise on its mutex;
-- errors and the exit code come from the merged `work_result`.
-
-None of that is hard, but none of it buys much either: the bottleneck is I/O and
-hashing, and pulling a path is the only serialised step. One manager keeps the
-program small, and the sketched `work_result::operator+` plus the interrupt flag
-leave the door open for a caller that wants more.
 
 ## Extension points
 
@@ -562,28 +615,33 @@ leave the door open for a caller that wants more.
 
 ## Source map
 
-### Classes
+### Types
 
-| Class | Base | Responsibility |
-| --- | --- | --- |
-| `tsubaki::basic_taskstream` | — | virtual base of every task stream: `pop()` filters the candidate, `pop_raw()` is the hook each subclass implements, `errors` + `report_error()` + `take_errors()` carry failures |
-| `tsubaki::dirscanner` | `basic_taskstream` | recursive directory walk with excludes and symlink control |
-| `tsubaki::listscanner` | `basic_taskstream` | parses a list file or stdin and writes `# Kept: <path>` lines |
-| `tsubaki::cached_taskstream` | `basic_taskstream` | replays a fixed queue of paths, in the order given |
-| `tsubaki::fanin_taskstream` | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
-| `tsubaki::checksum_api` | — | carries the chosen algorithm and key, and routes `calc()` to the digest or the MAC path |
-| `tsubaki::work_manager` | — | worker pool, progress line, interrupt flag |
-| `tsubaki::work_result` | — | value snapshot returned by `run()`, with `print()` and a commented-out `operator+` sketch |
-| `tsubaki::error_entry` | — | `std::error_code` plus the operation that failed |
+| Type | Kind | Base | Responsibility |
+| --- | --- | --- | --- |
+| `tsubaki::basic_taskstream` | class | — | virtual base of every task stream: `pop()` filters the candidate, `pop_raw()` is the hook each subclass implements, `errors` + `report_error()` + `take_errors()` carry failures |
+| `tsubaki::dirscanner` | class | `basic_taskstream` | recursive directory walk with excludes and symlink control |
+| `tsubaki::listscanner` | class | `basic_taskstream` | parses a list file or stdin and writes `# Kept: <path>` lines, or fills `task_token::sum` in rescan mode |
+| `tsubaki::cached_taskstream` | class | `basic_taskstream` | replays a fixed queue of paths, in the order given |
+| `tsubaki::fanin_taskstream` | class | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
+| `tsubaki::work_manager` | class | — | worker pool, progress line, interrupt flag, and the `changed`/`unsure` vectors of a verify run |
+| `tsubaki::work_result` | class | — | value snapshot returned by `run()`, with `print()`; it holds no reference to the manager, so two of them can be merged |
+| `tsubaki::checksum_api` | struct | — | carries the chosen algorithm and key, and routes `calc()` to the digest or the MAC path |
+| `tsubaki::task_token` | struct | — | the path a worker processes plus the checksum read from the listing, empty outside rescan mode |
+| `tsubaki::error_entry` | struct | — | `std::error_code` plus the operation that failed |
+| `tsubaki::fd_guard` | class | — | closes a file descriptor on destruction; used by the hashing code |
+| `tsubaki::algorithm` | enum class | — | the algorithm list generated from `ALGORITHM_LIST`, plus `error` for a failed `str_to_alg()` |
+| `tsubaki::mac_spec` | struct | — | internal to `src/checksum.cpp`: the `EVP_MAC` name and the digest parameter, if any |
 
 ### Files
 
 | Path | Contents |
 | --- | --- |
 | `src/main.cpp` | subcommand dispatch, `general` argument group, last-resort exception handler |
-| `include/core_functions.hpp` | `sum_main()` declaration |
-| `include/exit_codes.hpp` | the exit-code macros shared by `main()` and `sum_main()` |
+| `include/core_functions.hpp` | `sum_main()` and `verify_main()` declarations |
+| `include/exit_codes.hpp` | the exit-code macros shared by `main()`, `sum_main()` and `verify_main()` |
 | `src/sum_core.cpp` | `sum` argument group checks, startup sequence, stream construction |
+| `src/verify_core.cpp` | `verify` argument group, header lookup, internal `sum` invocation |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
@@ -591,7 +649,7 @@ leave the door open for a caller that wants more.
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | multi-source merge |
 | `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`, `str_to_alg()` / `alg_to_str()`, `is_keyed()`, `checksum_api`, `EVP_MD` and `EVP_MAC` hashing |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
-| `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, terminal width, fd guard |
+| `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |
 | `include/help.hpp`, `src/help.cpp` | help text and the `--algorithm` table |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |

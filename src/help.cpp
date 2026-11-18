@@ -14,13 +14,25 @@ constexpr std::string_view help_body =
 
 Usage:
   {program} sum [options] <algorithm> <file|dir>...
+  {program} verify [options] <checksum-file>
   {program} --help
   {program} --version
   {program} --algorithm
 
-Positional arguments:
-  sum                    the only subcommand (Stay tuned for more features!).
-                          everything below belongs to it.
+Subcommands:
+  sum                    calculate checksums; everything marked "sum" below
+                         belongs to it.
+  verify                 re-check the paths named in a checksum file written
+                         by sum. The algorithm comes from the file's
+                         "Algorithm:" header. A path whose stored checksum no
+                         longer matches is reported as changed; a path listed
+                         without a checksum is reported as unsure. The freshly
+                         computed checksums are written to <checksum-file>.verify
+                         unless -o is given. Changed and unsure files are
+                         reported in the summary but do not change the exit
+                         status.
+
+Positional arguments (sum):
   algorithm              checksum algorithm to use; one of:
                          none, md5, sha1, sha224, sha256, sha384, sha512,
                          sha3_256, sha3_512, blake2b512, blake2s256,
@@ -35,7 +47,10 @@ Positional arguments:
                          "-" reads a list of paths from stdin instead of
                          naming a file.
 
-Options:
+Positional arguments (verify):
+  checksum-file          the result file to verify, normally written by sum.
+
+Options (sum and general):
   -h, --help                  print this help and exit.
   -V, --version               print the version and exit.
   -a, --algorithm             print the algorithms in a table, marking which
@@ -60,7 +75,8 @@ Options:
                               source and as an input), and a missing,
                               unreadable or empty file exits 66. Ignored with
                               a warning by a plain digest.
-  -o<file>, --output=<file>   write the results to <file> instead of stdout.
+  -o<file>, --output=<file>   write the results to <file> instead of stdout
+                              (sum) or <checksum-file>.verify (verify).
   -e<path>, --exclude=<path>  skip <path> and anything below it when scanning
                               directories; may be given more than once.
                               Alias: --excludes=<path>.
@@ -69,6 +85,10 @@ Options:
   -s, --follow-symlinks       follow symbolic links to directories.
   -f, --force-rescan          recompute checksums that are already listed in
                               the input lists.
+
+  verify accepts -v, -t, -k, -K and -o with the same meanings. It takes no
+  algorithm or file argument and does not accept -e, -l, -s or -f: the paths,
+  the algorithm and the unconditional rescan all come from the checksum file.
 
 Option values:
   A long option takes its value with '=', as in --list=old.txt; a short option
@@ -89,6 +109,9 @@ File lists:
   "# Kept: <path>") unless --force-rescan is given, in which case only the path
   is rescanned.
 
+  verify reads the same format, so a file written by sum can be passed to it as
+  is: comment lines, including the report block, are ignored.
+
 Output format:
   "<checksum> <path>" for every processed file, followed by a report block
   whose lines start with '#'. A file that cannot be opened, read, or hashed is
@@ -98,6 +121,11 @@ Output format:
   named explicitly is read as a stream, so it can block or never reach EOF; a
   socket is refused. A directory scan yields regular files only, so special
   files met during a walk are skipped.
+
+  A verify run adds "# Changed:" and "# Unsure:" lines to the report. Unsure
+  means the listing had no checksum for that path, so there was nothing to
+  compare. The affected paths are then listed under each count in the result
+  stream; the copy of the report written to stderr omits them.
 
   Write errors are checked at the end through std::ostream::fail(): a full disk,
   a broken descriptor, or a file on a removed mount leaves the stream failed
@@ -117,15 +145,22 @@ Examples:
   find . -name '*.c' | {program} sum sha1 -   read paths from stdin.
   {program} sum sha256 dir file - -e build -l old.txt
                                               inputs first, options last.
+  {program} verify sums.txt                   re-check the files in sums.txt and
+                                              write sums.txt.verify.
+  {program} verify sums.txt -o -              print the refreshed checksums.
 
 Exit status:
-  0    no error was recorded.
+  0    no error was recorded. verify reports changed and unsure files without
+       treating them as errors.
   1    at least one error was recorded: a checksum failure, a missing path, an
        unopenable list file, or a missing exclude.
   64   invalid command line: unknown subcommand, unknown algorithm, a keyed
        algorithm without a key or with a key too long for it, -k together
        with -K, stdin named twice, bad thread count, or leftover arguments.
-  66   the --key-file cannot be read, or holds no key.
+       verify also uses 64 for an input file without an "Algorithm:" header,
+       one written with algorithm "none", or an output file that is the input.
+  66   the --key-file cannot be read, the key file holds no key, or the verify
+       input is missing or is not a regular file.
   70   fatal start-up failure (argc is 0).
   73   the --output file cannot be opened for writing, or the output stream
        fails.

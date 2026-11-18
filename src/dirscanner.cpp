@@ -81,21 +81,21 @@ bool dirscanner::finished() const
     return it == recursive_directory_iterator();
 }
 
-std::optional<path> dirscanner::pop_raw()
+std::optional<task_token> dirscanner::pop_raw()
 {
     skip_if_possible();
     if (finished())
         return {};
     path current = it->path();
     it++;
-    return current;
+    return task_token(current);
 }
 
-std::optional<std::filesystem::path> dirscanner::pop()
+std::optional<task_token> dirscanner::pop()
 {
     for (;;)
     {
-        std::optional<std::filesystem::path> candidate;
+        std::optional<task_token> candidate;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             candidate = pop_raw();
@@ -104,11 +104,11 @@ std::optional<std::filesystem::path> dirscanner::pop()
             return std::nullopt;
         std::error_code ec;
         const std::filesystem::file_status status =
-            std::filesystem::status(candidate.value(), ec);
+            std::filesystem::status(candidate->p, ec);
         if (ec)
         {
             report_error(error_entry(ec, "determining the file type of " +
-                                             candidate->string()));
+                                             candidate->p.string()));
             continue;
         }
         // A walk only yields regular files: a FIFO, a socket or a device met

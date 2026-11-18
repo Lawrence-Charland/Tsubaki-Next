@@ -28,11 +28,13 @@
 
 namespace tsubaki
 {
-int sum_main(argparser::ap_instance &cmdline)
+int sum_main(argparser::ap_instance &cmdline, bool internal)
 {
     using namespace std::filesystem;
 
     cmdline.evaluate(cmdline_group::sum);
+    if (internal)
+        cmdline.evaluate(cmdline_group::sum_int);
 
     const std::string program = path(cmdline.argv_zero()).filename().string();
 
@@ -40,7 +42,7 @@ int sum_main(argparser::ap_instance &cmdline)
     if (!cmdline.fine(false))
     {
         error_prompt(std::cerr, cmdline);
-        return TSUBAKI_INVALID_ARGUMENT;
+        return TSUBAKI_INVALID_OPERATION;
     }
 
     // Basic values
@@ -56,6 +58,8 @@ int sum_main(argparser::ap_instance &cmdline)
              cmdline.entry(cmdline_entry::force_rescan).repetition),
          verbose = static_cast<bool>(
              cmdline.entry(cmdline_entry::verbose).repetition),
+         verify =
+             static_cast<bool>(cmdline.entry(cmdline_entry::verify).repetition),
          key_from_stdin = false;
     std::ostream *out;
     std::ofstream fout;
@@ -70,10 +74,10 @@ int sum_main(argparser::ap_instance &cmdline)
             {
                 std::cerr << "Error: unknown algorithm: \"" << content.at(0)
                           << "\"." << std::endl;
-                return TSUBAKI_INVALID_ARGUMENT;
+                return TSUBAKI_INVALID_OPERATION;
             }
         }
-        // Check the key
+        // Decide the key
         {
             auto &key_cont = cmdline.entry(cmdline_entry::key).content;
             auto &key_file_cont =
@@ -83,7 +87,7 @@ int sum_main(argparser::ap_instance &cmdline)
                 std::cerr << "Error: specifying key and key file at the same "
                              "time is not allowed."
                           << std::endl;
-                return TSUBAKI_INVALID_ARGUMENT;
+                return TSUBAKI_INVALID_OPERATION;
             }
             if (!is_keyed(api.alg))
             {
@@ -128,13 +132,13 @@ int sum_main(argparser::ap_instance &cmdline)
                 {
                     std::cerr << "Error: \"" << alg_to_str(api.alg)
                               << "\" needs a key." << std::endl;
-                    return TSUBAKI_INVALID_ARGUMENT;
+                    return TSUBAKI_INVALID_OPERATION;
                 }
                 if (!check_key_validity(key, api.alg))
                 {
                     std::cerr << "Error: the key is not valid for algorithm \""
                               << alg_to_str(api.alg) << "\"." << std::endl;
-                    return TSUBAKI_INVALID_ARGUMENT;
+                    return TSUBAKI_INVALID_OPERATION;
                 }
                 api.key = key;
             }
@@ -153,14 +157,14 @@ int sum_main(argparser::ap_instance &cmdline)
                 {
                     std::cerr << "Error: \"" << content.at(0)
                               << "\" is not a valid integer." << std::endl;
-                    return TSUBAKI_INVALID_ARGUMENT;
+                    return TSUBAKI_INVALID_OPERATION;
                 }
                 if (thds <= 0)
                 {
                     std::cerr << "Error: thread count must be greater than "
                                  "zero."
                               << std::endl;
-                    return TSUBAKI_INVALID_ARGUMENT;
+                    return TSUBAKI_INVALID_OPERATION;
                 }
                 threads = static_cast<unsigned>(thds);
             }
@@ -210,7 +214,7 @@ int sum_main(argparser::ap_instance &cmdline)
                 {
                     std::cerr << "Error: stdin was used for the key."
                               << std::endl;
-                    return TSUBAKI_INVALID_ARGUMENT;
+                    return TSUBAKI_INVALID_OPERATION;
                 }
                 // Add a listscanner reads stdin ( safe to multiply add )
                 tasks.add_task(std::make_unique<listscanner>(
@@ -231,19 +235,37 @@ int sum_main(argparser::ap_instance &cmdline)
         // Get and check the textual file lists
         for (auto &it : cmdline.entry(cmdline_entry::lists).content)
         {
-            lists.emplace_back(std::make_unique<std::ifstream>(it));
-            if (!lists.back()->good())
-                tasks.report_error(error_entry(
-                    std::make_error_code(std::errc::no_such_file_or_directory),
-                    "opening file list " + it));
-            else // Add a listscanner reads ifstream
+            if (it == "-") // "-l -" is also acceptable
+            {
+                // stdin is already the key source; naming it again is invalid.
+                if (key_from_stdin)
+                {
+                    std::cerr << "Error: stdin was used for the key."
+                              << std::endl;
+                    return TSUBAKI_INVALID_OPERATION;
+                }
+                // Add a listscanner reads stdin ( safe to multiply add )
                 tasks.add_task(std::make_unique<listscanner>(
-                    it, *lists.back(), *out, force_rescan));
+                    "stdin", std::cin, *out, force_rescan));
+            }
+            else
+            {
+                lists.emplace_back(std::make_unique<std::ifstream>(it));
+                if (!lists.back()->good())
+                    tasks.report_error(
+                        error_entry(std::make_error_code(
+                                        std::errc::no_such_file_or_directory),
+                                    "opening file list " + it));
+                else // Add a listscanner reads ifstream
+                    tasks.add_task(std::make_unique<listscanner>(
+                        it, *lists.back(), *out, force_rescan));
+            }
         }
     }
 
     // Run work
-    work_result result = work_manager(tasks, *out, api, verbose).run(threads);
+    work_result result =
+        work_manager(tasks, *out, api, verify, verbose, true).run(threads);
     *out << "#\n";
     result.print(*out, true);
     if (out != &std::cout)

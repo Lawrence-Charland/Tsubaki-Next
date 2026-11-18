@@ -25,10 +25,10 @@ class dirscanner : public basic_taskstream
     dirscanner(const std::filesystem::path &dir,
                const std::vector<std::filesystem::path> &_excludes,
                bool follow_symlink = false);
-    std::optional<std::filesystem::path> pop() override;
+    std::optional<task_token> pop() override;
 
   protected:
-    std::optional<std::filesystem::path> pop_raw() override;
+    std::optional<task_token> pop_raw() override;
 };
 } // namespace tsubaki
 

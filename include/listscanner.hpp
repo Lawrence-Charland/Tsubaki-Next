@@ -32,7 +32,7 @@ class listscanner : public basic_taskstream
     using basic_taskstream::pop;
 
   protected:
-    std::optional<std::filesystem::path> pop_raw() override;
+    std::optional<task_token> pop_raw() override;
 };
 } // namespace tsubaki
 

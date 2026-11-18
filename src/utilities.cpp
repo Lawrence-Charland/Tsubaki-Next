@@ -5,6 +5,8 @@
 #include "checksum.hpp"
 
 #include <algorithm>
+#include <fstream>
+#include <ios>
 #include <istream>
 #include <string>
 #include <sys/ioctl.h>
@@ -68,15 +70,44 @@ std::optional<std::string> get_file_content(std::istream &is)
     }
     catch (const std::ios_base::failure &)
     {
-        return std::nullopt;
+        return {};
     }
     if (is.bad() || (is.fail() && !is.eof()))
-        return std::nullopt;
+        return {};
     while (!key.empty() && (key.back() == '\n' || key.back() == '\r'))
         key.pop_back();
     if (key.empty())
-        return std::nullopt;
+        return {};
     return key;
+}
+
+std::optional<std::string>
+get_comment_value(const std::filesystem::path &target, const std::string &key)
+{
+    std::string value, line;
+    std::ifstream ifs(target);
+    if (!ifs.good())
+        return {};
+    try
+    {
+        while (std::getline(ifs, line))
+        {
+            trim_str(line);
+            if (line.empty() || line.at(0) != '#')
+                continue;
+            line = line.substr(1);
+            auto eq = get_equation(line, ':');
+            trim_str(eq.first);
+            trim_str(eq.second);
+            if (eq.first == key)
+                return eq.second;
+        }
+    }
+    catch (const std::ios_base::failure &)
+    {
+        return {};
+    }
+    return {};
 }
 
 std::string to_hex(const unsigned char *data, std::size_t len)

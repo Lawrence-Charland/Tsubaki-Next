@@ -10,11 +10,11 @@
 
 namespace tsubaki
 {
-std::optional<std::filesystem::path> basic_taskstream::pop()
+std::optional<task_token> basic_taskstream::pop()
 {
     for (;;)
     {
-        std::optional<std::filesystem::path> candidate;
+        std::optional<task_token> candidate;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             candidate = pop_raw();
@@ -24,12 +24,12 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
 
         std::error_code ec;
         const std::filesystem::file_status status =
-            std::filesystem::status(candidate.value(), ec);
+            std::filesystem::status(candidate->p, ec);
         if (ec)
         {
             // report_error locks the mutex ( safe to call here )
             report_error(error_entry(ec, "determining the file type of " +
-                                             candidate->string()));
+                                             candidate->p.string()));
             continue;
         }
         if (std::filesystem::is_regular_file(status))
@@ -38,7 +38,7 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
         {
             report_error(error_entry(
                 std::make_error_code(std::errc::operation_not_permitted),
-                "calculating the checksum of " + candidate.value().string() +
+                "calculating the checksum of " + candidate->p.string() +
                     ", which is a directory"));
             continue;
         }
@@ -46,7 +46,7 @@ std::optional<std::filesystem::path> basic_taskstream::pop()
         {
             report_error(error_entry(
                 std::make_error_code(std::errc::operation_not_permitted),
-                "calculating the checksum of " + candidate.value().string() +
+                "calculating the checksum of " + candidate->p.string() +
                     ", which is a socket"));
             continue;
         }

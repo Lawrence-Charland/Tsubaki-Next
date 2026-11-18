@@ -18,6 +18,7 @@ directories to exclude.
   - [Options](#options)
   - [Option values](#option-values)
   - [Keyed hashes](#keyed-hashes)
+  - [Verifying](#verifying)
 - [Inputs](#inputs)
 - [Output](#output)
 - [Exit status](#exit-status)
@@ -57,17 +58,22 @@ preset exists with the same layout.
 
 ```
 tsubaki sum [options] <algorithm> <file|dir>...
+tsubaki verify [options] <checksum-file>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
 ```
 
-The `sum` subcommand is required. `--help`, `--version` and `--algorithm` (or
-`-a`) are the only invocations that do not need it; any other word in the
-subcommand position is rejected as an unknown subcommand. Those three are
-checked before validation, so they also win over every argument error: running
-`tsubaki -a junk` prints the algorithm table and exits 0. When several of them
-are given, `--help` wins over `--version`, and both win over `--algorithm`.
+A subcommand is required: `sum` calculates checksums, and `verify` re-checks a
+file written by `sum`. `--help`, `--version` and `--algorithm` (or `-a`) are the
+only invocations that do not need one; any other word in the subcommand
+position is rejected as an unknown subcommand. Those three are checked before
+validation, so they also win over every argument error: running `tsubaki -a
+junk` prints the algorithm table and exits 0. When several of them are given,
+`--help` wins over `--version`, and both win over `--algorithm`.
+
+Everything up to [Verifying](#verifying) describes `sum`; `verify` reuses the
+checksum-file format and the `-v`, `-t`, `-k`, `-K` and `-o` options.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
 a directory, a file, or `-` for stdin, and the kinds can be mixed in one
@@ -135,13 +141,18 @@ so it tracks the implementation instead of repeating the list above by hand.
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
-| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout   |
+| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum) or `<checksum-file>.verify` (verify) |
 | `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
 | `-l<file>`, `--list=<file>`    | read paths from `<file>`; repeatable                                 |
 | `-s`, `--follow-symlinks`      | follow symbolic links to directories                                 |
 | `-f`, `--force-rescan`         | recompute checksums already listed in the input                      |
 
 `--threads`, `--excludes` and `--lists` are accepted as aliases.
+
+`verify` accepts `-v`, `-t`, `-k`, `-K` and `-o` with the same meanings. It
+takes no algorithm or file argument, and rejects `-e`, `-l`, `-s` and `-f`:
+the paths, the algorithm and the unconditional rescan all come from the
+checksum file.
 
 Parsing itself is done by
 [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser), a small
@@ -211,6 +222,46 @@ Keyed results are printed like any other: `<checksum> <path>`, with the keyed
 algorithm named in the report block. Nothing marks a line as keyed, so a file
 of HMAC lines can only be told apart from a digest run by the algorithm name in
 the report block it travels with.
+
+### Verifying
+
+`verify` re-reads a checksum file written by `sum` and recomputes every path it
+names:
+
+```sh
+tsubaki verify sums.txt                 # writes sums.txt.verify
+tsubaki verify sums.txt -o -            # prints the refreshed checksums
+tsubaki verify sums.txt -o new.txt      # writes new.txt
+```
+
+The algorithm comes from the file's `# Algorithm:` header, so it is never given
+on the command line. Paths, `<NONE>` markers and comment lines are read exactly
+as `-l` would read them, except that every checksum is recomputed: `verify`
+implies `--force-rescan`.
+
+The output has the same shape as a `sum` run: `<checksum> <path>` lines for
+every processed file, then the report block. The report gains two fields:
+
+```
+# Changed:           1
+# Unsure:            0
+```
+
+A *changed* file is one whose stored checksum differs from the recomputed one.
+An *unsure* file is one listed as a bare path or as `<NONE> <path>`, so the
+listing had no checksum to compare. The affected paths are listed below each
+count in the result stream; the copy of the report on stderr omits them. A
+changed or unsure file does not change the exit status; only read, write and
+scan errors do, exactly as in `sum`. The output is a refreshed listing, so a
+second `verify` of it reports `Changed: 0` as long as the files did not change
+in between; a path that could not be hashed stays `<NONE>` and comes back as
+unsure.
+
+`-v`, `-t`, `-k`, `-K` and `-o` work as they do for `sum`. The key must be
+supplied again for a keyed algorithm, because a checksum file records the
+algorithm name but never the key. A listing written with `none` is rejected
+(exit 64): it holds no checksums to compare. `-o` must not name the input file
+(exit 64), because the input would be truncated before it is read.
 
 ## Inputs
 
@@ -347,10 +398,10 @@ closed it, the write raises `SIGPIPE` and the default action kills the process
 
 | Code | Meaning |
 | --- | --- |
-| `0` | no error was recorded |
+| `0` | no error was recorded; a `verify` run reports changed and unsure files without treating them as errors |
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude |
-| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments |
-| `66` | the `--key-file` cannot be read, or holds no key |
+| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header, one written with `none`, or an output that is the input file |
+| `66` | the `--key-file` cannot be read, the key file holds no key, or the `verify` input is missing or is not a regular file |
 | `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
 | `73` | the `--output` file cannot be opened for writing, or the output stream fails |
 | `130` | the run was interrupted with `Ctrl-C` |
@@ -363,7 +414,7 @@ sysexits values `EX_USAGE`, `EX_NOINPUT`, `EX_SOFTWARE` and `EX_CANTCREAT`;
 used for an unexpected exception, so the two cannot be confused.
 
 The codes live in `include/exit_codes.hpp` as `TSUBAKI_SUCCESS`,
-`TSUBAKI_HASH_ERROR`, `TSUBAKI_INVALID_ARGUMENT`, `TSUBAKI_FILE_WRITE_FAILED`,
+`TSUBAKI_HASH_ERROR`, `TSUBAKI_INVALID_OPERATION`, `TSUBAKI_FILE_WRITE_FAILED`,
 `TSUBAKI_FILE_READ_FAILED`, `TSUBAKI_INTERRUPTED`, `TSUBAKI_TERMINATED`,
 `TSUBAKI_FATAL` and `TSUBAKI_UNEXPECTED`.
 
@@ -398,10 +449,12 @@ two independent attempts side by side: `old` is the author's own version,
 
 The project builds exactly one executable, `tsubaki`, and will keep doing so.
 Features are added as subcommands of that binary rather than as further targets;
-`sum` is the first one and the only one that exists today.
+`sum` and `verify` are the two that exist today.
 
-Everything that needs every checksum in memory before it can decide anything —
-comparing several sets of results — is deliberately left out for now.
+`verify` streams: it compares one file at a time and never needs the whole
+listing in memory. Everything that needs every checksum in memory before it
+can decide anything — comparing several sets of results — is deliberately left
+out for now.
 
 ## Roadmap
 

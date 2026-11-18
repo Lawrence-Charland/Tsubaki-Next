@@ -15,50 +15,61 @@
 
 int main(int argc, char **argv)
 {
+    using namespace tsubaki;
+
     try
     {
+        // Early argument check
         if (argc == 0)
         {
             std::cerr << "Error: argc is 0, refuses to run." << std::endl;
             return TSUBAKI_FATAL;
         }
         std::vector<std::string> args(argv, argv + argc);
-        argparser::ap_instance cmdline = tsubaki::def_args();
+        argparser::ap_instance cmdline = def_args();
         cmdline.pre_parse(args);
-        cmdline.evaluate(tsubaki::cmdline_group::general);
+        cmdline.evaluate(cmdline_group::general);
         const std::string program =
             std::filesystem::path(cmdline.argv_zero()).filename().string();
-        if (cmdline.entry(tsubaki::cmdline_entry::help).repetition)
+
+        // Help, version and list args. Shouldn't check errors.
+        if (cmdline.entry(cmdline_entry::help).repetition)
         {
-            std::cout << tsubaki::help_text(program) << std::endl;
+            std::cout << help_text(program) << std::endl;
             return TSUBAKI_SUCCESS;
         }
-        if (cmdline.entry(tsubaki::cmdline_entry::version).repetition)
+        if (cmdline.entry(cmdline_entry::version).repetition)
         {
             std::cout << program << " " << TSUBAKI_VERSION << std::endl;
             return TSUBAKI_SUCCESS;
         }
-        if (cmdline.entry(tsubaki::cmdline_entry::list_alg).repetition)
+        if (cmdline.entry(cmdline_entry::list_alg).repetition)
         {
-            tsubaki::list_algorithm(std::cout);
+            list_algorithm(std::cout);
             return TSUBAKI_SUCCESS;
         }
+
+        // Check error
         if (!cmdline.fine())
         {
-            tsubaki::error_prompt(std::cerr, cmdline);
-            return TSUBAKI_INVALID_ARGUMENT;
+            error_prompt(std::cerr, cmdline);
+            return TSUBAKI_INVALID_OPERATION;
         }
+
+        // Assign to subcommands
         const std::string subcommand =
-            cmdline.entry(tsubaki::cmdline_entry::subcmd).content.at(0);
-        if (subcommand == tsubaki::subcommands::sum)
-            return tsubaki::sum_main(cmdline);
+            cmdline.entry(cmdline_entry::subcmd).content.at(0);
+        if (subcommand == subcommands::sum)
+            return sum_main(cmdline);
+        else if (subcommand == subcommands::verify)
+            return verify_main(cmdline);
         else
         {
             std::cerr << "Error: unknown subcommand \"" << subcommand << "\""
                       << std::endl;
             std::cerr << "Try '" << program << " --help' for more information."
                       << std::endl;
-            return TSUBAKI_INVALID_ARGUMENT;
+            return TSUBAKI_INVALID_OPERATION;
         }
     }
     catch (const std::exception &e)

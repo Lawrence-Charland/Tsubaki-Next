@@ -18,7 +18,7 @@ void fanin_taskstream::add_task(std::unique_ptr<basic_taskstream> task)
     streams.push_back(std::move(task));
 }
 
-std::optional<std::filesystem::path> fanin_taskstream::pop()
+std::optional<task_token> fanin_taskstream::pop()
 {
     for (;;)
     {
@@ -45,7 +45,7 @@ std::vector<error_entry> fanin_taskstream::take_errors()
     return result;
 }
 
-std::optional<std::filesystem::path> fanin_taskstream::pop_raw()
+std::optional<task_token> fanin_taskstream::pop_raw()
 {
     return pop();
 }

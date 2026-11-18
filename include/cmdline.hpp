@@ -15,30 +15,40 @@ namespace cmdline_group
 {
 inline constexpr const char *general = "general";
 inline constexpr const char *sum = "sum";
+inline constexpr const char *sum_int = "sum_int";
+inline constexpr const char *verify = "verify";
 } // namespace cmdline_group
 
 namespace cmdline_entry
 {
+// ---------- General ----------
 inline constexpr const char *subcmd = "subcmd";
 inline constexpr const char *version = "version";
 inline constexpr const char *list_alg = "list_alg";
 inline constexpr const char *help = "help";
+// ---------- Sum and verify ----------
 inline constexpr const char *key = "key";
 inline constexpr const char *key_file = "key_file";
 inline constexpr const char *threads = "threads";
 inline constexpr const char *output = "output";
+inline constexpr const char *verbose = "verbose";
+// ---------- Sum only ----------
 inline constexpr const char *follow_symlinks = "follow-symlinks";
 inline constexpr const char *force_rescan = "force-rescan";
-inline constexpr const char *verbose = "verbose";
 inline constexpr const char *algorithm = "algorithm";
 inline constexpr const char *excludes = "excludes";
 inline constexpr const char *lists = "lists";
 inline constexpr const char *files = "files";
+// ---------- Sum Internal ----------
+inline constexpr const char *verify = "verify";
+// ---------- Verify only ----------
+inline constexpr const char *to_verify = "to_verify";
 } // namespace cmdline_entry
 
 namespace subcommands
 {
 inline constexpr const char *sum = "sum";
+inline constexpr const char *verify = "verify";
 } // namespace subcommands
 
 using namespace argparser;
@@ -58,11 +68,14 @@ static inline void error_prompt(std::ostream &os, ap_instance &cmdline)
     os << "Try '" << program << " --help' for more information." << std::endl;
 }
 
+// Not the best choice. Considering separating the single instance to multi
+// vectors of entries.
 static inline ap_instance def_args()
 {
     // clang-format off
     return ap_instance(
         {
+            // ---------- General ----------
             ap_entry( // Handled in src/main.cpp
                 cmdline_entry::subcmd,
                 ap_type::positional,
@@ -106,6 +119,68 @@ static inline ap_instance def_args()
                     {ap_defkey::max_repetition,"1"},
                 }
             ),
+            // ---------- Sum and verify ----------
+            ap_entry( // Handled in src/sum_core.cpp, src/verify_core.cpp
+                cmdline_entry::key_file,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"-K or --key-file"},
+                    {ap_defkey::long_name,"key-file"},
+                    {ap_defkey::short_name,"K"},
+                    {ap_defkey::max_value_count,"1"},
+                }
+            ),
+            ap_entry( // Handled in src/sum_core.cpp, src/verify_core.cpp
+                cmdline_entry::key,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"-k or --key"},
+                    {ap_defkey::long_name,"key"},
+                    {ap_defkey::short_name,"k"},
+                    {ap_defkey::max_value_count,"1"},
+                }
+            ),
+            ap_entry( // Handled in src/sum_core.cpp, src/verify_core.cpp
+                cmdline_entry::threads,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"-t or --thread(s)"},
+                    {ap_defkey::long_name,"thread,threads"},
+                    {ap_defkey::short_name,"t"},
+                    {ap_defkey::max_value_count,"1"},
+                }
+            ),
+            ap_entry( // Handled in src/sum_core.cpp, src/verify_core.cpp
+                cmdline_entry::output,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"-o or --output"},
+                    {ap_defkey::long_name,"output"},
+                    {ap_defkey::short_name,"o"},
+                    {ap_defkey::max_value_count,"1"},
+                }
+            ),
+            ap_entry( // Handled in src/sum_core.cpp, src/verify_core.cpp
+                cmdline_entry::verbose,
+                ap_type::flag,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"-v or --verbose"},
+                    {ap_defkey::long_name,"verbose"},
+                    {ap_defkey::short_name,"v"},
+                    {ap_defkey::max_repetition,"1"},
+                }
+            ),
+            // ---------- Sum only ----------
             ap_entry( // Handled in src/sum_core.cpp
                 cmdline_entry::excludes,
                 ap_type::option,
@@ -124,50 +199,6 @@ static inline ap_instance def_args()
                     {ap_defkey::explanations,"-l or --list(s)"},
                     {ap_defkey::long_name,"list,lists"},
                     {ap_defkey::short_name,"l"},
-                }
-            ),
-            ap_entry( // Handled in src/main.cpp
-                cmdline_entry::key_file,
-                ap_type::option,
-                {
-                    {ap_defkey::group, cmdline_group::sum},
-                    {ap_defkey::explanations,"-K or --key-file"},
-                    {ap_defkey::long_name,"key-file"},
-                    {ap_defkey::short_name,"K"},
-                    {ap_defkey::max_value_count,"1"},
-                }
-            ),
-            ap_entry( // Handled in src/main.cpp
-                cmdline_entry::key,
-                ap_type::option,
-                {
-                    {ap_defkey::group, cmdline_group::sum},
-                    {ap_defkey::explanations,"-k or --key"},
-                    {ap_defkey::long_name,"key"},
-                    {ap_defkey::short_name,"k"},
-                    {ap_defkey::max_value_count,"1"},
-                }
-            ),
-            ap_entry( // Handled in src/sum_core.cpp
-                cmdline_entry::threads,
-                ap_type::option,
-                {
-                    {ap_defkey::group, cmdline_group::sum},
-                    {ap_defkey::explanations,"-t or --thread(s)"},
-                    {ap_defkey::long_name,"thread,threads"},
-                    {ap_defkey::short_name,"t"},
-                    {ap_defkey::max_value_count,"1"},
-                }
-            ),
-            ap_entry( // Handled in src/sum_core.cpp
-                cmdline_entry::output,
-                ap_type::option,
-                {
-                    {ap_defkey::group, cmdline_group::sum},
-                    {ap_defkey::explanations,"-o or --output"},
-                    {ap_defkey::long_name,"output"},
-                    {ap_defkey::short_name,"o"},
-                    {ap_defkey::max_value_count,"1"},
                 }
             ),
             ap_entry( // Handled in src/sum_core.cpp
@@ -193,17 +224,6 @@ static inline ap_instance def_args()
                 }
             ),
             ap_entry( // Handled in src/sum_core.cpp
-                cmdline_entry::verbose,
-                ap_type::flag,
-                {
-                    {ap_defkey::group, cmdline_group::sum},
-                    {ap_defkey::explanations,"-v or --verbose"},
-                    {ap_defkey::long_name,"verbose"},
-                    {ap_defkey::short_name,"v"},
-                    {ap_defkey::max_repetition,"1"},
-                }
-            ),
-            ap_entry( // Handled in src/sum_core.cpp
                 cmdline_entry::algorithm,
                 ap_type::positional,
                 {
@@ -219,6 +239,28 @@ static inline ap_instance def_args()
                 {
                     {ap_defkey::group, cmdline_group::sum},
                     {ap_defkey::explanations,"files or directories"},
+                }
+            ),
+            // ---------- Sum Internal ----------
+            ap_entry(
+                cmdline_entry::verify,
+                ap_type::flag,
+                {//This is the internal option, which should not be exposed to the user.
+                    {ap_defkey::group,cmdline_group::sum_int},
+                    {ap_defkey::explanations,"verification mode"},
+                    {ap_defkey::long_name,"verify"},
+                    {ap_defkey::max_repetition,"1"}
+                }
+            ),
+            // ---------- Verify only ----------
+            ap_entry(
+                cmdline_entry::to_verify,
+                ap_type::positional,
+                {
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"checksum result to verify"},
+                    {ap_defkey::min_positional_count,"1"},
+                    {ap_defkey::max_positional_count,"1"},
                 }
             ),
         }

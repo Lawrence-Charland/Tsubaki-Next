@@ -13,7 +13,7 @@
 
 namespace tsubaki
 {
-std::optional<std::filesystem::path> listscanner::pop_raw()
+std::optional<task_token> listscanner::pop_raw()
 {
     if (ended)
         return {};
@@ -26,12 +26,12 @@ std::optional<std::filesystem::path> listscanner::pop_raw()
             continue;
         parsed_line = get_equation(line, ' ', true);
         if (parsed_line.second.empty())
-            return std::filesystem::path(line);
+            return task_token(line);
         if (!is_checksum(parsed_line.first))
-            return std::filesystem::path(
+            return task_token(
                 parsed_line.first == none_checksum ? parsed_line.second : line);
         else if (rescan)
-            return std::filesystem::path(parsed_line.second);
+            return task_token(parsed_line.second, parsed_line.first);
         std::osyncstream(os) << "# Kept: " << parsed_line.second << std::endl
                              << line << std::endl;
     }

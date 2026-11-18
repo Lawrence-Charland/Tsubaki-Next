@@ -6,14 +6,14 @@ include(GNUInstallDirs)
 
 find_package(OpenSSL REQUIRED)
 
-# The parser is a separate project, fetched at configure time. SOURCE_SUBDIR
+# The LC-ArgParser is a separate project, fetched at configure time. SOURCE_SUBDIR
 # names a directory that does not exist, so the library is populated but not
 # added as a subproject; its source is compiled into tsubaki directly.
 include(FetchContent)
 FetchContent_Declare(
     LC-ArgParser
     GIT_REPOSITORY https://github.com/Lawrence-Charland/LC-ArgParser.git
-    GIT_TAG 945d2b0c6adff8fdafc9f54023e5d5ec7f2bf43e
+    GIT_TAG 9a0dc54ca561d30aba50b25ce2c0722bb420e17e
     SOURCE_SUBDIR _build-from-source)
 FetchContent_MakeAvailable(LC-ArgParser)
 
@@ -31,7 +31,8 @@ add_executable(tsubaki
     src/worker.cpp
     src/cached_taskstream.cpp
     src/sum_core.cpp
-    ${lc-argparser_SOURCE_DIR}/src/argparser.cpp)
+    ${lc-argparser_SOURCE_DIR}/src/argparser.cpp
+    src/verify_core.cpp)
 
 target_compile_definitions(tsubaki PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")
 

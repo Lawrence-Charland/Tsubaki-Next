@@ -2,11 +2,14 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "worker.hpp"
+#include "basic_taskstream.hpp"
 #include "checksum.hpp"
 #include "exit_codes.hpp"
 #include "utilities.hpp"
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -14,16 +17,18 @@
 #include <expected>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <syncstream>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 namespace tsubaki
 {
-void work_result::print(std::ostream &os, bool with_errors)
+void work_result::print(std::ostream &os, bool in_details)
 {
     os << "# ---------- Summary ----------\n";
     os << "# Algorithm:         " << alg_to_str(alg) << std::endl;
@@ -34,10 +39,37 @@ void work_result::print(std::ostream &os, bool with_errors)
     os << "# Duration:          "
        << std::chrono::duration<double>(duration).count() << " seconds"
        << std::endl;
+    if (verify)
+    {
+        os << "# Changed:           " << changed.size() << std::endl;
+        if (in_details)
+        {
+            if (!changed.empty())
+            {
+                os << "#\n# Changed files:" << std::endl;
+                for (auto &files : changed)
+                    os << "# " << files.p.string() << std::endl;
+                os << "#\n";
+            }
+        }
+        os << "# Unsure:            " << unsure.size() << std::endl;
+        if (in_details)
+        {
+            if (!unsure.empty())
+            {
+                os << "#\n# Unsure files (no checksum in the list):"
+                   << std::endl;
+                for (auto &files : unsure)
+                    os << "# " << files.p.string() << std::endl;
+                os << "#\n";
+            }
+        }
+    }
     os << "# Errors:            " << errors.size() << std::endl;
     if (interrupted)
-        os << "#\n# Warning: The process was interrupted halfway through." << std::endl;
-    if (!with_errors || errors.empty())
+        os << "#\n# Warning: The process was interrupted halfway through."
+           << std::endl;
+    if (!in_details || errors.empty())
         return;
     os << "#\n# Error messages:" << std::endl;
     for (auto &it : errors)
@@ -56,6 +88,19 @@ std::atomic<unsigned> volatile int_count = 0;
 const constexpr char *term_msg =
     "\nTerminated after Ctrl+C was pressed 5 times.\n";
 
+// is_checksum() accepts uppercase input, so a listing written by another tool
+// must not look changed merely because its hex digits are uppercase.
+bool same_digest(const std::string &lhs, const std::string &rhs)
+{
+    return lhs.size() == rhs.size() &&
+           std::equal(lhs.begin(), lhs.end(), rhs.begin(),
+                      [](char l, char r)
+                      {
+                          return std::tolower(static_cast<unsigned char>(l)) ==
+                                 std::tolower(static_cast<unsigned char>(r));
+                      });
+}
+
 void on_interrupt(int)
 {
     int_count++;
@@ -69,38 +114,55 @@ void on_interrupt(int)
 }
 } // namespace
 
-void work_manager::worker()
+void work_manager::worker(bool verify)
 {
-    std::optional<std::filesystem::path> target;
+    std::optional<task_token> target;
+    std::vector<task_token> _changed;
+    std::vector<task_token> _unsure;
     while ((target = tasks.pop(), target))
     {
         if (interrupted.load(std::memory_order_relaxed))
         {
             std::osyncstream(os)
-                << none_checksum << ' ' << target->string() << '\n';
+                << none_checksum << ' ' << target->p.string() << '\n';
             unprocessed.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
 
-        auto checksum = api.calc(target.value());
+        auto checksum = api.calc(target->p);
         if (!checksum)
         {
             tasks.report_error(
                 error_entry(checksum.error(), "calculating the checksum of " +
-                                                  target.value().string()));
+                                                  target->p.string()));
             std::osyncstream(os)
-                << none_checksum << ' ' << target->string() << '\n';
+                << none_checksum << ' ' << target->p.string() << '\n';
             failed.fetch_add(1, std::memory_order_relaxed);
         }
         else
         {
             std::osyncstream(os)
-                << checksum.value() << ' ' << target->string() << '\n';
+                << checksum.value() << ' ' << target->p.string() << '\n';
             if (api.alg != algorithm::none)
+            {
                 success.fetch_add(1, std::memory_order_relaxed);
+                if (verify)
+                {
+                    if (target->sum.empty())
+                        _unsure.push_back(target.value());
+                    else if (!same_digest(checksum.value(), target->sum))
+                        _changed.push_back(target.value());
+                }
+            }
             else
                 unprocessed.fetch_add(1, std::memory_order_relaxed);
         }
+    }
+    if (verify)
+    {
+        std::lock_guard<std::mutex> lg(_mutex);
+        changed.insert(changed.end(), _changed.begin(), _changed.end());
+        unsure.insert(unsure.end(), _unsure.begin(), _unsure.end());
     }
 }
 
@@ -171,7 +233,7 @@ work_result work_manager::run(unsigned thread_count)
     workers.reserve(thread_count);
     auto steady_start = std::chrono::steady_clock::now();
     for (unsigned i = 0; i < thread_count; ++i)
-        workers.emplace_back(&work_manager::worker, this);
+        workers.emplace_back(&work_manager::worker, this, verify);
     progress = std::thread(&work_manager::printer, this);
     wait();
     auto steady_finish = std::chrono::steady_clock::now();
@@ -181,8 +243,8 @@ work_result work_manager::run(unsigned thread_count)
         g_interrupt = nullptr;
         std::signal(SIGINT, previous);
     }
-    return work_result(api.alg, tasks.take_errors(), success.load(),
-                       failed.load(), unprocessed.load(),
+    return work_result(api.alg, verify, tasks.take_errors(), changed, unsure,
+                       success.load(), failed.load(), unprocessed.load(),
                        std::chrono::duration<double>(duration).count(),
                        static_cast<bool>(int_count.load()));
 }
