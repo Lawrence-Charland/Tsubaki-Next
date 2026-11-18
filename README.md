@@ -2,13 +2,31 @@
 
 [中文](README.zh-cn.md)
 
-A reimplementation of the Tsubaki checksum tool, with a sharper focus on
-computing checksums themselves. It supports most plain hashes and keyed hashes.
-You can hash one file or several, walk a directory tree and hash every file in
-it, or hash every file named in an existing list. The input sources can be
-combined freely in one run: files named on the command line, directories to
-scan, and list files to read. For directory scans, you can name files or
-directories to exclude.
+A reimplementation of the Tsubaki checksum tool, with checksum computation at
+its core. It covers most plain digests and keyed hashes, and hashes a single
+file, a whole directory tree, or every path named in an existing list — pulling
+from all of them at once and hashing in parallel. A directory scan takes its
+own exclude list.
+
+The result is a *manifest* — the checksum file `sum` writes: `<checksum>
+<path>` lines plus a `#` report block. Because a manifest is a plain file, the
+same tool can do two further things with it:
+
+- `verify` re-hashes the paths a manifest names and reports `changed` and
+  `unsure`. It is the convenient answer to "did anything change?", and its
+  output is itself a refreshed manifest, so a verification can be archived or
+  run again. Its granularity is coarse: one verdict per path, and `unsure`
+  covers both "the manifest carried no checksum" and "the file could not be
+  hashed".
+- `cmp` compares two manifests without touching the files at all. It is the
+  detailed answer to "what changed?": `[!]` modified, `[D]` moved, copied,
+  merged or renamed (grouped by checksum), `[U]` deleted or added, and `[=]`
+  matched. The extra detail costs convenience — you need two manifests to start
+  with, and it cannot tell you how the current files differ from either of
+  them.
+
+The two compose naturally: `verify` produces an up-to-date manifest, and `cmp`
+turns it into a fine-grained comparison against the old one.
 
 ## Contents
 
@@ -345,9 +363,10 @@ a deletion.
 
 Without `-o`, the result goes to `<left-stem>_to_<right-stem>.cmp` in the
 current directory (`old.txt` and `new.txt` give `old_to_new.cmp`), and a notice
-on stderr names that file. `-o -` writes to stdout. The `# L = ..., R = ...`
-lines repeated between sections name the two inputs; an initial copy goes to
-stderr so it stays visible when the result goes to a file.
+on stderr names that file. `-o -` writes to stdout. `-o` must not name either
+input (exit 64), because both lists are read after the output is opened. The
+`# L = ..., R = ...` lines repeated between sections name the two inputs; an
+initial copy goes to stderr so it stays visible when the result goes to a file.
 
 `cmp` never hashes, walks or scans anything: it reads two files, so the
 interrupt handling described below does not apply to it and a `Ctrl-C` simply
@@ -494,7 +513,7 @@ closed it, the write raises `SIGPIPE` and the default action kills the process
 | --- | --- |
 | `0` | no error was recorded; a `verify` run reports changed and unsure files, and a `cmp` run reports every difference, without treating them as errors |
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error |
-| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header, one written with `none`, or an output that is the input file; `cmp` uses 64 when both lists are stdin, and when one list names the same path more than once with different checksums |
+| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header, one written with `none`, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
 | `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is not a regular file, or a `cmp` list cannot be read |
 | `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
 | `73` | the `--output` file cannot be opened for writing, or the output stream fails |

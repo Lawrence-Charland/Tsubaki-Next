@@ -4,9 +4,8 @@
 
 ## 总览
 
-整条流水线是拉取式的。生产者只实现一个"交出下一条路径"的方法；一个汇流对象
-把若干生产者合起来；一组工作线程从这个流里取路径并算哈希，每条算完的结果再由
-算它的工作线程写成一行输出。
+`sum` 和 `verify` 是一条拉取式流水线：生产者交出路径，汇流把多条流合并起来，工作
+线程负责计算，每条结果由算它的线程写一行。
 
 ```
   argv ──> main ──> cmdline ──> sum_core ──> dirscanner      ─┐
@@ -15,8 +14,7 @@
                                                                                  └─> work_result ─> 报告块
 ```
 
-中间没有"文件列表"这一层。扫描之后不再排序、不再统计、不再过滤：谁取到一条
-路径，谁就立刻开算。
+中间没有"文件列表"这一层：谁取到一条路径，谁就立刻开算，所以输出顺序是完成顺序。
 
 `cmp` 不走这条流水线。它把两份清单读进内存，两边都到齐之后再比较：
 
@@ -26,7 +24,7 @@
 
 ## 目录
 
-- [启动流程](#启动流程)
+- [启动与分发](#启动与分发)
 - [校验](#校验)
 - [比较](#比较)
 - [命令行层](#命令行层)
@@ -38,448 +36,167 @@
 - [并发模型](#并发模型)
 - [退出码](#退出码)
 - [数据流示例](#数据流示例)
-- [为什么现在只有一个 manager](#为什么现在只有一个-manager)
 - [扩展点](#扩展点)
 - [源码映射](#源码映射)
 
-## 启动流程
+## 启动与分发
 
-`main()`（在 `src/main.cpp` 里）负责子命令分发，以及所有与子命令无关的事：
+`main()`（`src/main.cpp`）用 `include/cmdline.hpp` 里 `def_args()` 的定义解析
+`general` 组——`subcmd` 位置参数加上 `--help`、`--version`、`--algorithm`。三个标志
+在校验之前处理，所以不需要子命令，也优先于参数错误。`fine()` 校验完 `general` 后，
+`subcmd` 选择 `sum_main()`、`verify_main()` 或 `cmp_main()`；其它值退出 64。分发包在
+try/catch 里，逃出的异常映射成 255。
 
-1. `def_args()` 用 `include/cmdline.hpp` 里的条目定义构造
-   `argparser::ap_instance`；`pre_parse()` 把参数切成带风格的 token。
-2. `evaluate(cmdline_group::general)` 匹配 `general` 组：只收一个词的 `subcmd`
-   位置参数，加上 `--help`、`--version` 和 `--algorithm` 三个标志。程序名取自
-   `argv[0]`。
-3. `--help`、`--version` 和 `--algorithm` 在**校验之前**按这个顺序检查，所以三者
-   都不需要子命令就能用，也都优先于其它参数错误。帮助文本来自 `src/help.cpp` 的
-   `help_text()`；`--algorithm` 打印的是同一文件里 `list_algorithm()` 用哈希代码
-   那个 `ALGORITHM_LIST` 宏生成的表格。版本字符串就是 CMake 项目版本，由
-   `TSUBAKI_VERSION` 注入。
-4. `fine()` 校验 `general` 组的条目。缺 `subcmd` 就在这里报错，末尾补一句提示
-   去跑 `--help`。
-5. `subcmd` 的值与 `subcommands::sum`、`subcommands::verify`、`subcommands::cmp`
-   比较：`sum` 把预解析好的实例交给 `tsubaki::sum_main()`，`verify` 交给
-   `tsubaki::verify_main()`，`cmp` 交给 `tsubaki::cmp_main()`，并返回它们的退出码；
-   其它值按未知子命令报错，返回 `TSUBAKI_INVALID_OPERATION`。这层调用包在
-   try/catch 里，逃出来的异常变成一条错误信息和 `TSUBAKI_UNEXPECTED`。
-
-`sum_main(cmdline, internal)` 按顺序做这些事：
-
-1. `evaluate(cmdline_group::sum)` 把剩下的参数匹配到 `sum` 组的条目上；`general`
-   组的条目保留之前的结果。`internal` 为真时（也就是 `verify` 构造的内部调用），
-   还会评估隐藏的 `sum_int` 组，`--verify` 标志就放在那里。
-2. `fine(false)` 做校验。每个失败的条目都用 `argparser::describe()` 报出来，
-   末尾补一句提示去跑 `--help`。
-3. 取条目的值并检查：算法经 `str_to_alg()` 映射；密钥算法从 `-k` 或 `-K` 取密钥
-   （`-K` 用 `get_file_content()` 读文件，路径是 `-` 时读 stdin，并去掉尾部
-   CR/LF），普通算法带了任一选项都只发警告，连文件都不会打开；线程数由 `-t`
-   解析（`std::stoi` 抛异常或结果不是正数就报错），没给 `-t` 时取
-   `std::thread::hardware_concurrency()`，它返回 0 时退回 1；输出流打开。
-   `check_key_validity()` 拒绝空密钥和超长密钥；`-K -` 与 `-` 输入同时出现会被
-   拒绝，同一条 stdin 只能指定一次。算法和密钥最后装进同一个 `checksum_api`，
-   传给工作线程的是它，而不是光秃秃的 `algorithm`。
-4. 把输入变成生产者，加进 `fanin_taskstream`：每个目录一个 `dirscanner`，每个
-   `-` 或列表文件一个 `listscanner`，普通的文件参数汇总成一个
-   `cached_taskstream`。队列就按这个顺序建：命令行上出现的目录和 `-`，然后是
-   缓存的文件，最后是 `-l` 列表。即使文件参数为空，这个流也会被加进去；输入
-   全空也是合法的——`files` 没有最小个数限制，空跑一次只是打印一份空报告。
-5. `work_manager(tasks, *out, api, verify, verbose, true).run(threads)` 启动工作
-   线程并返回一个 `work_result`；`verify` 让 manager 进入校验模式，最后一个参数
-   把 SIGINT 的处理留在本进程。
-6. `sum_main` 往输出流写 `#`，再调 `result.print(*out, true)`，然后 `flush()`
-   并检查 `fail()`：写失败就返回 `TSUBAKI_FILE_WRITE_FAILED`。否则把这次运行
-   映射成退出码：被打断时是 `TSUBAKI_INTERRUPTED`，记录过错误时是
-   `TSUBAKI_HASH_ERROR`，否则是 `TSUBAKI_SUCCESS`。更早的参数问题返回
-   `TSUBAKI_INVALID_OPERATION`，`--output` 文件打不开也返回
-   `TSUBAKI_FILE_WRITE_FAILED`。
+`sum_main(cmdline, internal)` 评估 `sum` 组（`internal` 为真时再加上 `sum_int`，
+`verify` 就是这样传入隐藏标志的），校验条目，读取算法/密钥/线程数/输出，把每个输入
+变成生产者，然后运行 `work_manager`。最后打印报告并映射退出码：被打断 130，记录过
+错误 1，否则 0。
 
 ## 校验
 
-`verify` 是套在 `sum` 流水线上的薄驱动，而不是第二套流水线：
+`verify_main()` 是套在 `sum` 上的薄驱动，而不是第二套流水线：
 
-1. `verify_main()` 评估 `verify` 组：自己的校验和文件位置参数，加上 `-v`、`-t`、
-   `-k`、`-K`、`-o`。这些选项与 `sum` 同名，但在逻辑上属于独立的条目（因为通过不同的组访问
-   ，详见[命令行层](#命令行层)），`sum` 的选项不会混进来。
-2. 算法取自第一条名为 `Algorithm` 的 `# <键>: <值>` 注释
-   （`src/utilities.cpp` 的 `get_comment_value()`）。输入缺失、或者不是普通文件
-   （目录、FIFO 等）时退出 66。头部是靠打开文件读的，所以类型检查通过、实际却打
-   不开的文件与“没有头”是同一种结果，同样退出 64；算法未知或为 `none` 也是 64。
-   `none` 被拒绝，因为那种清单没有任何可比较的校验和。
-3. `-o` 解析到输入文件本身时会被拒绝：否则输入会在清单被读取之前先被截断。
-4. 它重新拼出一条内部 `sum` 命令行——算法、`-l <输入>`、按原样转发的 `-t`、
-   `-k`、`-K`、`-o`、`-v`、`--force-rescan` 以及隐藏的 `--verify` 标志——然后调用
-   `sum_main(instance, true)`。该标志位于 `sum_int` 组，用户无法直接传给 `sum`。
-   不给 `-o` 时输出默认为 `<输入>.verify`，并在 stderr 上提示这个文件名；`-o -`
-   则干脆不传 `-o`，由 `sum` 写往 stdout。
-5. `listscanner` 看到 `rescan` 后，会把 `<校验和> <路径>` 行的校验和字段填进
-   `task_token::sum`；裸路径或 `<NONE> <路径>` 则让 `sum` 保持为空。
-6. manager 处于校验模式时，每个工作线程把结果与 `token.sum` 比较：`sum` 为空记入
-   `unsure`；刷新后的清单里写成 `<NONE>` 的条目同样记入 `unsure`——因中断没算的、
-   算的时候失败的都算——正是这种行让后续运行无从比较。不相等记入 `changed`。比较
-   忽略大小写，因为 `is_checksum()` 接受大写十六进制。两个向量在 manager 的互斥锁
-   下合并，由 `work_result::print()` 打印。
-7. changed/unsure **不会**改变退出码：`sum_main` 仍然只在记录过错误时返回 1，所以
-   `verify` 只报告差异，不把进程判为失败。输出本身就是一份刷新过的清单：每个真正
-   算过哈希的路径都带上了新校验和，因此只要文件在此期间没有变化，对这份输出再校验
-   一次就会得到 `Changed: 0`。没能算出哈希的路径仍以 `<NONE>` 写出，所以它在本次
-   和下次校验时都算 unsure；在计算之前就被拒掉的路径则根本不会出现在输出里。
+- 算法取自第一条 `# Algorithm:` 注释（`get_comment_value()`）。输入不存在或不是
+  普通文件退出 66；没有头、算法未知或为 `none` 退出 64。
+- 它重新拼出内部 `sum` 命令行——`-l <输入>`、`--force-rescan` 和隐藏的 `--verify`
+  标志，加上按原样转发的 `-t`、`-k`、`-K`、`-o`、`-v`——再调用
+  `sum_main(instance, true)`。不给 `-o` 时输出为 `<输入>.verify`；`-o` 指向输入
+  文件会被拒绝（64）。
+- `listscanner` 从每条 `<校验和> <路径>` 行填入 `task_token::sum`。工作线程忽略
+  大小写地比较：`sum` 为空或该行是 `<NONE>` 的记入 `unsure`，不相同的记入
+  `changed`。两者都不改变退出码，刷新后的清单可以再次校验。
 
 ## 比较
 
-`cmp` 是唯一一个完全不计算哈希的驱动：它需要的一切都在 `sum` 写出的两份清单里，
-两边都读完之后才下结论。
+`cmp_main()` 完全不计算哈希，两份清单都读完之后才下结论。
 
-1. `cmp_main()` 评估 `cmp` 组：`--canonical`、两个 `to_compare` 位置参数和 `-o`。
-   位置参数少了、多了第三个，或者出现其它组的开关，都会在 `fine(false)` 失败并
-   退出 64。
-2. 输出端在读取任何东西之前就定好：`-o -` 用 `std::cout`，否则是 `-o <文件>`；
-   不给 `-o` 时是 `.` 下的 `<左文件名去扩展名>_to_<右文件名去扩展名>.cmp`，并在
-   stderr 上提示这个默认文件名。输出文件打不开时退出 73。
-3. 每个输入（`-` 表示 stdin，两边最多只能有一个用它）都经一个
-   `rescan = true`、`trust = true` 的 `listscanner` 读入。重扫模式把
-   `<校验和> <路径>` 行变成 `sum` 字段带校验和的 `task_token`，同时不再输出
-   `# Kept:` 行，所以扫描器的输出端根本用不到。信任模式跳过文件类型过滤，比较正
-   需要如此：清单里的路径可能已经被删除。没有校验和的行——裸路径或
-   `<NONE> <路径>`——得到空的 `sum`，记一条错误而不是参与比较。打不开的清单退出
-   66；扫描器收集到的 I/O 错误并入同一个错误数组。
-4. 导入时每条校验和都会转成小写，所以大写写法不算差异。给了 `-c` 时，每条路径
-   先经 `std::filesystem::canonical()`；解析不了的路径——通常是已经不存在——记一条
-   错误并丢弃。
-5. 先按路径和所在侧排序，把同一侧、同一路径、同一校验和的重复项缩成一条；同一侧
-   同一路径带着两个不同校验和则退出 64，因为没有唯一的值可以比较。
-6. 第一阶段遍历按路径排好的条目：相邻两条路径相同的条目就是两份清单里的同一个
-   文件，校验和不同记入 `[!]`，相同记入 `[=]`。其余的留给第二阶段。
-7. 第二阶段把剩下的按校验和排序，再按所在侧拆分每一段。只被一侧持有的校验和变成
-   `[U][L]` 或 `[U][R]`；两侧都持有的校验和变成一个带编号的 `[D][n]` 组，分别列出
-   左侧和右侧路径。只有这种两侧共有的段才占用组号。
-8. 各节的输出顺序是：修改、移动、删除/新增、相同；移动和删除/新增两节之前各有一行
-   `# L = ..., R = ...`，打开输入时还会往 stderr 写一份；错误数组非空时最后写
-   `[E]` 块。最后刷出流并检查 `fail()`，在 73 和成功之间取一个；错误数组非空则
-   返回 `TSUBAKI_HASH_ERROR`（1）。差异本身从不改变退出码。
+- 它评估 `cmp` 组（`--canonical`、`to_compare`、`-o`），先定输出端：`-o -` 用
+  stdout，否则用指定文件；没给 `-o` 时是 `.` 下的
+  `<左文件名去扩展名>_to_<右文件名去扩展名>.cmp`，并在 stderr 上提示。输出文件打
+  不开时退出 73；指向任意一份输入都会被拒绝（64），因为两份清单是在输出端打开之后
+  才读的。
+- 每份清单都经 `rescan = true`、`trust = true` 的 `listscanner` 读入：校验和来自
+  清单，文件类型过滤关闭（路径可能已被删除），没有校验和的行记一条错误。两边最多
+  只能有一个是 stdin；清单打不开时退出 66。
+- 校验和统一转成小写。给了 `-c` 时，每条路径先经
+  `std::filesystem::canonical()`；它要求路径存在，所以已删除的文件会变成一条错误，
+  而不是一条“删除”。
+- 先丢掉同一侧同一路径的重复项；同一侧同一路径带着不同校验和则退出 64。然后按路径
+  排序遍历，把两侧同路径的条目配成 `[!]`（修改）或 `[=]`（相同）。剩下的按校验和
+  排序再走一遍：只被一侧持有的变成 `[U][L]`/`[U][R]`，两侧共有的校验和各成一个带
+  编号的 `[D][n]` 组。
+- 各节顺序是修改、移动、删除/新增、相同，最后写 `[E]` 错误。流像 `sum` 一样刷出
+  并检查；记录过错误则退出 1。
 
 ## 命令行层
 
-解析工作交给 `LC-ArgParser`
-（<https://github.com/Lawrence-Charland/LC-ArgParser>），一个独立的 C++17 库，
-由 CMake 在配置阶段拉取，并作为源文件编进二进制，而不是链接共享库。Tsubaki-Next 只用它的公开接口（`ap_instance`、
-`ap_entry`、`ap_defkey`），这个库对校验和一无所知，别的程序也可以原样复用。
+解析交给 `LC-ArgParser`：一个独立的 C++17 库，由 CMake 拉取并作为源文件编入。
+Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`。
 
-落到本程序上能看见的行为有这么几条：
+- `pre_parse()` 给 token 打风格标记。`--` 之后、以及匹配不到任何条目的 `-x`/
+  `--foo` 都保持 simple，所以拼错的选项会落到位置参数上，而不是报成选项错误。
+- 长选项是 `--name=value`，短选项是 `-ovalue`；分离式取值一直收集到下一个开关或
+  条目的取值上限，所以只取一个值的选项都显式声明 `max_value_count = 1`。
+- `evaluate()` 按声明顺序处理条目并删掉各自消费的参数，这个顺序决定了分离式取值
+  落到谁手里；`evaluate(group)` 只处理一个组。
 
-- `pre_parse` 把每个 token 标成 simple、single dash、double dash 或
-  `argv_zero`；`--` 之后的一律是 simple。匹配不到任何条目的 `-x`、`--foo` 同样
-  留在 simple 里，所以拼错的选项会被位置参数收走——子命令位、算法或文件列表——
-  最后按未知子命令、未知算法或“文件不存在”报错，而不是报成选项错误。
-- 长名是 `--name` 或 `--name=value`；短名是 `-v`、合并的 `-vs`、或者粘滞的
-  `-ovalue`。分离式取值（`--output out.txt`）库本身是支持的。
-- 选项会收集它后面连续的 simple token，直到遇到非 simple 的值或到达上限；标志
-  只累计出现次数。`max_value_count` 缺省是 `-1`，也就是不设上限，所以每个只该
-  取一个值的选项都必须显式写明 `1`。
-- 位置参数在 min/max 区间内收集 simple token，barrier token 会让收集提前结束，
-  并且和它一起被消费掉。
-- `evaluate()` 按声明顺序逐个处理条目并删掉各自消费的参数，所以谁先谁后决定了一个
-  分离式取值最后落到谁手里。`evaluate(group)` 只处理一个组，其它组的条目原样不动。
-- `fine()` 与 `errors()` 汇总各条目的结果，可选地把没被消费掉的参数报成
-  `invalid_arguments`。
-- 这个库不承诺兼容性，vendored 的那份副本钉在某个提交上。
-
-条目只在 `include/cmdline.hpp` 里定义一次，并且可以同时属于多个组（钉住的解析库
-版本把条目的组存成集合，所以一条声明就能加入多个组）：`general` 放 `subcmd`、
+`include/cmdline.hpp` 里的条目可以同时属于多个组：`general` 放 `subcmd`、
 `--help`、`--version`、`--algorithm`；`key-file`、`key`、`threads`、`verbose`
-同时属于 `sum` 和 `verify`，因为它们在两个子命令里含义相同；`output` 同时属于
-`sum`、`verify` 和 `cmp`；`sum` 组的其余部分是 excludes、lists、follow-symlinks、
-force-rescan、algorithm、files；隐藏的 `sum_int` 只放内部标志，常量名是
-`verify_sumint`，因为 `verify` 已经是命令组的名字；`verify` 组只额外加上它的位置
-参数 `to_verify`；`cmp` 组额外加上 `canonical` 标志和两个 `to_compare` 位置参数。
-`main()` 评估 `general`，`sum_main()` 评估 `sum`（内部调用时再加上 `sum_int`），
-`verify_main()` 评估 `verify`，`cmp_main()` 评估 `cmp`。组内的声明顺序就是评估
-顺序：`sum` 组是 key-file、key、threads、output、verbose、excludes、lists、
-follow-symlinks、force-rescan、algorithm、files；`verify` 组是 key-file、key、
-threads、output、verbose、to_verify；`cmp` 组是 output、canonical、to_compare；
-`general` 组是 subcmd、help、version、list_alg。条目的名字是 `cmdline_entry` 里的
-`inline constexpr` 常量，定义和 `entry()` 查询共用同一份拼写；名字里的连字符在
-标识符里写成下划线。
+属于 `sum` 和 `verify`；`output` 属于 `sum`、`verify` 和 `cmp`；`sum` 还有
+excludes、lists、follow-symlinks、force-rescan、algorithm、files；`sum_int` 放
+内部的 `verify_sumint` 标志；`verify` 加 `to_verify`；`cmp` 加 `canonical` 和
+`to_compare`。每个驱动只评估自己那一组。
 
-- `subcmd` 是 `general` 组的第一个条目，也是个数恰好为 1 的位置参数，所以它拿走
-  第一个普通参数，不管那是什么。这就是 `tsubaki sha256 .` 会被当成未知子命令，
-  而不是被读成算法的原因。
-- `key-file`、`key`、`threads` 和 `output` 都写了 `max_value_count` 为 `1`，
-  所以分离式取值只拿一个普通参数，剩下的留给后面的条目。没有这个上限，解析库会把
-  下一个开关之前的普通参数全给它们，`-k secret file.txt` 就会把 `file.txt` 也算进
-  密钥里。
-- `excludes` 和 `lists` 排在 `files` 之前，它们的值在位置参数之前就被取走，所以
-  分离式取值（`-e build`）能用，前提是它后面不再跟文件参数。
-- 这两项的取值个数都没有上限，因此 `-e build .` 会把 `.` 也当成排除项，让 `files`
-  收不到东西。
-- `files` 是最后一个位置参数，没有 barrier，也没有数量上限，所以它会把剩下的
-  simple 参数全部收走。
-- `-h`/`--help` 是标志，而帮助检查在参数校验之前就返回了，所以 `--help=something`
-  照样打印帮助、退出码 0：解析库会记下 `flag_unexpected_values`，但 `main`
-  根本没走到校验那一步。`-V`/`--version` 同理。短名只比较第一个字符，因此 `-h1`
-  等同于 `-h`。
+由此带来的几点：`subcmd` 拿走第一个普通参数，所以 `tsubaki sha256 .` 是未知
+子命令；`-e`/`-l` 先于 `files` 取值，所以分离式取值后面不能再跟文件参数；
+`--help` 优先于校验；短名只比较第一个字符。
 
 ## 任务流层
 
-### 接口
-
-`basic_taskstream`（`include/basic_taskstream.hpp`）是生产者唯一要实现的东西：
+`basic_taskstream`（`include/basic_taskstream.hpp`）是生产者的接口：
 
 ```cpp
-virtual std::optional<task_token> pop();           // 对外入口
-virtual std::optional<task_token> pop_raw() = 0;   // 子类实现
+virtual std::optional<task_token> pop();           // 公开入口
+virtual std::optional<task_token> pop_raw() = 0;   // 由子类实现
 void report_error(const error_entry &);
 std::vector<error_entry> take_errors();
 ```
 
-`task_token` 里的 `p` 是这条任务对应的路径，`sum` 是校验和字段。只负责走文件的
-流会留空 `sum`、只填 `p`，所以取到的路径就是 `token->p`。`listscanner` 是例外：
-重扫模式下它把 `<校验和> <路径>` 行的校验和填进 `sum`，`verify` 就是拿它来比较的。
+`task_token` 用 `p` 放路径、用 `sum` 放可选的校验和；只有重扫模式下的
+`listscanner` 会填 `sum`。`pop()` 在互斥锁下调用 `pop_raw()`，然后过滤候选：普通
+文件直接返回；不存在的路径、目录或 socket 变成一条 `error_entry`；FIFO 和设备作为
+流交给工作线程。
 
-工作线程只调 `pop()`。它先加锁、调用 `pop_raw()`、解锁，然后在锁外检查取到的
-候选路径（一律通过 `p` 访问）：
+| 类 | 职责 |
+| --- | --- |
+| `dirscanner` | 递归遍历目录，处理排除项与软链接；只交出普通文件，遍历中遇到的特殊文件和被排除的子目录静默跳过 |
+| `listscanner` | 读列表文件或 stdin；输出 `# Kept:` 行，或者在重扫模式下填 `sum` |
+| `cached_taskstream` | 按命令行顺序回放普通文件参数 |
+| `fanin_taskstream` | 把多个子流合成一条，子流枯竭时用原子游标推进 |
 
-- 是普通文件，返回；
-- `status()` 设置了错误码——路径缺失、悬空链接——记下这条错误，继续循环；
-- 是目录，记一条 `operation_not_permitted`，继续循环；
-- 是 socket，同样记一条：读多久也读不出一个校验和，所以直接拒绝，不交给工作线程；
-- 其余存在的类型——字符/块设备、FIFO——原样返回，打开还是读取交给工作线程。
-
-这层过滤放在基类里，所以子类只需要回答"下一条路径是什么"。覆盖 `pop()` 的有两个
-类：`dirscanner` 遍历目录项，只交出普通文件；遍历中遇到的目录、设备、FIFO 或
-socket 都静默跳过，而不是逐个记错误，因为遍历本身不是"我要读一个流"的明确请求。
-`sum sha256 ~` 不会卡在别人留下的 FIFO 上，靠的就是这一条。另一个是
-`fanin_taskstream`，它的游标逻辑见后文。
-
-在这里被 `pop()` 拒掉的路径（缺失、stat 失败、socket、列表里的目录）根本到不了
-计算那一步，所以既不打印也不进三个计数器的任何一个，只留下一条 `error_entry`，而它
-足以让退出码变成 1。这也是 `Failed` 可以是 0、运行却仍然失败的原因：`Failed`
-只统计算哈希那一步真的返回了错误的文件。
-
-`error_entry` 是 `std::error_code` 加一段自由文本的操作描述；进报告的是那段文本，
-所以生产者要写清"当时在做什么"，而不只是"哪一步失败了"。
-
-### dirscanner
-
-构造时接收目录、排除列表和软链接开关，内部持有一个
-`std::filesystem::recursive_directory_iterator`，打开时带
-`skip_permission_denied`，需要时再加 `follow_directory_symlink`。构造函数会拒绝
-不存在的路径和非目录（抛 `std::invalid_argument`），并把不存在的排除项丢掉，每
-丢一个记一条错误。
-
-`pop()` 用一条比基类更严的类型检查取代基类的：只交出普通文件，遍历里的 FIFO、
-socket 或设备既不会送到工作线程，也就不可能在 `open()` 里把它卡住。检查用的是
-`status()`，它会跟随符号链接，所以指向普通文件的链接照常计算，而指向目录或特殊
-文件的链接会被跳过。类型判定失败的路径记为错误，不再往下传。
-
-`pop_raw()` 先调 `skip_if_possible()`：只要当前项与某个排除项 `equivalent()`，
-就先关掉这一项（如果是目录）的递归，跨过去，再看下一项。路径比较用
-`equivalent()` 而不是字符串前缀，所以同一个 inode 从哪条路径进来都能被排除掉。
-
-这个检查只能看到迭代器交出的条目，而迭代器从不交出它打开的那个根目录。因此，
-排除项如果等于被扫描的根、或者是它的上级目录，就什么都匹配不到，会被静默忽略；
-正确的用法是排除子目录。排除项也从不作用于命令行上直接给出的文件、或列表里读
-进来的文件，因为它们压根不走这个扫描器。
-
-不存在的排除项会被丢掉，但先记一条 `error_entry`，所以它同样会让运行退出 1，
-哪怕扫描照常继续。`sum_core` 只在 `is_directory()` 返回真之后才构造
-`dirscanner`，所以路径不存在、或者不是目录时根本走不到构造函数：它会被当成普通
-文件条目，由 `pop()` 报出来。构造函数自己的检查仍然会抛 `std::invalid_argument`，
-但只可能发生在竞态（检查之后目录消失）或 `exists()` 本身失败时；这个异常不会被
-转换成错误条目——它会逃出 `sum_main`，由 `main()` 的最后兜底捕获。
-
-### listscanner
-
-从任意 `std::istream` 读行——文件由 `sum_core` 打开，`-` 时用 `std::cin`
-——决定保留某行时还要往结果流里写点东西。每个非空行先 trim，以 `#` 开头的行
-忽略。
-
-用 `get_equation()` 在第一个空格处切开。如果前半段正好是 `<NONE>`——本程序给
-未计算文件打的标记——空格后面那段就是路径。否则如果前半段不是至少 32 个字符的
-全十六进制（`is_checksum()`），整行就是路径，空格也算在内。没有空格的行根本走不到这个判断，
-所以纯十六进制的文件名单独成行时就是一个普通路径。如果前半段**是**十六进制，这一
-行就是 `<校验和> <路径>`：
-
-- 带 `--force-rescan` 时，把路径交出去重新计算；
-- 否则这一行和本次运行解耦：往输出里写 `# Kept: <路径>` 和 trim 后的行，它既不
-  参与计算，也不进报告的任何计数。
-
-认不出来的行整行都算路径，名字里的空格因此无害；这也是 `<NONE> <路径>` 的输出能
-直接当输入喂回去的原因。剩下唯一的歧义是带空格、且第一个空格前的整段全为十六进制
-的名字：它会被拆成“校验和 + 路径”，只能靠让前半段不是十六进制来保住整行
-（`./名字`、绝对路径）。`<NONE> ` 是保留前缀，永远按标记读。
-
-列表行永远只代表一个文件。行里写目录时，它跟其他路径一样被交出去，然后被
-`pop()` 拒掉，绝不会被展开遍历；只有命令行上的目录参数才会变成 `dirscanner`。
-
-### cached_taskstream
-
-持有一个路径 `std::queue`，从队首往外给，所以一批普通文件参数保持命令行上的顺序。
-它自己不检查路径是否存在，无效路径由 `basic_taskstream::pop()` 过滤。
-
-### fanin_taskstream
-
-它是若干个任务流的顺序聚合体，自己也是一个 taskstream，线程池因此只看见一条流。
-`pop()` 覆盖了基类版本，按原子游标看当前子流：子流交出路径就返回；子流枯竭就用
-compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃，它们的错误也不在这
-里合并：`take_errors()` 把汇流自己的错误列表和每个子流的列表拼在一起，而它由
-`work_manager::run()` 在工作线程 join 之后调用一次。
-
-`pop()` 自己不持锁，串行来自子流：子流的 `pop()` 各自加自己的互斥锁。所以只要
-当前子流还有东西可给，所有要路径的线程都排在那一个锁上。并行只发生在算哈希这一段。
-这也意味着某个 `listscanner` 卡在 `std::cin` 上时，堵住的是整条流，而不只是一个
-线程。
+汇流本身不加锁：每个子流自己串行化 `pop()`，所以工作线程会排队等在当前交出路径的
+那个子流上，只有计算真正并行。`listscanner` 卡在 stdin 上就会卡住整条流。
 
 ## 线程安全规则
 
-`pop_raw()` 在基类 `pop()` 调用它时一定持有 `mutex_`（`dirscanner` 覆盖了 `pop()`，
-自己加同一把锁），而 `errors` 没有自己的锁。
-
-- `pop_raw()` 里访问自己的状态不用加锁，但在里面调 `report_error()` 或 `pop()` 会
-  自锁：这把 mutex 不可重入。`take_errors()` 不取锁，所以不会自锁，但会和并发的
-  `report_error()` 竞争。要记错误就直接写 `errors`。
-- 只有在持锁时（`pop_raw()` 内）或单线程时（构造期、`take_errors()` 之后）才能碰
-  `errors`。
-- 子流绝不能回调父流的加锁方法，否则两个线程可能互等。`fanin` 只在 `add_task()`
-  里锁自己，拉取路径时并不持锁。
-- `pop_raw()` 要短、不要阻塞。`listscanner` 的 `getline` 等 stdin 时就持着锁，堵住
-  的是整条流。
-- 错误要返回，不要抛。异常逃出 `pop_raw()` 会落到没有处理器的 worker 上，最终
-  `std::terminate`。
+- `pop_raw()` 在持有 `mutex_` 时运行；可以碰自己的状态，但不能调用
+  `report_error()` 或 `pop()`（互斥锁不可重入）。`take_errors()` 不加锁，所以必须
+  在工作线程 join 之后调用。
+- 只能在持锁时或单线程阶段访问 `errors`。
+- 子流不能回调父级的加锁方法。
+- `pop_raw()` 要短：`listscanner` 在等 stdin 时是持锁的。
+- 返回错误，不要抛异常：`pop_raw()` 之上没有处理者。
 
 ## 哈希计算
 
-算法清单和公开入口在 `include/checksum.hpp`，OpenSSL 的代码在
-`src/checksum.cpp`。模块两头都从 `ALGORITHM_LIST` 出发，它生成 `algorithm`、
-名字表、`str_to_alg()` 和 `alg_to_str()`。
+`include/checksum.hpp` 里的 `ALGORITHM_LIST` 生成算法枚举、名字表以及
+`str_to_alg()` / `alg_to_str()`。OpenSSL 的调用都在 `src/checksum.cpp`：
+`digest_for()` 把普通摘要映射到 `EVP_MD`，`mac_for()` 把密钥算法映射到
+`mac_spec`，`stream_file()` 按 64 KiB 分块喂给回调。`checksum_file()` 与
+`checksum_file_key()` 分别走 `EVP_Digest*` 和 `EVP_MAC*`。
 
-三个辅助函数把 OpenSSL 的活集中在一处：
+工作线程拿到的是 `checksum_api`（`alg` 加可选 `key`，入口是 `calc(path)`）。失败
+一律以 `std::unexpected(std::error_code)` 返回，不抛异常；`algorithm::none` 不打开
+文件，直接返回 `<NONE>`。密钥策略在 `max_key_length()` 和 `check_key_validity()`
+里，由 `sum_main` 在打开任何文件之前检查一次。
 
-- `digest_for(algorithm)` 把普通摘要映射成 `EVP_MD`，其余值一律返回 `nullptr`。
-- `mac_for(algorithm)` 把密钥算法映射成 `mac_spec {name, digest}`。HMAC 把摘要
-  放在参数里（如 `{"HMAC", "SHA256"}`），带密钥的 BLAKE2 本身就是一种 MAC 算法
-  （`{"BLAKE2BMAC", nullptr}`）。
-- `stream_file(path, update)` 以 `O_RDONLY | O_CLOEXEC` 打开文件，用一个 64 KiB 的
-  `thread_local` 缓冲区按块读完，`EINTR` 重试，每块交给 `update`；`update` 返回
-  false 就变成 `operation_not_supported`。
-
-`checksum_file()` 把这条流穿过 `EVP_DigestInit_ex` / `EVP_DigestUpdate` /
-`EVP_DigestFinal_ex`。`checksum_file_key()` 把同一条流穿过 `EVP_MAC_fetch` /
-`EVP_MAC_CTX_new` / `EVP_MAC_init` / `EVP_MAC_update` / `EVP_MAC_final`。MAC 算法
-按名字 fetch，而不是给每个摘要配一个 HMAC 构造函数，所以一条代码路径覆盖所有密钥
-算法；只有 `mac_spec` 写了摘要时才设置 `OSSL_MAC_PARAM_DIGEST`。密钥按原始字节
-传入，不做任何解码。
-
-两个函数都用 `std::unexpected(std::error_code)` 报错，从不抛异常：文件错误用
-`errno`，加密调用拒绝某一块是 `operation_not_supported`，映射表不认识的算法是
-`invalid_argument`，上下文分配失败是 `not_enough_memory`。`algorithm::none` 在
-两边都直接短路成 `<NONE>`，根本不碰文件。摘要或 MAC 用 `to_hex()` 转成小写
-十六进制。
-
-`checksum_api` 是把选择从 `sum_main` 带到工作线程的值：`alg` 加可选的 `key`，
-唯一的入口是 `calc(path)`。`calc()` 按 `is_keyed(alg)` 分流：密钥算法走
-`checksum_file_key()`，其余走 `checksum_file()`。
-
-密钥策略放在 `ALGORITHM_LIST` 旁边的两个 `constexpr` 函数里：`max_key_length()`
-对 `blake2b512_mac` 返回 64、对 `blake2s256_mac` 返回 32、其余返回 0 表示不设
-上限；`check_key_validity()` 要求密钥非空且不超过这个上限（普通摘要接受任意密钥
-并忽略它）。`sum_main` 在打开任何文件之前对 `-k` 或 `-K` 得到的密钥查一次，失败
-就给出通用消息并退出 64。`calc()` 不再复查；传入有效的密钥是 `checksum_api` 的
-约定，手工构造它的调用方要自己保证。
-
-读取用的是普通 `read()`，不是 `mmap`，也不查 `SEEK_DATA`，所以稀疏文件按逻辑长度
-计算：空洞会被当作零喂进摘要。开销跟的是 `st_size`，不是实际分配的块数；不管文件
-声称多大，内存占用始终只有那个 64 KiB 缓冲区。
-
-显式命名的非普通路径用的还是同一个阻塞 `open()`：没有写端的 FIFO 会在第一次读之前
-就卡住，永不 EOF 的设备则会把工作线程一直留在循环里。两者都看不到中断标志——那个
-标志只在文件与文件之间检查。
+文件用普通 `read()` 按逻辑长度读取：稀疏文件的空洞按实际大小收费，内存始终只有
+一块 64 KiB 缓冲。显式给出的 FIFO 或设备按阻塞方式打开，可能让工作线程一直等下去；
+中断标志只在文件与文件之间检查。
 
 ## 工作线程、进度与报告
 
-`work_manager` 持有工作线程数组、进度线程、一个 `const checksum_api api`（算法加
-密钥）、一个 `std::atomic<bool> interrupted`、三个原子计数器，以及校验模式下的
-`changed`、`unsure` 两个向量（在互斥锁下合并）。`run()` 返回一个 `work_result`
-而不是自己写报告，打印到哪里、怎么打印由调用方决定。
+`work_manager` 持有工作线程数组、进度线程、一个 `const checksum_api`、中断标志、
+计数器，以及校验模式下的 `changed`/`unsure` 向量。`run(n)` 在需要时装好 SIGINT
+处理函数，写出 `# tsubaki checksum result` 头，启动 `n` 个工作线程和进度线程，然后
+等待。
 
-- `run(thread_count)` 安装 SIGINT 处理函数（`catch_sigint` 打开时），往输出端写
-  一行 `# tsubaki checksum result`，起 `thread_count` 个工作线程和进度线程，然后
-  等待。
-- 每个工作线程循环：`tasks.pop()`；若 `interrupted` 已置位，就打印
-  `<NONE> <路径>`、让 `unprocessed` 加一，并在校验模式下把这个 token 推进
-  `unsure`；否则调 `api.calc(token.p)`，再用 `osyncstream` 写一行。算失败打印
-  `<NONE> <路径>`、让 `failed` 加一，校验模式下同样把这个 token 推进 `unsure`。
-  算成功让 `success` 加一（算法是 `none` 时改让 `unprocessed` 加一），校验模式下
-  再比较：token 里没带校验和的记入 `unsure`，新摘要与它不同的记入 `changed`。
-  被 `pop()` 拒掉的路径根本走不到这里，所以既没有输出行也没有计数，只有一条错误
-  条目。
-- 进度线程在非 quiet、算法不是 `none` 时，每 100 ms 在 stderr 上重画一行，直到
-  `interrupted` 置位为止。它用 stderr 的终端宽度，宽度未知时退化成朴素的
-  `[N files]`。
-- `wait()` 先 join 工作线程，再把 `interrupted` 置位（进度循环因此退出），最后
-  join 进度线程。
-- 全部 join 完之后，`run()` 返回一份快照：启动时的算法与 verify 标志、收集到的
-  错误、`changed` 与 `unsure`、三个计数器、中断标志，以及从启动到 join 结束的墙钟
-  耗时。
+- 工作线程取一条路径；已中断就打印 `<NONE>` 并计入未计算（校验模式下同时计为
+  unsure）；否则调用 `api.calc()`，经 `std::osyncstream` 写一行，并更新计数器、
+  `changed` 或 `unsure`。
+- 进度线程每 100 ms 往 stderr 重画一行，直到运行结束或被中断。
+- `run()` 返回 `work_result`（算法、verify 标志、错误、changed、unsure、计数器、
+  中断标志、耗时），打印到哪里由调用方决定。
 
-构造函数接收流、输出端、`checksum_api`、`verify` 标志、`verbose` 标志（关掉时进度
-行什么都不画），以及一个 `catch_sigint` 标志；`sum_main` 对最后一项总是传 `true`。
-关掉后 `run()` 不安装 SIGINT 处理函数，把 `Ctrl-C` 留给调用方，适合嵌进别的驱动里。
+`work_result::print(os, details)` 写报告块：算法、processed（= hashed + failed）、
+hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Unsure`，然后是错误
+数、中断警告；`details` 为真时再写错误列表和各计数下的路径列表。
 
-`work_result` 是个纯值对象，字段为 `alg`、`verify`、`errors`、`changed`、
-`unsure`、`success`、`failed`、`unprocessed`、`interrupted`、`duration`；它不
-反向引用 manager，所以两个同算法的结果可以用“向量拼接、计数与耗时相加”的方式合并。
-`print(os, in_details)` 负责写报告块：`Algorithm`、
-`Processed`（成功 + 失败）、`Hashed`、`Failed`、`Not hashed`、`Duration`，校验
-模式下再接 `Changed` 与 `Unsure`，然后是 `Errors` 条数（即使为 0 也写）；被打断
-时在条数下面再加一个 `#` 行和一行
-`# Warning: The process was interrupted halfway through.`。有错误时后面跟
-`# Error messages:` 列表，校验模式下还会在各个计数下面列出对应的路径。
-`in_details = false` 时只写各条计数和说明，不写这些列表和逐条错误。
-
-`sum_main` 写 `#`、调 `result.print(*out, true)`，然后 `flush()` 并检查
-`fail()`（失败返回 `TSUBAKI_FILE_WRITE_FAILED`），再依次判断：`interrupted` 为真
-返回 `TSUBAKI_INTERRUPTED`，有错误返回 `TSUBAKI_HASH_ERROR`，否则返回
-`TSUBAKI_SUCCESS`。退出码不由 `failed` 决定；不过每个计算失败同时也留下一条错误
-条目，所以实际上两者是一致的。
-
-`SIGINT` 走的是单独一个标志，而不是算法值：处理函数把 `true` 存进工作线程的
-`std::atomic<bool> interrupted`，每个工作线程在 `tasks.pop()` 之后马上检查它。
-剩下的路径照样被取出、打印、计入 `Not hashed`——校验时还会一并计为 `unsure`，
-因为它们在刷新后的清单里是 `<NONE>`，下次运行无从比较——所以报告能为扫描器产出的
-每个文件留个交代；已经进入 `api.calc()` 的文件会正常算完。已经卡在阻塞 `open()`
-或无限读取里的工作线程回不到那个检查点，所以一次 `Ctrl-C` 救不出它。处理函数还会
-递增一个原子计数器，按到第五次时用 `write(2, ...)` 写一条固定消息并调用
-`_exit(250)`。任何一次 `Ctrl-C` 都会让 `work_result::interrupted` 为真，它会给报告
-块加一行说明，并让 `sum_main` 返回 `TSUBAKI_INTERRUPTED`（130）。
+`SIGINT` 只置管理器的标志。工作线程仍会把流取空，所以扫描器产出的每条路径都有
+交代；已经进入计算的文件会正常算完，而卡在 `open()` 或无限读取里的线程回不到检查
+点。第五次 `Ctrl-C` 会写一条固定消息并调用 `_exit(250)`。
 
 ## 输出流
 
-`sum_core` 只选定一次输出端：`std::cout`，或者 `--output` 打开的某个文件。这个
-`std::ostream` 由所有工作线程、列表扫描器（写 `# Kept: <路径>` 标记）和最终报告
-共用。并发写入都走 `std::osyncstream`，它会把一次完整的插入整体刷出，所以行不会
-交错；报告本身在工作线程 join 之后才写，因此直接写进流。`work_manager::run()`
-在启动工作线程之前先写一行 `# tsubaki checksum result`，所以每份 `sum` 和
-`verify` 的结果流都以它开头。
+`sum_core` 只选定一个输出端（stdout 或 `--output` 打开的文件），由工作线程、列表
+扫描器和报告共用；并发写入走 `std::osyncstream`。`work_manager::run()` 先写
+`# tsubaki checksum result` 头。`cmp_core` 直接往自己的输出端写，开头是
+`# tsubaki comparison result`。
 
-`cmp_core` 直接往自己的输出端写，没有工作线程：流以 `# tsubaki comparison result`
-开头，后面是[比较](#比较)一节里描述的各节。它的 stderr 承载默认输出文件名提示，
-以及标明两份输入的 `# L = ..., R = ...` 行。
-
-不属于清单本身的东西都写往 stderr：进度指示；参数和输入方面的问题（`cmdline`
-报错、输出文件打不开、`verify` 的输入没有可用的头）；警告（普通摘要却给了密钥、
-`hardware_concurrency()` 返回 0）；`verify` 在没给 `-o` 时提示默认的
-`<输入>.verify`；最后写失败时的一行提示；以及报告写往文件时它的第二份拷贝——它
-用 `print(std::clog, false)` 输出，所以不含错误信息和路径列表。其余错误都进结果
-流里的报告块，包括打不开的列表文件。
-
-结果流在结束时会被检查，stderr 不会。工作线程的行经 `std::osyncstream` 刷出，
-报告在 join 之后直接写入，随后 `sum_main` 调用 `flush()` 并检查 `fail()`：刷出
-失败——磁盘写满、描述符损坏、文件所在挂载点消失——会在流上留下失败状态，返回
-`TSUBAKI_FILE_WRITE_FAILED`（73）。`--output` 文件仍由 `std::ofstream` 的析构
-函数关闭，这一步的错误不检查；但写失败已经在前面那次 flush 里暴露出来。
-`SIGPIPE` 保持默认动作：读端消失时进程直接被杀（shell 看到 141），走不到 `73`。
-`--output` 文件本身在开工之前就会检查能否打开。
+不属于清单本身的东西都写往 stderr：参数和输入问题、警告、`verify` 与 `cmp` 的默认
+输出提示、结果写往文件时报告的第二份拷贝（`print(std::clog, false)`），以及最后写
+失败时的提示。结果流在结束时刷出并检查：刷出失败退出 73；`SIGPIPE` 保持默认动作
+（shell 看到 141）。
 
 ## 并发模型
 
@@ -489,35 +206,30 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 | 工作线程 | `-t` 个 | 取一条路径、算哈希、写一行（校验模式下再比较一次） |
 | 进度线程 | 1 | 每 100 ms 重画进度行 |
 
-- 每个 taskstream 一把互斥锁。锁覆盖 `pop_raw()` 和错误数组，只在取路径的那一小
-  段时间里被持有。
-- 原子变量：`interrupted` 标志、三个计数器、中断计数器、信号处理函数用的目标指针。
-  指针之所以是 `volatile`，是因为信号处理函数会写它；`interrupted` 和中断计数器
-  用 `std::atomic`，因为处理函数要往里存值。算法不再是共享状态：它待在 manager 的
-  `const checksum_api` 里，运行期间不会变。
-- 算哈希时不持任何锁，文件 I/O 完全并行。
-- 流水线里没有任何地方对结果重排序：输出顺序是完成顺序，不是扫描顺序。
+- 每条任务流一把互斥锁，只在取路径时持有。
+- `interrupted` 标志和计数器是原子变量；算法待在 manager 的 `const checksum_api`
+  里，运行期间不变。
+- 计算时不持任何锁，文件 I/O 完全并行。
 
 ## 退出码
 
-这些码定义在 `include/exit_codes.hpp`，由 `main()`、`sum_main()`、`verify_main()`
-和 `cmp_main()` 共用：
+这些码定义在 `include/exit_codes.hpp`，由 `main()`、`sum_main()`、`verify_main()`、
+`cmp_main()` 共用：
 
 | 宏 | 值 | 何时返回 |
 | --- | --- | --- |
-| `TSUBAKI_SUCCESS` | 0 | 跑完之后没有错误条目；`verify` 报出的 changed/unsure、`cmp` 报出的所有差异都不算错误 |
-| `TSUBAKI_HASH_ERROR` | 1 | 记录过至少一条错误条目；对 `cmp` 来说是没有校验和的清单行、`-c` 无法规范化的路径，或者清单读取失败 |
-| `TSUBAKI_INVALID_OPERATION` | 64 | 命令行被拒：未知子命令、未知算法、密钥算法没给密钥或密钥过长、`-k` 与 `-K` 同时给、`-K -` 与 `-` 同时出现、线程数不对，或者有多余参数；`verify` 对读不出 `Algorithm:` 头的清单、用 `none` 写出的清单、以及输出指向输入文件的情况也返回 64；`cmp` 在两份清单都是 stdin、或同一份清单里同一路径带着不同校验和重复出现时返回 64（`EX_USAGE`） |
-| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` 读不了、密钥文件里没有密钥、`verify` 的输入不存在或不是普通文件，或者 `cmp` 的清单读不了（`EX_NOINPUT`） |
-| `TSUBAKI_FATAL` | 70 | `argc` 为 0，`main()` 拒绝运行（`EX_SOFTWARE`） |
-| `TSUBAKI_FILE_WRITE_FAILED` | 73 | `--output` 文件打不开，或者结果流写失败（`EX_CANTCREAT`） |
+| `TSUBAKI_SUCCESS` | 0 | 没有错误条目；`verify` 和 `cmp` 报出的差异都不算错误 |
+| `TSUBAKI_HASH_ERROR` | 1 | 记录过错误条目；对 `cmp` 来说是没有校验和的清单行、`-c` 无法规范化的路径，或清单读取失败 |
+| `TSUBAKI_INVALID_OPERATION` | 64 | 命令行被拒；`verify` 对不可用的 `Algorithm:` 头或输出指向输入也返回它；`cmp` 在两份清单都是 stdin、输出指向其中一份清单、或同一路径重复且校验和不同时也返回它（`EX_USAGE`） |
+| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` 读不了、密钥文件为空、`verify` 的输入不存在或不是普通文件、`cmp` 的清单读不了（`EX_NOINPUT`） |
+| `TSUBAKI_FATAL` | 70 | `argc` 为 0（`EX_SOFTWARE`） |
+| `TSUBAKI_FILE_WRITE_FAILED` | 73 | `--output` 文件打不开，或结果流写失败（`EX_CANTCREAT`） |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |
-| `TSUBAKI_TERMINATED` | 250 | 第五次 `Ctrl-C` 让处理函数直接 `_exit()`，报告没写出来 |
+| `TSUBAKI_TERMINATED` | 250 | 第五次 `Ctrl-C` 直接 `_exit()`，报告没写出来 |
 | `TSUBAKI_UNEXPECTED` | 255 | 有异常逃出 `main()` |
 
-`interrupted` 优先于 `errors`：被打断的运行即使也收集到了错误，报告的也是 `130`。
-写失败返回 `73`；如果结果写往读端已消失的管道，会先被 `SIGPIPE` 杀掉（shell 看到
-141）。
+`interrupted` 优先于 `errors`；写失败返回 73，但读端消失的管道会先被 `SIGPIPE`
+杀掉（141）。
 
 ## 数据流示例
 
@@ -525,38 +237,27 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 tsubaki sum sha256 . -e build -l old.txt
 ```
 
-1. `files` 收走 `.`；`-e build` 是分离式取值，`excludes` 在位置参数之前就把它取走，
-   `-l old.txt` 则变成一个列表输入。
-2. `.` 变成一个带 `build` 排除项的 `dirscanner`；`old.txt` 被打开，变成一个
-   `listscanner`。
-3. 两者加进汇流，另外再加一个空的 `cached_taskstream`。
-4. 工作线程开始取路径：先从 `dirscanner`（遍历目录树），目录走完后从
-   `listscanner` 取。每条路径都走 `checksum_api::calc()`，所以只要 `-k` 给了密钥，
-   同一条流程换成 `hmac_sha256` 也照跑。
-5. `old.txt` 里带校验和的行立刻以 `# Kept: <路径>` 加原行写出，从不进入计算路径。
-6. 所有子流枯竭后，汇流返回空，工作线程停下，进度线程停下，`run()` 返回的
-   `work_result` 由 `sum_main` 打印。
+1. `files` 收走 `.`，`excludes` 取走 `build`，`old.txt` 变成一个列表。
+2. `.` 变成带 `build` 排除项的 `dirscanner`；`old.txt` 变成 `listscanner`；两者
+   连同空的 `cached_taskstream` 一起加进汇流。
+3. 工作线程先取目录、再取列表。带校验和的行立刻以 `# Kept: <路径>` 写出，从不进入
+   计算路径。
+4. 汇流枯竭后，`run()` 返回的 `work_result` 由 `sum_main` 打印。
 
-`cmp` 没有这样一条流程：`cmp_main()` 打开两份清单，把它们导入同一个“路径/校验和/
-所在侧”条目向量，把这个向量排两次序（先按路径，再按校验和），写出各节，然后返回。
-这里没有任务流、没有工作线程，也没有报告块。
+`cmp` 没有这条流程：`cmp_main()` 把两份清单导入同一个向量，排两次序并写出各节，
+不涉及任务流或工作线程。
 
 ## 扩展点
 
-- **新增子命令**：在 `subcommands` 里加一个常量，给它的条目分配自己的
-  `cmdline_group`，在 `main()` 里加一个分支，再写一个像 `sum_main()` 那样、只
-  评估自己那一组的驱动。子命令只解析自己的组，所以不相干的开关不会互相干扰。
-  `verify` 和 `cmp` 都是这样加的；`cmp` 是最小的例子，它复用了 `listscanner`，
-  但没有工作线程池。
+- **新增子命令**：加一个 `subcommands` 常量、一个 `cmdline_group`、`main()` 里的
+  一个分支，以及一个像 `sum_main()` 的驱动。`cmp` 是最小的例子：复用了
+  `listscanner`，但没有工作线程池。
 - **新增输入源**：从 `basic_taskstream` 派生，实现 `pop_raw()`；需要自己的语法就
-  在 `def_args()` 里加条目。汇流不关心有几个生产者。
-- **换输出端**：`work_manager` 是唯一的消费者，给它换一个 `std::ostream`，或者整个
-  替换掉，`basic_taskstream` 不用动。
-- **新增算法**：在 `include/checksum.hpp` 的 `ALGORITHM_LIST` 里加一行，它会生成
-  `algorithm`、`str_to_alg()`、`alg_to_str()`。普通摘要还要在 `digest_for()` 里加
-  一个 case；密钥算法还要在 `mac_for()` 里加一个 case、在 `is_keyed()` 里加一个
-  枚举值；如果该算法限制密钥长度，还要在 `max_key_length()` 里给一个 case；最后
-  把它加进帮助文本里的算法清单（`src/help.cpp`，那份是手写的）。
+  在 `def_args()` 里加条目。
+- **换输出端**：`work_manager` 是唯一的消费者，换一个 `std::ostream` 或整个替换。
+- **新增算法**：在 `ALGORITHM_LIST` 里加一行；普通摘要还要加一个 `digest_for()`
+  case，密钥算法还要加 `mac_for()` case、`is_keyed()` 枚举值，限制长度时加
+  `max_key_length()` 分支，最后把名字加进 `src/help.cpp` 里那份手写清单。
 
 ## 源码映射
 
@@ -570,9 +271,9 @@ tsubaki sum sha256 . -e build -l old.txt
 | `tsubaki::cached_taskstream` | class | `basic_taskstream` | 按给定顺序回放一组固定的路径 |
 | `tsubaki::fanin_taskstream` | class | `basic_taskstream` | 汇流多个子流，用 `unique_ptr` 持有它们 |
 | `tsubaki::work_manager` | class | — | 工作线程池、进度行、中断标志，以及校验运行用的 `changed`/`unsure` 向量 |
-| `tsubaki::work_result` | class | — | `run()` 返回的值快照，带 `print()`；它不引用 manager，两个结果可以合并 |
+| `tsubaki::work_result` | class | — | `run()` 返回的值快照，带 `print()`；不引用 manager |
 | `tsubaki::checksum_api` | struct | — | 携带选定的算法与密钥，把 `calc()` 分到摘要或 MAC 路径 |
-| `tsubaki::task_token` | struct | — | 一条任务：工作线程要处理的路径，加上清单里读到的校验和（重扫模式之外为空） |
+| `tsubaki::task_token` | struct | — | 一条任务：路径加上清单里读到的校验和（重扫模式之外为空） |
 | `tsubaki::error_entry` | struct | — | `std::error_code` 加上出错时的操作描述 |
 | `tsubaki::fd_guard` | class | — | 析构时关闭文件描述符，哈希代码在用 |
 | `tsubaki::algorithm` | enum class | — | 由 `ALGORITHM_LIST` 生成的算法清单，外加表示 `str_to_alg()` 失败的 `error` |
@@ -584,7 +285,7 @@ tsubaki sum sha256 . -e build -l old.txt
 | --- | --- |
 | `src/main.cpp` | 子命令分发、`general` 参数组、最后的异常兜底 |
 | `include/core_functions.hpp` | `sum_main()`、`verify_main()` 与 `cmp_main()` 的声明 |
-| `include/exit_codes.hpp` | `main()`、`sum_main()`、`verify_main()`、`cmp_main()` 共用的退出码宏 |
+| `include/exit_codes.hpp` | 四个驱动共用的退出码宏 |
 | `src/sum_core.cpp` | `sum` 参数组的检查、启动流程、流的组装 |
 | `src/verify_core.cpp` | `verify` 参数组、头部查找、内部 `sum` 调用 |
 | `src/cmp_core.cpp` | `cmp` 参数组、两份清单的导入、路径与校验和匹配、分节输出 |
@@ -600,7 +301,6 @@ tsubaki sum sha256 . -e build -l old.txt
 | `include/help.hpp`, `src/help.cpp` | 帮助文本与 `--algorithm` 表格 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |
 
-`experiments/timeline_fs/` 不属于 `tsubaki` 的源码映射：它保存着"比较多份结果"
-这件事的实验草稿（`include/timeline_fs.hpp`、`src/timeline_fs.cpp`，以及草稿驱动
-`src/tmptest.cpp`）。`cmp` 不用它——`cmp` 做的是两份清单之间的两两比较。没有任何
-CMake 目标引用它，所以既不参与编译，也不参与测试。
+`experiments/timeline_fs/` 不属于源码映射：它是为了比较两份以上结果而画的草稿
+（`include/timeline_fs.hpp`、`src/timeline_fs.cpp`、`src/tmptest.cpp`），`cmp`
+不用它，也没有任何 CMake 目标构建它。

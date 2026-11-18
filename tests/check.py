@@ -649,10 +649,10 @@ def test_verify(h: Harness, root: Path) -> None:
                           f"unsure={field(r.out, 'Unsure')}")
 
 
-# ---------------------------------------------------------------- 31-36
+# ---------------------------------------------------------------- 31-37
 
 def test_cmp(h: Harness, root: Path) -> None:
-    section("31-36 Compare")
+    section("31-37 Compare")
     fx = root / "c"
     fx.mkdir(parents=True)
     same, changed = "a" * 64, "b" * 64
@@ -736,6 +736,19 @@ def test_cmp(h: Harness, root: Path) -> None:
         h.ok("36", name)
     else:
         h.bad("36", name, f"rc={r.rc} err={r.err!r}")
+
+    name = "an output naming either input is refused and leaves it intact"
+    kept = fx / "kept.txt"
+    kept.write_text(f"{same} /u/kept\n", encoding="utf-8")
+    r_left = h.cmp(kept, right, "-o", str(kept))
+    r_right = h.cmp(left, kept, "-o", str(kept))
+    if (r_left.rc == 64 and r_right.rc == 64
+            and "input files" in r_left.err
+            and kept.read_text(encoding="utf-8") == f"{same} /u/kept\n"):
+        h.ok("37", name)
+    else:
+        h.bad("37", name, f"rc={r_left.rc}/{r_right.rc} "
+                          f"text={kept.read_text(encoding='utf-8')!r}")
 
 
 # ---------------------------------------------------------------- runner

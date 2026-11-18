@@ -123,6 +123,21 @@ int cmp_main(argparser::ap_instance &cmdline)
                              path(R_src).filename().stem().string() + ".cmp");
                 else
                     output_filepath = path(content.at(0));
+                // Both lists are read after the sink is opened, so an output
+                // naming either of them would truncate it first.
+                for (const std::string *src : {&L_src, &R_src})
+                {
+                    if (*src == "-")
+                        continue;
+                    std::error_code ec;
+                    if (equivalent(path(*src), output_filepath, ec))
+                    {
+                        std::cerr << "Error: the output file must not be one "
+                                     "of the input files."
+                                  << std::endl;
+                        return TSUBAKI_INVALID_OPERATION;
+                    }
+                }
                 ofs_output.open(output_filepath);
                 if (!ofs_output.good())
                 {
