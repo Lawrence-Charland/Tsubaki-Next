@@ -108,13 +108,15 @@
 5. `listscanner` 看到 `rescan` 后，会把 `<校验和> <路径>` 行的校验和字段填进
    `task_token::sum`；裸路径或 `<NONE> <路径>` 则让 `sum` 保持为空。
 6. manager 处于校验模式时，每个工作线程把结果与 `token.sum` 比较：`sum` 为空记入
-   `unsure`，不相等记入 `changed`。比较忽略大小写，因为 `is_checksum()` 接受大写
-   十六进制。两个向量在 manager 的互斥锁下合并，由 `work_result::print()` 打印。
+   `unsure`；刷新后的清单里写成 `<NONE>` 的条目同样记入 `unsure`——因中断没算的、
+   算的时候失败的都算——正是这种行让后续运行无从比较。不相等记入 `changed`。比较
+   忽略大小写，因为 `is_checksum()` 接受大写十六进制。两个向量在 manager 的互斥锁
+   下合并，由 `work_result::print()` 打印。
 7. changed/unsure **不会**改变退出码：`sum_main` 仍然只在记录过错误时返回 1，所以
    `verify` 只报告差异，不把进程判为失败。输出本身就是一份刷新过的清单：每个真正
    算过哈希的路径都带上了新校验和，因此只要文件在此期间没有变化，对这份输出再校验
-   一次就会得到 `Changed: 0`。没能算出哈希的路径仍以 `<NONE>` 写出，再校验时会
-   归入 unsure；在计算之前就被拒掉的路径则根本不会出现在输出里。
+   一次就会得到 `Changed: 0`。没能算出哈希的路径仍以 `<NONE>` 写出，所以它在本次
+   和下次校验时都算 unsure；在计算之前就被拒掉的路径则根本不会出现在输出里。
 
 ## 命令行层
 
@@ -360,10 +362,11 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 - `run(thread_count)` 安装 SIGINT 处理函数（`catch_sigint` 打开时），起
   `thread_count` 个工作线程和进度线程，然后等待。
 - 每个工作线程循环：`tasks.pop()`；若 `interrupted` 已置位，就打印
-  `<NONE> <路径>` 并让 `unprocessed` 加一；否则调 `api.calc(token.p)`，再用
-  `osyncstream` 写一行。算失败打印 `<NONE> <路径>` 并让 `failed` 加一；算成功让
-  `success` 加一，算法是 `none` 时改让 `unprocessed` 加一。校验模式下，成功之后
-  还会比较：token 里没带校验和的记入 `unsure`，新摘要与它不同的记入 `changed`。
+  `<NONE> <路径>`、让 `unprocessed` 加一，并在校验模式下把这个 token 推进
+  `unsure`；否则调 `api.calc(token.p)`，再用 `osyncstream` 写一行。算失败打印
+  `<NONE> <路径>`、让 `failed` 加一，校验模式下同样把这个 token 推进 `unsure`。
+  算成功让 `success` 加一（算法是 `none` 时改让 `unprocessed` 加一），校验模式下
+  再比较：token 里没带校验和的记入 `unsure`，新摘要与它不同的记入 `changed`。
   被 `pop()` 拒掉的路径根本走不到这里，所以既没有输出行也没有计数，只有一条错误
   条目。
 - 进度线程在非 quiet、算法不是 `none` 时，每 100 ms 在 stderr 上重画一行，直到
@@ -398,12 +401,13 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 
 `SIGINT` 走的是单独一个标志，而不是算法值：处理函数把 `true` 存进工作线程的
 `std::atomic<bool> interrupted`，每个工作线程在 `tasks.pop()` 之后马上检查它。
-剩下的路径照样被取出、打印、计入 `Not hashed`，所以报告能为扫描器产出的每个文件
-留个交代；已经进入 `api.calc()` 的文件会正常算完。已经卡在阻塞 `open()` 或无限
-读取里的工作线程回不到那个检查点，所以一次 `Ctrl-C` 救不出它。处理函数还会递增
-一个原子计数器，按到第五次时用 `write(2, ...)` 写一条固定消息并调用 `_exit(250)`。
-任何一次 `Ctrl-C` 都会让 `work_result::interrupted` 为真，它会给报告块加一行
-说明，并让 `sum_main` 返回 `TSUBAKI_INTERRUPTED`（130）。
+剩下的路径照样被取出、打印、计入 `Not hashed`——校验时还会一并计为 `unsure`，
+因为它们在刷新后的清单里是 `<NONE>`，下次运行无从比较——所以报告能为扫描器产出的
+每个文件留个交代；已经进入 `api.calc()` 的文件会正常算完。已经卡在阻塞 `open()`
+或无限读取里的工作线程回不到那个检查点，所以一次 `Ctrl-C` 救不出它。处理函数还会
+递增一个原子计数器，按到第五次时用 `write(2, ...)` 写一条固定消息并调用
+`_exit(250)`。任何一次 `Ctrl-C` 都会让 `work_result::interrupted` 为真，它会给报告
+块加一行说明，并让 `sum_main` 返回 `TSUBAKI_INTERRUPTED`（130）。
 
 ## 输出流
 

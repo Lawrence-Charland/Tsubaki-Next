@@ -495,7 +495,7 @@ def test_special_files(h: Harness, root: Path) -> None:
 # ---------------------------------------------------------------- 22-29
 
 def test_verify(h: Harness, root: Path) -> None:
-    section("22-29 Verify")
+    section("22-30 Verify")
     fx = root / "v"
     a = write(fx / "a.txt", b"hello\n")
     b = write(fx / "b.txt", b"world\n")
@@ -622,6 +622,28 @@ def test_verify(h: Harness, root: Path) -> None:
     else:
         h.bad("29", name, f"rc={r.rc} changed={field(r.out, 'Changed')} "
                           f"lines={count_results(r.out)}")
+
+    name = ("a path that cannot be hashed: Failed 1, unsure 1, exit 1, and "
+            "<NONE> in the refreshed listing")
+    fx30 = root / "v30"
+    locked = write(fx30 / "locked.txt", b"secret\n")
+    os.chmod(locked, 0o000)
+    target = locked
+    if os.access(locked, os.R_OK):  # root ignores the mode bits
+        target = Path("/proc/self/mem")  # a regular file whose reads always fail
+    manifest30 = root / "v30.txt"
+    manifest30.write_text(SHA256_HEADER + f"{'0' * 64} {target}\n",
+                          encoding="utf-8")
+    r = h.verify(manifest30, "-o", "-")
+    os.chmod(locked, 0o644)
+    if (r.rc == 1 and field(r.out, "Failed") == "1"
+            and field(r.out, "Unsure") == "1"
+            and f"<NONE> {target}" in r.out
+            and f"# Unsure files:\n# {target}\n" in r.out):
+        h.ok("30", name)
+    else:
+        h.bad("30", name, f"rc={r.rc} failed={field(r.out, 'Failed')} "
+                          f"unsure={field(r.out, 'Unsure')}")
 
 
 # ---------------------------------------------------------------- runner

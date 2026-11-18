@@ -25,12 +25,13 @@ Subcommands:
   verify                 re-check the paths named in a checksum file written
                          by sum. The algorithm comes from the file's
                          "Algorithm:" header. A path whose stored checksum no
-                         longer matches is reported as changed; a path listed
-                         without a checksum is reported as unsure. The freshly
-                         computed checksums are written to <checksum-file>.verify
-                         unless -o is given. Changed and unsure files are
-                         reported in the summary but do not change the exit
-                         status.
+                         longer matches is reported as changed; a path with no
+                         checksum to compare, or one that could not be hashed
+                         (cut off by an interrupt, or a read/hash failure), is
+                         reported as unsure. The freshly computed checksums are
+                         written to <checksum-file>.verify unless -o is given.
+                         Changed and unsure files are reported in the summary
+                         but are not errors by themselves.
 
 Positional arguments (sum):
   algorithm              checksum algorithm to use; one of:
@@ -123,9 +124,10 @@ Output format:
   files met during a walk are skipped.
 
   A verify run adds "# Changed:" and "# Unsure:" lines to the report. Unsure
-  means the listing had no checksum for that path, so there was nothing to
-  compare. The affected paths are then listed under each count in the result
-  stream; the copy of the report written to stderr omits them.
+  means the run had nothing to compare: the listing gave no checksum for that
+  path, or the path could not be hashed at all. The affected paths are then
+  listed under each count in the result stream; the copy of the report written
+  to stderr omits them.
 
   Write errors are checked at the end through std::ostream::fail(): a full disk,
   a broken descriptor, or a file on a removed mount leaves the stream failed

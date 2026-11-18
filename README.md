@@ -248,14 +248,15 @@ every processed file, then the report block. The report gains two fields:
 ```
 
 A *changed* file is one whose stored checksum differs from the recomputed one.
-An *unsure* file is one listed as a bare path or as `<NONE> <path>`, so the
-listing had no checksum to compare. The affected paths are listed below each
-count in the result stream; the copy of the report on stderr omits them. A
-changed or unsure file does not change the exit status; only read, write and
-scan errors do, exactly as in `sum`. The output is a refreshed listing, so a
-second `verify` of it reports `Changed: 0` as long as the files did not change
-in between; a path that could not be hashed stays `<NONE>` and comes back as
-unsure.
+An *unsure* file is one the run could not decide about: the listing gave no
+checksum for it (a bare path, or `<NONE> <path>`), or it could not be hashed at
+all — the run was interrupted, or the hash failed. The affected paths are
+listed below each count in the result stream; the copy of the report on stderr
+omits them. A changed or unsure file does not change the exit status; only
+read, write and scan errors do, exactly as in `sum` — a hashing failure is one
+of those, so it still exits 1. The output is a refreshed listing, so a second
+`verify` of it reports `Changed: 0` as long as the files did not change in
+between; paths left as `<NONE>` in it come back as unsure.
 
 `-v`, `-t`, `-k`, `-K` and `-o` work as they do for `sum`. The key must be
 supplied again for a keyed algorithm, because a checksum file records the

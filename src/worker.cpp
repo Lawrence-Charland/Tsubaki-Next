@@ -57,7 +57,7 @@ void work_result::print(std::ostream &os, bool in_details)
         {
             if (!unsure.empty())
             {
-                os << "#\n# Unsure files (no checksum in the list):"
+                os << "#\n# Unsure files:"
                    << std::endl;
                 for (auto &files : unsure)
                     os << "# " << files.p.string() << std::endl;
@@ -126,6 +126,8 @@ void work_manager::worker(bool verify)
             std::osyncstream(os)
                 << none_checksum << ' ' << target->p.string() << '\n';
             unprocessed.fetch_add(1, std::memory_order_relaxed);
+            if (verify)
+                _unsure.push_back(target.value());
             continue;
         }
 
@@ -138,6 +140,8 @@ void work_manager::worker(bool verify)
             std::osyncstream(os)
                 << none_checksum << ' ' << target->p.string() << '\n';
             failed.fetch_add(1, std::memory_order_relaxed);
+            if (verify)
+                _unsure.push_back(target.value());
         }
         else
         {

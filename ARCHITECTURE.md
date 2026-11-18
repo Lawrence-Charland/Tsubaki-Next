@@ -128,17 +128,20 @@ is not specific to a subcommand:
    checksum field of a `<checksum> <path>` line. A bare path or
    `<NONE> <path>` leaves `sum` empty.
 6. Each worker compares its result with `token.sum` when the manager is in
-   verification mode. An empty `sum` is collected in `unsure`; a mismatch is
-   collected in `changed`. The comparison ignores case, because `is_checksum()`
-   accepts uppercase hex. Both vectors are merged under the manager mutex and
-   printed by `work_result::print()`.
+   verification mode. An empty `sum` is collected in `unsure`; so is any token
+   whose line in the refreshed listing is `<NONE>` — one skipped because the run
+   was already interrupted, one whose hashing failed — because such a line is
+   exactly what gives the next run nothing to compare. A mismatch is collected
+   in `changed`. The comparison ignores case, because `is_checksum()` accepts
+   uppercase hex. Both vectors are merged under the manager mutex and printed by
+   `work_result::print()`.
 7. A changed or unsure entry does **not** change the exit status: `sum_main`
    still returns 1 only for recorded errors, so `verify` reports differences
    without failing the process. The output is a refreshed listing, with a new
    checksum for every path that could be hashed, so verifying that output again
    reports `Changed: 0` as long as the files did not change in the meantime. A
-   path that could not be hashed stays `<NONE>` and comes back as unsure, and a
-   path rejected before hashing has no line in the output at all.
+   path that could not be hashed stays `<NONE>`, so it is unsure here and on the
+   next run; a path rejected before hashing has no line in the output at all.
 
 ## Command line layer
 
@@ -445,13 +448,14 @@ the report itself, so the caller decides where and how it is printed.
 - `run(thread_count)` installs the SIGINT handler (when `catch_sigint` is on),
   starts `thread_count` workers and the printer, and waits.
 - Each worker loops: `tasks.pop()`; if `interrupted` is already set, print
-  `<NONE> <path>` and increment `unprocessed`; otherwise `api.calc(token.p)` and
-  write one line through an `osyncstream`. A failed checksum prints
-  `<NONE> <path>` and increments `failed`; a success increments `success`, or
-  `unprocessed` when the algorithm is `none`. In verification mode a success
-  also goes to `unsure` when the token carried no checksum and to `changed`
-  when the new digest differs from it. A path that `pop()` rejected never gets
-  here, so it has no line and no counter — only an error entry.
+  `<NONE> <path>` and increment `unprocessed` — in verification mode the token
+  also goes to `unsure`; otherwise `api.calc(token.p)` and write one line
+  through an `osyncstream`. A failed checksum prints `<NONE> <path>`, increments
+  `failed` and, again in verification mode, goes to `unsure` as well. A success
+  increments `success`, or `unprocessed` when the algorithm is `none`, and in
+  verification mode goes to `unsure` when the token carried no checksum and to
+  `changed` when the new digest differs from it. A path that `pop()` rejected
+  never gets here, so it has no line and no counter — only an error entry.
 - The printer, unless quiet or running with `none`, repaints a single line every
   100 ms on stderr while `interrupted` is false. It uses the terminal width of
   stderr and degenerates to a plain `[N files]` when the width is unknown.
@@ -492,13 +496,15 @@ the two agree.
 `SIGINT` is a separate flag, not the algorithm value: the handler stores `true`
 into the worker's `std::atomic<bool> interrupted`, and each worker checks it
 right after `tasks.pop()`. Remaining paths are still popped, printed and counted
-as `Not hashed`, so the report accounts for everything the scanners produced; a
-file already inside `api.calc()` finishes normally. A worker already inside a
-blocking `open()` or an endless read never returns to that check, so one
-`Ctrl-C` does not free it. The handler also bumps an atomic counter, and on the
-fifth `Ctrl-C` it writes a fixed message with `write(2, ...)` and calls
-`_exit(250)`. Any `Ctrl-C` sets `work_result::interrupted`, which adds a note to
-the report block and makes `sum_main` return `TSUBAKI_INTERRUPTED` (130).
+as `Not hashed` — and in a verify run also as `unsure`, because their `<NONE>`
+lines give the next run nothing to compare — so the report accounts for
+everything the scanners produced; a file already inside `api.calc()` finishes
+normally. A worker already inside a blocking `open()` or an endless read never
+returns to that check, so one `Ctrl-C` does not free it. The handler also bumps
+an atomic counter, and on the fifth `Ctrl-C` it writes a fixed message with
+`write(2, ...)` and calls `_exit(250)`. Any `Ctrl-C` sets
+`work_result::interrupted`, which adds a note to the report block and makes
+`sum_main` return `TSUBAKI_INTERRUPTED` (130).
 
 ## Output streams
 
