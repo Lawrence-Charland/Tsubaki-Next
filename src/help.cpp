@@ -15,6 +15,7 @@ constexpr std::string_view help_body =
 Usage:
   {program} sum [options] <algorithm> <file|dir>...
   {program} verify [options] <checksum-file>
+  {program} cmp [options] <left-list> <right-list>
   {program} --help
   {program} --version
   {program} --algorithm
@@ -32,6 +33,13 @@ Subcommands:
                          written to <checksum-file>.verify unless -o is given.
                          Changed and unsure files are reported in the summary
                          but are not errors by themselves.
+  cmp                    compare two result files written by sum. Every path is
+                         put in one of four sections: modified (same path,
+                         different checksum), moved/copied/merged/renamed (same
+                         checksum at different paths), deleted/added (present
+                         on one side only), or matched (same path and checksum).
+                         The result goes to <left>_to_<right>.cmp unless -o is
+                         given. Differences are reported but are not errors.
 
 Positional arguments (sum):
   algorithm              checksum algorithm to use; one of:
@@ -50,6 +58,12 @@ Positional arguments (sum):
 
 Positional arguments (verify):
   checksum-file          the result file to verify, normally written by sum.
+
+Positional arguments (cmp):
+  left-list              the older result file to compare, normally written by
+                         sum; "-" reads it from stdin.
+  right-list             the newer result file; "-" reads it from stdin too, but
+                         only one of the two lists may be stdin.
 
 Options (sum and general):
   -h, --help                  print this help and exit.
@@ -77,7 +91,13 @@ Options (sum and general):
                               unreadable or empty file exits 66. Ignored with
                               a warning by a plain digest.
   -o<file>, --output=<file>   write the results to <file> instead of stdout
-                              (sum) or <checksum-file>.verify (verify).
+                              (sum), <checksum-file>.verify (verify) or
+                              <left>_to_<right>.cmp (cmp).
+  -c, --canonical             make both paths absolute, resolve symlinks and
+                              normalize separators before comparing them; cmp
+                              only. Canonicalization needs the path to exist, so
+                              a deleted file becomes an error entry instead of a
+                              deletion.
   -e<path>, --exclude=<path>  skip <path> and anything below it when scanning
                               directories; may be given more than once.
                               Alias: --excludes=<path>.
@@ -90,6 +110,9 @@ Options (sum and general):
   verify accepts -v, -t, -k, -K and -o with the same meanings. It takes no
   algorithm or file argument and does not accept -e, -l, -s or -f: the paths,
   the algorithm and the unconditional rescan all come from the checksum file.
+
+  cmp accepts only -o and -c. It never hashes anything, so it has no algorithm,
+  key, thread or scan option; -v, -t, -k, -K, -e, -l, -s and -f exit 64.
 
 Option values:
   A long option takes its value with '=', as in --list=old.txt; a short option
@@ -113,7 +136,11 @@ File lists:
   verify reads the same format, so a file written by sum can be passed to it as
   is: comment lines, including the report block, are ignored.
 
+  cmp reads the same format too, but requires a checksum on every line: a bare
+  path or <NONE> <path> has nothing to compare and becomes an error entry.
+
 Output format:
+  A sum or verify stream starts with "# tsubaki checksum result", then
   "<checksum> <path>" for every processed file, followed by a report block
   whose lines start with '#'. A file that cannot be opened, read, or hashed is
   printed as <NONE> and counted as failed. A path that does not exist, or a
@@ -128,6 +155,13 @@ Output format:
   path, or the path could not be hashed at all. The affected paths are then
   listed under each count in the result stream; the copy of the report written
   to stderr omits them.
+
+  A cmp stream starts with "# tsubaki comparison result" and then the sections
+  "[!] Modified:", "[D] Moved,copied,merged or renamed:" (one numbered group
+  per checksum shared by both sides, with [L] and [R] path lists), "[U]
+  Deleted or added:" ([L] and [R] lists), "[=] Matched:", and, only when
+  something was recorded, "[E] Error messages:". Checksums are compared as
+  lowercase hexadecimal.
 
   Write errors are checked at the end through std::ostream::fail(): a full disk,
   a broken descriptor, or a file on a removed mount leaves the stream failed
@@ -150,19 +184,27 @@ Examples:
   {program} verify sums.txt                   re-check the files in sums.txt and
                                               write sums.txt.verify.
   {program} verify sums.txt -o -              print the refreshed checksums.
+  {program} cmp old.txt new.txt               compare, writing old_to_new.cmp.
+  {program} cmp old.txt new.txt -o -          print the comparison.
+  {program} cmp old.txt new.txt -c -o -       resolve symlinks first, then
+                                              compare.
 
 Exit status:
-  0    no error was recorded. verify reports changed and unsure files without
-       treating them as errors.
+  0    no error was recorded. verify reports changed and unsure files, and cmp
+       reports every difference, without treating them as errors.
   1    at least one error was recorded: a checksum failure, a missing path, an
-       unopenable list file, or a missing exclude.
+       unopenable list file, or a missing exclude. cmp also records a list line
+       without a checksum, a path it could not canonicalize, or a list read
+       error.
   64   invalid command line: unknown subcommand, unknown algorithm, a keyed
        algorithm without a key or with a key too long for it, -k together
        with -K, stdin named twice, bad thread count, or leftover arguments.
        verify also uses 64 for an input file without an "Algorithm:" header,
        one written with algorithm "none", or an output file that is the input.
-  66   the --key-file cannot be read, the key file holds no key, or the verify
-       input is missing or is not a regular file.
+       cmp uses 64 when both lists are stdin, or when one list names a path
+       more than once with different checksums.
+  66   the --key-file cannot be read, the key file holds no key, the verify
+       input is missing or is not a regular file, or a cmp list cannot be read.
   70   fatal start-up failure (argc is 0).
   73   the --output file cannot be opened for writing, or the output stream
        fails.

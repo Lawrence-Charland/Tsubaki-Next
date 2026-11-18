@@ -19,6 +19,7 @@ directories to exclude.
   - [Option values](#option-values)
   - [Keyed hashes](#keyed-hashes)
   - [Verifying](#verifying)
+  - [Comparing](#comparing)
 - [Inputs](#inputs)
 - [Output](#output)
 - [Exit status](#exit-status)
@@ -59,21 +60,25 @@ preset exists with the same layout.
 ```
 tsubaki sum [options] <algorithm> <file|dir>...
 tsubaki verify [options] <checksum-file>
+tsubaki cmp [options] <left-list> <right-list>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
 ```
 
-A subcommand is required: `sum` calculates checksums, and `verify` re-checks a
-file written by `sum`. `--help`, `--version` and `--algorithm` (or `-a`) are the
-only invocations that do not need one; any other word in the subcommand
-position is rejected as an unknown subcommand. Those three are checked before
-validation, so they also win over every argument error: running `tsubaki -a
-junk` prints the algorithm table and exits 0. When several of them are given,
-`--help` wins over `--version`, and both win over `--algorithm`.
+A subcommand is required: `sum` calculates checksums, `verify` re-checks a
+file written by `sum`, and `cmp` compares two such files. `--help`, `--version`
+and `--algorithm` (or `-a`) are the only invocations that do not need one; any
+other word in the subcommand position is rejected as an unknown subcommand.
+Those three are checked before validation, so they also win over every argument
+error: running `tsubaki -a junk` prints the algorithm table and exits 0. When
+several of them are given, `--help` wins over `--version`, and both win over
+`--algorithm`.
 
 Everything up to [Verifying](#verifying) describes `sum`; `verify` reuses the
-checksum-file format and the `-v`, `-t`, `-k`, `-K` and `-o` options.
+checksum-file format and the `-v`, `-t`, `-k`, `-K` and `-o` options. `cmp`
+reuses the same format, but takes two files and only the `-o` and `-c`
+options.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
 a directory, a file, or `-` for stdin, and the kinds can be mixed in one
@@ -141,7 +146,8 @@ so it tracks the implementation instead of repeating the list above by hand.
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
-| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum) or `<checksum-file>.verify` (verify) |
+| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp) |
+| `-c`, `--canonical`            | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only) |
 | `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
 | `-l<file>`, `--list=<file>`    | read paths from `<file>`; repeatable                                 |
 | `-s`, `--follow-symlinks`      | follow symbolic links to directories                                 |
@@ -153,6 +159,11 @@ so it tracks the implementation instead of repeating the list above by hand.
 takes no algorithm or file argument, and rejects `-e`, `-l`, `-s` and `-f`:
 the paths, the algorithm and the unconditional rescan all come from the
 checksum file.
+
+`cmp` accepts only `-o` and `-c`. It never hashes anything, so it takes no
+algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `-e`, `-l`,
+`-s` and `-f` are rejected with exit status 64. Its two positionals are the
+result files to compare, not paths to hash.
 
 Parsing itself is done by
 [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser), a small
@@ -264,6 +275,84 @@ algorithm name but never the key. A listing written with `none` is rejected
 (exit 64): it holds no checksums to compare. `-o` must not name the input file
 (exit 64), because the input would be truncated before it is read.
 
+### Comparing
+
+`cmp` reads two result files written by `sum` and reports how they differ:
+
+```sh
+tsubaki cmp old.txt new.txt               # writes old_to_new.cmp
+tsubaki cmp old.txt new.txt -o -          # prints the comparison
+tsubaki cmp old.txt new.txt -o diff.cmp   # writes diff.cmp
+```
+
+Both inputs use the checksum-file format: `#` lines, including a whole report
+block, are ignored, and every other line must be a `<checksum> <path>` pair. A
+bare path or `<NONE> <path>` is recorded as an error and left out, because
+there is no checksum to compare. One of the two files may be `-` for stdin, but
+not both. Checksums are compared as lowercase hexadecimal, so an uppercase
+spelling is not a change.
+
+The output has one section per kind of difference:
+
+```
+# tsubaki comparison result
+# [!] Modified:
+[!] ./chg.txt
+
+# L = old.txt, R = new.txt
+# [D] Moved,copied,merged or renamed:
+# [D][1]
+# [D][1][L]
+[D][1][L]./mv.txt
+# [D][1][R]
+[D][1][R]./moved.txt
+
+# L = old.txt, R = new.txt
+# [U] Deleted or added:
+# [U][L]
+[U][L]./del.txt
+# [U][R]
+[U][R]./add.txt
+
+# [=] Matched:
+[=] ./same.txt
+```
+
+- `[!]` *Modified*: the same path in both listings with a different checksum.
+  The left spelling is printed.
+- `[D][n]` *Moved, copied, merged or renamed*: one group per checksum held by
+  both sides at different paths; `[D][n][L]` lists the left paths and
+  `[D][n][R]` the right ones. A checksum that only one side holds produces no
+  group; its paths fall under deleted or added.
+- `[U]` *Deleted or added*: paths that only the left (`[U][L]`) or only the
+  right (`[U][R]`) listing names, with no matching checksum on the other side.
+- `[=]` *Matched*: the same path in both listings with the same checksum.
+- `[E]` *Error messages*: only when something was recorded — a line without a
+  checksum, a path that `-c` could not canonicalize, or a list that failed
+  while being read. The comparison continues, and the exit status is then 1.
+
+A path repeated in one listing with the same checksum is compared once. The
+same path repeated with different checksums in one listing is refused with exit
+status 64, because there is no single value to compare.
+
+Without `-c`, paths are compared exactly as written, so `./a.txt` and
+`b/../a.txt` are different paths. With `-c` (or `--canonical`) both sides are
+passed through `std::filesystem::canonical()` first, which makes each path
+absolute, resolves symlinks and normalizes separators, so differently spelled
+routes to the same file match. Canonicalization needs the path to exist: a
+deleted file cannot be canonicalized, so its entry becomes an error instead of
+a deletion.
+
+Without `-o`, the result goes to `<left-stem>_to_<right-stem>.cmp` in the
+current directory (`old.txt` and `new.txt` give `old_to_new.cmp`), and a notice
+on stderr names that file. `-o -` writes to stdout. The `# L = ..., R = ...`
+lines repeated between sections name the two inputs; an initial copy goes to
+stderr so it stays visible when the result goes to a file.
+
+`cmp` never hashes, walks or scans anything: it reads two files, so the
+interrupt handling described below does not apply to it and a `Ctrl-C` simply
+kills the process.
+
 ## Inputs
 
 Files and directories on the command line are scanned directly. A list file
@@ -321,11 +410,15 @@ disk.
 
 ## Output
 
-Results go to stdout unless `--output` is given. One line per file:
+Results go to stdout unless `--output` is given. The result stream starts with
+a `# tsubaki checksum result` header, then one line per file:
 
 ```
 <checksum> <path>
 ```
+
+(`cmp` writes `# tsubaki comparison result` and its own sections instead; see
+[Comparing](#comparing).)
 
 Lines are written in completion order, not input order, so with more than one
 worker the order changes between runs. A path is printed exactly as its scanner
@@ -399,10 +492,10 @@ closed it, the write raises `SIGPIPE` and the default action kills the process
 
 | Code | Meaning |
 | --- | --- |
-| `0` | no error was recorded; a `verify` run reports changed and unsure files without treating them as errors |
-| `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude |
-| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header, one written with `none`, or an output that is the input file |
-| `66` | the `--key-file` cannot be read, the key file holds no key, or the `verify` input is missing or is not a regular file |
+| `0` | no error was recorded; a `verify` run reports changed and unsure files, and a `cmp` run reports every difference, without treating them as errors |
+| `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error |
+| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header, one written with `none`, or an output that is the input file; `cmp` uses 64 when both lists are stdin, and when one list names the same path more than once with different checksums |
+| `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is not a regular file, or a `cmp` list cannot be read |
 | `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
 | `73` | the `--output` file cannot be opened for writing, or the output stream fails |
 | `130` | the run was interrupted with `Ctrl-C` |
@@ -450,36 +543,30 @@ two independent attempts side by side: `old` is the author's own version,
 
 The project builds exactly one executable, `tsubaki`, and will keep doing so.
 Features are added as subcommands of that binary rather than as further targets;
-`sum` and `verify` are the two that exist today.
+`sum`, `verify` and `cmp` are the three that exist today.
 
 `verify` streams: it compares one file at a time and never needs the whole
-listing in memory. Everything that needs every checksum in memory before it
-can decide anything — comparing several sets of results — is deliberately left
-out for now.
+listing in memory. `cmp` is the exception: it holds both listings and decides
+once they are loaded.
 
 ## Roadmap
 
-The pipeline stays one-way: a path is hashed and written out, never collected.
-A comparison is the opposite shape — it can only decide once every set involved
-is in memory — so it will become another subcommand of the same binary, next to
-`sum`. Nothing beyond that is designed yet; what is fixed is the shape it would
-take:
+The hashing pipeline stays one-way: a path is hashed and written out, never
+collected. `cmp` is the opposite shape and is not built on that pipeline: it
+reads the two listings into memory and compares them only after both are
+loaded. Nothing beyond these three subcommands is designed.
 
-- It is not a new program. A subcommand gets a `subcommands::` constant, its own
-  entry group in `include/cmdline.hpp`, a branch in `main()`'s dispatch, and a
-  driver like `sum_main()`. The parser, the scanners and the checksum layer are
-  shared; only the result format and the exit code mapping differ.
-- `timeline_fs` is the structure sketched for keeping results comparable: an
-  in-memory tree in which every node carries a *per-snapshot* child list and a
-  per-snapshot checksum map. A time id is added by name, then files and
-  directories are created, updated or removed under that id. Loading any number
-  of ids and walking the tree shows what changed between runs, and the same map
-  shows which files hold identical content.
+`timeline_fs` was the structure sketched for keeping more than two results
+comparable: an in-memory tree in which every node carries a *per-snapshot*
+child list and a per-snapshot checksum map. A time id is added by name, then
+files and directories are created, updated or removed under that id. Loading
+any number of ids and walking the tree shows what changed between runs, and the
+same map shows which files hold identical content.
 
 Development of `timeline_fs` is paused, so its sources are kept as an
 experiment under [experiments/timeline_fs/](experiments/timeline_fs/) instead
-of the source tree: no target references them, and no comparison entry or
-driver exists. The module layout itself is described in
+of the source tree: no target references them, and `cmp` does not use them — it
+compares two listings pairwise. The module layout itself is described in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Architecture

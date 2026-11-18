@@ -19,10 +19,18 @@ finished result as one line of output.
 There is no intermediate "file list" object. Nothing is sorted, counted or
 filtered after scanning: a path is hashed as soon as a worker gets it.
 
+`cmp` does not use that pipeline. It reads two listings into memory and
+compares them once both are loaded:
+
+```
+  argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> compare ──> out
+```
+
 ## Contents
 
 - [Startup sequence](#startup-sequence)
 - [Verification](#verification)
+- [Comparison](#comparison)
 - [Command line layer](#command-line-layer)
 - [Task streams](#task-streams)
 - [Thread-safety rules](#thread-safety-rules)
@@ -55,10 +63,11 @@ is not specific to a subcommand:
    `TSUBAKI_VERSION`.
 4. `fine()` validates the `general` entries. A missing `subcmd` is reported
    here, followed by a hint to run `--help`.
-5. The value of `subcmd` is compared with `subcommands::sum` and
-   `subcommands::verify`. `sum` hands the preparsed instance to
-   `tsubaki::sum_main()` and returns its exit code; `verify` does the same with
-   `tsubaki::verify_main()`. Anything else is rejected as an unknown subcommand
+5. The value of `subcmd` is compared with `subcommands::sum`,
+   `subcommands::verify` and `subcommands::cmp`. `sum` hands the preparsed
+   instance to `tsubaki::sum_main()` and returns its exit code; `verify` does
+   the same with `tsubaki::verify_main()`, and `cmp` with
+   `tsubaki::cmp_main()`. Anything else is rejected as an unknown subcommand
    with `TSUBAKI_INVALID_OPERATION`. The call sits in a try/catch that turns an
    escaped exception into an error message plus `TSUBAKI_UNEXPECTED`.
 
@@ -143,6 +152,49 @@ is not specific to a subcommand:
    path that could not be hashed stays `<NONE>`, so it is unsure here and on the
    next run; a path rejected before hashing has no line in the output at all.
 
+## Comparison
+
+`cmp` is the one driver that never hashes: everything it needs arrives in two
+listings written by `sum`, and it decides only after both are read.
+
+1. `cmp_main()` evaluates the `cmp` group: `--canonical`, the two `to_compare`
+   positionals and `-o`. A missing positional, a third positional, or a switch
+   from another group fails `fine(false)` and exits 64.
+2. The sink is chosen before anything is read: `-o -` keeps `std::cout`,
+   otherwise `-o <file>`, or `<left-stem>_to_<right-stem>.cmp` in `.` when `-o`
+   is absent; the default name is announced on stderr. An output file that
+   cannot be opened exits 73.
+3. Each input (`-` means stdin, and at most one side may use it) is streamed
+   through a `listscanner` built with `rescan = true` and `trust = true`.
+   Rescan mode turns a `<checksum> <path>` line into a `task_token` whose `sum`
+   carries the checksum, and suppresses the `# Kept:` output, so the scanner's
+   sink is never used. Trust mode skips the file-type filter, which a comparison
+   needs because a listed path may have been deleted. A line without a checksum
+   — a bare path or `<NONE> <path>` — yields an empty `sum` and is recorded as
+   an error instead of being compared. A list that cannot be opened exits 66;
+   I/O errors collected by the scanners join the same error vector.
+4. On import, each checksum is lowercased, so an uppercase spelling is not a
+   difference. With `-c`, each path is replaced by
+   `std::filesystem::canonical()`; a path that cannot be resolved — normally
+   because it no longer exists — is recorded as an error and dropped.
+5. A sort by path and side groups repeats: duplicates of one path on one side
+   with the same checksum are reduced to the first, while two different
+   checksums for one path on one side exits 64, because there is no single
+   value to compare.
+6. Phase 1 walks the path-sorted entries; two adjacent entries naming the same
+   path are one file in both listings, so they become `[!]` when the checksums
+   differ and `[=]` when they match. Everything else is left for phase 2.
+7. Phase 2 sorts what is left by checksum and splits every run by side. A run
+   held by only one side becomes `[U][L]` or `[U][R]`; a run held by both sides
+   becomes one numbered `[D][n]` group with its left and right paths. Only
+   these shared runs consume a group number.
+8. The sections are written as modified, moved, deleted/added and matched. A
+   `# L = ..., R = ...` line precedes the moved and deleted/added sections, and
+   one is also written to stderr when the inputs are opened; the `[E]` block
+   comes last when the error vector is not empty. The stream is flushed and
+   `fail()` decides between 73 and success; a non-empty error vector returns
+   `TSUBAKI_HASH_ERROR` (1). Differences themselves never change the exit code.
+
 ## Command line layer
 
 Parsing is done by `LC-ArgParser`
@@ -181,19 +233,23 @@ The parts of its behaviour that surface here:
 Entries are defined once, in `include/cmdline.hpp`, and carry one or more
 groups: the pinned library revision keeps the groups of an entry in a set, so a
 single declaration can join several. `general` holds `subcmd`, `--help`,
-`--version` and `--algorithm`; `key-file`, `key`, `threads`, `output` and
-`verbose` belong to both `sum` and `verify`, because they mean the same thing in
-both subcommands; the rest of `sum` is excludes, lists, follow-symlinks,
-force-rescan, algorithm and files; the hidden `sum_int` group holds only
-`--verify`; and `verify` adds only its positional `to_verify`. `main()`
-evaluates `general`, `sum_main()` evaluates `sum` (plus `sum_int` for the
-internal call), and `verify_main()` evaluates `verify`. Inside a group the
-declaration order is the evaluation order: key-file, key, threads, output,
-verbose, excludes, lists, follow-symlinks, force-rescan, algorithm, files for
-`sum`; key-file, key, threads, output, verbose, to_verify for `verify`; and
-subcmd, help, version, list_alg for `general`. The names are `inline constexpr`
-constants in `cmdline_entry`, so the definitions and the `entry()` lookups share
-one spelling; a hyphen in the name becomes an underscore in the identifier.
+`--version` and `--algorithm`; `key-file`, `key`, `threads` and `verbose`
+belong to both `sum` and `verify`, because they mean the same thing in both
+subcommands; `output` joins `sum`, `verify` and `cmp`; the rest of `sum` is
+excludes, lists, follow-symlinks, force-rescan, algorithm and files; the hidden
+`sum_int` group holds only the internal flag, declared as `verify_sumint`
+because `verify` is the name of a command group; `verify` adds only its
+positional `to_verify`; and `cmp` adds the `canonical` flag and its
+`to_compare` positionals. `main()` evaluates `general`, `sum_main()` evaluates
+`sum` (plus `sum_int` for the internal call), `verify_main()` evaluates
+`verify`, and `cmp_main()` evaluates `cmp`. Inside a group the declaration
+order is the evaluation order: key-file, key, threads, output, verbose,
+excludes, lists, follow-symlinks, force-rescan, algorithm, files for `sum`;
+key-file, key, threads, output, verbose, to_verify for `verify`; output,
+canonical, to_compare for `cmp`; and subcmd, help, version, list_alg for
+`general`. The names are `inline constexpr` constants in `cmdline_entry`, so
+the definitions and the `entry()` lookups share one spelling; a hyphen in the
+name becomes an underscore in the identifier.
 
 - `subcmd` is the first entry of the `general` group and a positional with a
   count of exactly one, so it takes the first plain argument whatever it is.
@@ -446,7 +502,8 @@ vector filled under a mutex. `run()` returns a `work_result` instead of writing
 the report itself, so the caller decides where and how it is printed.
 
 - `run(thread_count)` installs the SIGINT handler (when `catch_sigint` is on),
-  starts `thread_count` workers and the printer, and waits.
+  writes the `# tsubaki checksum result` header to the sink, starts
+  `thread_count` workers and the printer, and waits.
 - Each worker loops: `tasks.pop()`; if `interrupted` is already set, print
   `<NONE> <path>` and increment `unprocessed` — in verification mode the token
   also goes to `unsure`; otherwise `api.calc(token.p)` and write one line
@@ -513,7 +570,14 @@ That single `std::ostream` is shared by every worker, the list scanners (for
 `# Kept: <path>` markers) and the final report. Concurrent writes go through
 `std::osyncstream`, which flushes complete insertions, so lines never
 interleave; the report itself is written after the workers are joined, so it
-goes out directly.
+goes out directly. `work_manager::run()` writes the `# tsubaki checksum result`
+header before starting the workers, so every `sum` and `verify` stream begins
+with it.
+
+`cmp_core` writes to its sink directly and without workers: the stream starts
+with `# tsubaki comparison result`, then the sections described in
+[Comparison](#comparison). Its stderr carries the notice naming a default
+output file and the `# L = ..., R = ...` line that names both inputs.
 
 stderr carries everything that is not part of the listing: the progress
 indicator; argument and input problems (`cmdline` errors, an output file that
@@ -558,14 +622,14 @@ itself is checked up front, before any work starts.
 ## Exit codes
 
 The codes live in `include/exit_codes.hpp` and are shared by `main()`,
-`sum_main()` and `verify_main()`:
+`sum_main()`, `verify_main()` and `cmp_main()`:
 
 | Macro | Value | Returned when |
 | --- | --- | --- |
-| `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry; changed and unsure files from `verify` are reported but are not errors |
-| `TSUBAKI_HASH_ERROR` | 1 | at least one error entry was recorded |
-| `TSUBAKI_INVALID_OPERATION` | 64 | the command line was rejected: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses it for a listing without a readable `Algorithm:` header, one written with `none`, or an output that is the input (`EX_USAGE`) |
-| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` cannot be read, the key file holds no key, or the `verify` input is missing or is not a regular file (`EX_NOINPUT`) |
+| `TSUBAKI_SUCCESS` | 0 | the run finished with no error entry; changed and unsure files from `verify`, and every difference from `cmp`, are reported but are not errors |
+| `TSUBAKI_HASH_ERROR` | 1 | at least one error entry was recorded; for `cmp` that is a list line without a checksum, a path `-c` could not canonicalize, or a list read error |
+| `TSUBAKI_INVALID_OPERATION` | 64 | the command line was rejected: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses it for a listing without a readable `Algorithm:` header, one written with `none`, or an output that is the input; `cmp` uses it when both lists are stdin or one list names a path twice with different checksums (`EX_USAGE`) |
+| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is not a regular file, or a `cmp` list cannot be read (`EX_NOINPUT`) |
 | `TSUBAKI_FATAL` | 70 | `argc` is 0, so `main()` refuses to run (`EX_SOFTWARE`) |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | the `--output` file cannot be opened, or the result stream fails (`EX_CANTCREAT`) |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
@@ -598,15 +662,19 @@ tsubaki sum sha256 . -e build -l old.txt
    stop, the printer stops, and `run()` returns the `work_result` that
    `sum_main` prints.
 
+`cmp` has no such flow: `cmp_main()` opens both listings, imports them into one
+vector of path/checksum/side entries, sorts that vector twice (by path, then by
+checksum), writes the sections, and returns. No task stream, worker or report
+block is involved.
+
 ## Extension points
 
 - **New subcommand**: add a constant to `subcommands`, give its entries their
   own `cmdline_group`, add a branch to `main()`, and write a driver shaped like
   `sum_main()` that evaluates its own group. Only the entries of that group are
-  parsed by the subcommand, so unrelated switches cannot interfere. Comparing
-  several sets of results is the next feature planned this way; an experimental
-  sketch of its data structure lives in `experiments/timeline_fs/` and is not
-  built.
+  parsed by the subcommand, so unrelated switches cannot interfere. `verify`
+  and `cmp` are built this way; `cmp` is the minimal case, since it reuses
+  `listscanner` but no worker pool.
 - **New input source**: derive from `basic_taskstream`, implement `pop_raw()`,
   and add an entry to `def_args()` if it needs syntax of its own. The fan-in does
   not care how many producers exist.
@@ -644,10 +712,11 @@ tsubaki sum sha256 . -e build -l old.txt
 | Path | Contents |
 | --- | --- |
 | `src/main.cpp` | subcommand dispatch, `general` argument group, last-resort exception handler |
-| `include/core_functions.hpp` | `sum_main()` and `verify_main()` declarations |
-| `include/exit_codes.hpp` | the exit-code macros shared by `main()`, `sum_main()` and `verify_main()` |
+| `include/core_functions.hpp` | `sum_main()`, `verify_main()` and `cmp_main()` declarations |
+| `include/exit_codes.hpp` | the exit-code macros shared by `main()`, `sum_main()`, `verify_main()` and `cmp_main()` |
 | `src/sum_core.cpp` | `sum` argument group checks, startup sequence, stream construction |
 | `src/verify_core.cpp` | `verify` argument group, header lookup, internal `sum` invocation |
+| `src/cmp_core.cpp` | `cmp` argument group, import of both listings, path and checksum matching, section output |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
@@ -663,5 +732,5 @@ tsubaki sum sha256 . -e build -l old.txt
 `experiments/timeline_fs/` is not part of the `tsubaki` source map: it holds an
 experimental sketch for comparing several sets of results
 (`include/timeline_fs.hpp`, `src/timeline_fs.cpp`, and the scratch driver
-`src/tmptest.cpp`). No CMake target references it, so it is neither compiled nor
-tested.
+`src/tmptest.cpp`). `cmp` does not use it — `cmp` compares two listings
+pairwise. No CMake target references it, so it is neither compiled nor tested.

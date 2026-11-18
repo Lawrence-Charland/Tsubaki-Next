@@ -18,10 +18,17 @@
 中间没有"文件列表"这一层。扫描之后不再排序、不再统计、不再过滤：谁取到一条
 路径，谁就立刻开算。
 
+`cmp` 不走这条流水线。它把两份清单读进内存，两边都到齐之后再比较：
+
+```
+  argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> 比较 ──> 输出
+```
+
 ## 目录
 
 - [启动流程](#启动流程)
 - [校验](#校验)
+- [比较](#比较)
 - [命令行层](#命令行层)
 - [任务流层](#任务流层)
 - [线程安全规则](#线程安全规则)
@@ -51,11 +58,11 @@
    `TSUBAKI_VERSION` 注入。
 4. `fine()` 校验 `general` 组的条目。缺 `subcmd` 就在这里报错，末尾补一句提示
    去跑 `--help`。
-5. `subcmd` 的值与 `subcommands::sum`、`subcommands::verify` 比较：`sum` 把预解析
-   好的实例交给 `tsubaki::sum_main()`，`verify` 交给 `tsubaki::verify_main()`，并
-   返回它们的退出码；其它值按未知子命令报错，返回
-   `TSUBAKI_INVALID_OPERATION`。这层调用包在 try/catch 里，逃出来的异常变成一条
-   错误信息和 `TSUBAKI_UNEXPECTED`。
+5. `subcmd` 的值与 `subcommands::sum`、`subcommands::verify`、`subcommands::cmp`
+   比较：`sum` 把预解析好的实例交给 `tsubaki::sum_main()`，`verify` 交给
+   `tsubaki::verify_main()`，`cmp` 交给 `tsubaki::cmp_main()`，并返回它们的退出码；
+   其它值按未知子命令报错，返回 `TSUBAKI_INVALID_OPERATION`。这层调用包在
+   try/catch 里，逃出来的异常变成一条错误信息和 `TSUBAKI_UNEXPECTED`。
 
 `sum_main(cmdline, internal)` 按顺序做这些事：
 
@@ -118,6 +125,39 @@
    一次就会得到 `Changed: 0`。没能算出哈希的路径仍以 `<NONE>` 写出，所以它在本次
    和下次校验时都算 unsure；在计算之前就被拒掉的路径则根本不会出现在输出里。
 
+## 比较
+
+`cmp` 是唯一一个完全不计算哈希的驱动：它需要的一切都在 `sum` 写出的两份清单里，
+两边都读完之后才下结论。
+
+1. `cmp_main()` 评估 `cmp` 组：`--canonical`、两个 `to_compare` 位置参数和 `-o`。
+   位置参数少了、多了第三个，或者出现其它组的开关，都会在 `fine(false)` 失败并
+   退出 64。
+2. 输出端在读取任何东西之前就定好：`-o -` 用 `std::cout`，否则是 `-o <文件>`；
+   不给 `-o` 时是 `.` 下的 `<左文件名去扩展名>_to_<右文件名去扩展名>.cmp`，并在
+   stderr 上提示这个默认文件名。输出文件打不开时退出 73。
+3. 每个输入（`-` 表示 stdin，两边最多只能有一个用它）都经一个
+   `rescan = true`、`trust = true` 的 `listscanner` 读入。重扫模式把
+   `<校验和> <路径>` 行变成 `sum` 字段带校验和的 `task_token`，同时不再输出
+   `# Kept:` 行，所以扫描器的输出端根本用不到。信任模式跳过文件类型过滤，比较正
+   需要如此：清单里的路径可能已经被删除。没有校验和的行——裸路径或
+   `<NONE> <路径>`——得到空的 `sum`，记一条错误而不是参与比较。打不开的清单退出
+   66；扫描器收集到的 I/O 错误并入同一个错误数组。
+4. 导入时每条校验和都会转成小写，所以大写写法不算差异。给了 `-c` 时，每条路径
+   先经 `std::filesystem::canonical()`；解析不了的路径——通常是已经不存在——记一条
+   错误并丢弃。
+5. 先按路径和所在侧排序，把同一侧、同一路径、同一校验和的重复项缩成一条；同一侧
+   同一路径带着两个不同校验和则退出 64，因为没有唯一的值可以比较。
+6. 第一阶段遍历按路径排好的条目：相邻两条路径相同的条目就是两份清单里的同一个
+   文件，校验和不同记入 `[!]`，相同记入 `[=]`。其余的留给第二阶段。
+7. 第二阶段把剩下的按校验和排序，再按所在侧拆分每一段。只被一侧持有的校验和变成
+   `[U][L]` 或 `[U][R]`；两侧都持有的校验和变成一个带编号的 `[D][n]` 组，分别列出
+   左侧和右侧路径。只有这种两侧共有的段才占用组号。
+8. 各节的输出顺序是：修改、移动、删除/新增、相同；移动和删除/新增两节之前各有一行
+   `# L = ..., R = ...`，打开输入时还会往 stderr 写一份；错误数组非空时最后写
+   `[E]` 块。最后刷出流并检查 `fail()`，在 73 和成功之间取一个；错误数组非空则
+   返回 `TSUBAKI_HASH_ERROR`（1）。差异本身从不改变退出码。
+
 ## 命令行层
 
 解析工作交给 `LC-ArgParser`
@@ -146,17 +186,20 @@
 
 条目只在 `include/cmdline.hpp` 里定义一次，并且可以同时属于多个组（钉住的解析库
 版本把条目的组存成集合，所以一条声明就能加入多个组）：`general` 放 `subcmd`、
-`--help`、`--version`、`--algorithm`；`key-file`、`key`、`threads`、`output`、
-`verbose` 同时属于 `sum` 和 `verify`，因为它们在两个子命令里含义相同；`sum` 组
-的其余部分是 excludes、lists、follow-symlinks、force-rescan、algorithm、files；
-隐藏的 `sum_int` 只放 `--verify`；`verify` 组只额外加上它的位置参数 `to_verify`。
+`--help`、`--version`、`--algorithm`；`key-file`、`key`、`threads`、`verbose`
+同时属于 `sum` 和 `verify`，因为它们在两个子命令里含义相同；`output` 同时属于
+`sum`、`verify` 和 `cmp`；`sum` 组的其余部分是 excludes、lists、follow-symlinks、
+force-rescan、algorithm、files；隐藏的 `sum_int` 只放内部标志，常量名是
+`verify_sumint`，因为 `verify` 已经是命令组的名字；`verify` 组只额外加上它的位置
+参数 `to_verify`；`cmp` 组额外加上 `canonical` 标志和两个 `to_compare` 位置参数。
 `main()` 评估 `general`，`sum_main()` 评估 `sum`（内部调用时再加上 `sum_int`），
-`verify_main()` 评估 `verify`。组内的声明顺序就是评估顺序：`sum` 组是 key-file、
-key、threads、output、verbose、excludes、lists、follow-symlinks、force-rescan、
-algorithm、files；`verify` 组是 key-file、key、threads、output、verbose、
-to_verify；`general` 组是 subcmd、help、version、list_alg。条目的名字是
-`cmdline_entry` 里的 `inline constexpr` 常量，定义和 `entry()` 查询共用同一份拼
-写；名字里的连字符在标识符里写成下划线。
+`verify_main()` 评估 `verify`，`cmp_main()` 评估 `cmp`。组内的声明顺序就是评估
+顺序：`sum` 组是 key-file、key、threads、output、verbose、excludes、lists、
+follow-symlinks、force-rescan、algorithm、files；`verify` 组是 key-file、key、
+threads、output、verbose、to_verify；`cmp` 组是 output、canonical、to_compare；
+`general` 组是 subcmd、help、version、list_alg。条目的名字是 `cmdline_entry` 里的
+`inline constexpr` 常量，定义和 `entry()` 查询共用同一份拼写；名字里的连字符在
+标识符里写成下划线。
 
 - `subcmd` 是 `general` 组的第一个条目，也是个数恰好为 1 的位置参数，所以它拿走
   第一个普通参数，不管那是什么。这就是 `tsubaki sha256 .` 会被当成未知子命令，
@@ -359,8 +402,9 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 `changed`、`unsure` 两个向量（在互斥锁下合并）。`run()` 返回一个 `work_result`
 而不是自己写报告，打印到哪里、怎么打印由调用方决定。
 
-- `run(thread_count)` 安装 SIGINT 处理函数（`catch_sigint` 打开时），起
-  `thread_count` 个工作线程和进度线程，然后等待。
+- `run(thread_count)` 安装 SIGINT 处理函数（`catch_sigint` 打开时），往输出端写
+  一行 `# tsubaki checksum result`，起 `thread_count` 个工作线程和进度线程，然后
+  等待。
 - 每个工作线程循环：`tasks.pop()`；若 `interrupted` 已置位，就打印
   `<NONE> <路径>`、让 `unprocessed` 加一，并在校验模式下把这个 token 推进
   `unsure`；否则调 `api.calc(token.p)`，再用 `osyncstream` 写一行。算失败打印
@@ -414,7 +458,13 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 `sum_core` 只选定一次输出端：`std::cout`，或者 `--output` 打开的某个文件。这个
 `std::ostream` 由所有工作线程、列表扫描器（写 `# Kept: <路径>` 标记）和最终报告
 共用。并发写入都走 `std::osyncstream`，它会把一次完整的插入整体刷出，所以行不会
-交错；报告本身在工作线程 join 之后才写，因此直接写进流。
+交错；报告本身在工作线程 join 之后才写，因此直接写进流。`work_manager::run()`
+在启动工作线程之前先写一行 `# tsubaki checksum result`，所以每份 `sum` 和
+`verify` 的结果流都以它开头。
+
+`cmp_core` 直接往自己的输出端写，没有工作线程：流以 `# tsubaki comparison result`
+开头，后面是[比较](#比较)一节里描述的各节。它的 stderr 承载默认输出文件名提示，
+以及标明两份输入的 `# L = ..., R = ...` 行。
 
 不属于清单本身的东西都写往 stderr：进度指示；参数和输入方面的问题（`cmdline`
 报错、输出文件打不开、`verify` 的输入没有可用的头）；警告（普通摘要却给了密钥、
@@ -450,14 +500,15 @@ compare-and-swap 把游标推进一步，再看下一个。子流不会被丢弃
 
 ## 退出码
 
-这些码定义在 `include/exit_codes.hpp`，由 `main()`、`sum_main()` 和 `verify_main()` 共用：
+这些码定义在 `include/exit_codes.hpp`，由 `main()`、`sum_main()`、`verify_main()`
+和 `cmp_main()` 共用：
 
 | 宏 | 值 | 何时返回 |
 | --- | --- | --- |
-| `TSUBAKI_SUCCESS` | 0 | 跑完之后没有错误条目；`verify` 报出的 changed/unsure 不算错误 |
-| `TSUBAKI_HASH_ERROR` | 1 | 记录过至少一条错误条目 |
-| `TSUBAKI_INVALID_OPERATION` | 64 | 命令行被拒：未知子命令、未知算法、密钥算法没给密钥或密钥过长、`-k` 与 `-K` 同时给、`-K -` 与 `-` 同时出现、线程数不对，或者有多余参数；`verify` 对读不出 `Algorithm:` 头的清单、用 `none` 写出的清单、以及输出指向输入文件的情况也返回 64（`EX_USAGE`） |
-| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` 读不了、密钥文件里没有密钥，或者 `verify` 的输入不存在、不是普通文件（`EX_NOINPUT`） |
+| `TSUBAKI_SUCCESS` | 0 | 跑完之后没有错误条目；`verify` 报出的 changed/unsure、`cmp` 报出的所有差异都不算错误 |
+| `TSUBAKI_HASH_ERROR` | 1 | 记录过至少一条错误条目；对 `cmp` 来说是没有校验和的清单行、`-c` 无法规范化的路径，或者清单读取失败 |
+| `TSUBAKI_INVALID_OPERATION` | 64 | 命令行被拒：未知子命令、未知算法、密钥算法没给密钥或密钥过长、`-k` 与 `-K` 同时给、`-K -` 与 `-` 同时出现、线程数不对，或者有多余参数；`verify` 对读不出 `Algorithm:` 头的清单、用 `none` 写出的清单、以及输出指向输入文件的情况也返回 64；`cmp` 在两份清单都是 stdin、或同一份清单里同一路径带着不同校验和重复出现时返回 64（`EX_USAGE`） |
+| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` 读不了、密钥文件里没有密钥、`verify` 的输入不存在或不是普通文件，或者 `cmp` 的清单读不了（`EX_NOINPUT`） |
 | `TSUBAKI_FATAL` | 70 | `argc` 为 0，`main()` 拒绝运行（`EX_SOFTWARE`） |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | `--output` 文件打不开，或者结果流写失败（`EX_CANTCREAT`） |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |
@@ -486,13 +537,17 @@ tsubaki sum sha256 . -e build -l old.txt
 6. 所有子流枯竭后，汇流返回空，工作线程停下，进度线程停下，`run()` 返回的
    `work_result` 由 `sum_main` 打印。
 
+`cmp` 没有这样一条流程：`cmp_main()` 打开两份清单，把它们导入同一个“路径/校验和/
+所在侧”条目向量，把这个向量排两次序（先按路径，再按校验和），写出各节，然后返回。
+这里没有任务流、没有工作线程，也没有报告块。
+
 ## 扩展点
 
 - **新增子命令**：在 `subcommands` 里加一个常量，给它的条目分配自己的
   `cmdline_group`，在 `main()` 里加一个分支，再写一个像 `sum_main()` 那样、只
-  评估自己那一组的驱动。子命令只解析自己的组，所以不相干的开关不会互相干扰。下一件
-  计划这样加的功能是比较多份结果；它的数据结构实验草稿放在
-  `experiments/timeline_fs/`，没有纳入构建。
+  评估自己那一组的驱动。子命令只解析自己的组，所以不相干的开关不会互相干扰。
+  `verify` 和 `cmp` 都是这样加的；`cmp` 是最小的例子，它复用了 `listscanner`，
+  但没有工作线程池。
 - **新增输入源**：从 `basic_taskstream` 派生，实现 `pop_raw()`；需要自己的语法就
   在 `def_args()` 里加条目。汇流不关心有几个生产者。
 - **换输出端**：`work_manager` 是唯一的消费者，给它换一个 `std::ostream`，或者整个
@@ -528,10 +583,11 @@ tsubaki sum sha256 . -e build -l old.txt
 | 路径 | 内容 |
 | --- | --- |
 | `src/main.cpp` | 子命令分发、`general` 参数组、最后的异常兜底 |
-| `include/core_functions.hpp` | `sum_main()` 与 `verify_main()` 的声明 |
-| `include/exit_codes.hpp` | `main()`、`sum_main()`、`verify_main()` 共用的退出码宏 |
+| `include/core_functions.hpp` | `sum_main()`、`verify_main()` 与 `cmp_main()` 的声明 |
+| `include/exit_codes.hpp` | `main()`、`sum_main()`、`verify_main()`、`cmp_main()` 共用的退出码宏 |
 | `src/sum_core.cpp` | `sum` 参数组的检查、启动流程、流的组装 |
 | `src/verify_core.cpp` | `verify` 参数组、头部查找、内部 `sum` 调用 |
+| `src/cmp_core.cpp` | `cmp` 参数组、两份清单的导入、路径与校验和匹配、分节输出 |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | 基类流与它的 `pop()` 过滤 |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | 目录遍历 |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
@@ -546,5 +602,5 @@ tsubaki sum sha256 . -e build -l old.txt
 
 `experiments/timeline_fs/` 不属于 `tsubaki` 的源码映射：它保存着"比较多份结果"
 这件事的实验草稿（`include/timeline_fs.hpp`、`src/timeline_fs.cpp`，以及草稿驱动
-`src/tmptest.cpp`），本人暂时不准备深入探索哈希比较功能。没有任何 CMake 目标引用它，
-所以既不参与编译，也不参与测试。
+`src/tmptest.cpp`）。`cmp` 不用它——`cmp` 做的是两份清单之间的两两比较。没有任何
+CMake 目标引用它，所以既不参与编译，也不参与测试。
