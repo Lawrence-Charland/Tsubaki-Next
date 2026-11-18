@@ -47,7 +47,7 @@ class Run:
 
 class Harness:
     def __init__(self, binary: Path) -> None:
-        self.bin = str(binary)
+        self.bin = str(Path(binary).resolve())
         self.passed = 0
         self.failed = 0
         self.known = 0
@@ -59,6 +59,7 @@ class Harness:
         *args: object,
         stdin_data: str | None = None,
         timeout: float | None = None,
+        cwd: object | None = None,
     ) -> Run:
         cmd = [self.bin, *(str(a) for a in args)]
         kwargs: dict[str, object] = {
@@ -66,6 +67,8 @@ class Harness:
             "text": True,
             "timeout": timeout,
         }
+        if cwd is not None:
+            kwargs["cwd"] = cwd
         if stdin_data is None:
             kwargs["stdin"] = subprocess.DEVNULL
         else:
@@ -751,6 +754,59 @@ def test_cmp(h: Harness, root: Path) -> None:
                           f"text={kept.read_text(encoding='utf-8')!r}")
 
 
+# ---------------------------------------------------------------- 38-39
+
+def test_manifest_lines(h: Harness, root: Path) -> None:
+    section("38-39 Manifest line format")
+    fx = root / "m"
+    fx.mkdir(parents=True)
+    target = fx / "a.txt"
+    target.write_text("hello\n", encoding="utf-8")
+    digest = hashlib.sha256(b"hello\n").hexdigest()
+    marked = fx / "marked.txt"
+    plain = fx / "plain.txt"
+    marked.write_text(f"# Algorithm: sha256\n{digest} *{target}\n",
+                      encoding="utf-8")
+    plain.write_text(f"# Algorithm: sha256\n{digest}  {target}\n",
+                     encoding="utf-8")
+
+    name = "the binary marker of sha256sum --binary is not part of the path"
+    r = h.verify(marked, "-o", "-")
+    if (r.rc == 0 and field(r.out, "Changed") == "0"
+            and field(r.out, "Failed") == "0"
+            and f"{digest} {target}\n" in r.out):
+        h.ok("38", name)
+    else:
+        h.bad("38", name, f"rc={r.rc} out={r.out!r} err={r.err!r}")
+
+    name = "a marked line and a two-space line name the same file"
+    r = h.cmp(marked, plain, "-o", "-")
+    if r.rc == 0 and f"[=] {target}\n" in r.out:
+        h.ok("39", name)
+    else:
+        h.bad("39", name, f"rc={r.rc} out={r.out!r}")
+
+
+# ---------------------------------------------------------------- 40
+
+def test_stdout_output(h: Harness, root: Path) -> None:
+    section("40 Output to stdout")
+    fx = root / "o"
+    fx.mkdir(parents=True)
+    a = fx / "a.txt"
+    a.write_text("hello\n", encoding="utf-8")
+    digest = hashlib.sha256(b"hello\n").hexdigest()
+
+    name = "-o - writes to stdout instead of a file named -"
+    r = h.sum("sha256", a, "-o", "-", cwd=fx)
+    if (r.rc == 0 and f"{digest} {a}\n" in r.out
+            and not (fx / "-").exists()):
+        h.ok("40", name)
+    else:
+        h.bad("40", name, f"rc={r.rc} out={r.out!r} "
+                          f"dash={(fx / '-').exists()}")
+
+
 # ---------------------------------------------------------------- runner
 
 def resolve_binary(explicit: str | None) -> Path | None:
@@ -802,6 +858,8 @@ def main(argv: list[str]) -> int:
         test_special_files(h, root)
         test_verify(h, root)
         test_cmp(h, root)
+        test_manifest_lines(h, root)
+        test_stdout_output(h, root)
 
     print("\n--------------------------------")
     print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")

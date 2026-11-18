@@ -30,7 +30,13 @@ std::optional<task_token> listscanner::pop_raw()
         if (!is_checksum(parsed_line.first))
             return task_token(
                 parsed_line.first == none_checksum ? parsed_line.second : line);
-        else if (rescan)
+        // coreutils separates checksum and path with "  " (text) or " *"
+        // (binary); only the marked form drops its '*'.
+        const std::size_t sep = parsed_line.first.size();
+        if (line.size() > sep + 1 && line.at(sep) == ' ' &&
+            line.at(sep + 1) == '*')
+            parsed_line.second.erase(0, 1);
+        if (rescan)
             return task_token(parsed_line.second, parsed_line.first);
         std::osyncstream(os) << "# Kept: " << parsed_line.second << std::endl
                              << line << std::endl;
