@@ -807,6 +807,76 @@ def test_stdout_output(h: Harness, root: Path) -> None:
                           f"dash={(fx / '-').exists()}")
 
 
+# ---------------------------------------------------------------- 41-44
+
+def test_use_algo(h: Harness, root: Path) -> None:
+    section("41-44 Verify -u")
+    fx = root / "u"
+    a = write(fx / "a.txt", b"hello\n")
+    b = write(fx / "b.txt", b"world\n")
+
+    name = "-u overrides a stale Algorithm header, and says so on stderr"
+    stale = root / "stale.txt"
+    stale.write_text("# Algorithm:         sha512\n"
+                     f"{digest(a)} {a}\n", encoding="utf-8")
+    r_header = h.verify(stale, "-o", "-")
+    r_forced = h.verify(stale, "-u", "sha256", "-o", "-")
+    if (r_header.rc == 0 and field(r_header.out, "Changed") == "1"
+            and r_forced.rc == 0
+            and field(r_forced.out, "Changed") == "0"
+            and field(r_forced.out, "Unsure") == "0"
+            and field(r_forced.out, "Algorithm") == "sha256"
+            and "Forced to use algorithm sha256" in r_forced.err):
+        h.ok("41", name)
+    else:
+        h.bad("41", name, f"rc: header={r_header.rc} forced={r_forced.rc} "
+                          f"changed: header={field(r_header.out, 'Changed')} "
+                          f"forced={field(r_forced.out, 'Changed')}")
+
+    name = ("a listing without an Algorithm header needs -u, which then "
+            "verifies it")
+    headerless = root / "headerless.txt"
+    headerless.write_text(f"{digest(a)} {a}\n{digest(b)} {b}\n",
+                          encoding="utf-8")
+    r_plain = h.verify(headerless, "-o", "-")
+    r_forced = h.verify(headerless, "-u", "sha256", "-o", "-")
+    if (r_plain.rc == 64 and 'no "Algorithm:" header' in r_plain.err
+            and r_forced.rc == 0
+            and field(r_forced.out, "Changed") == "0"
+            and field(r_forced.out, "Unsure") == "0"
+            and count_results(r_forced.out) == 2):
+        h.ok("42", name)
+    else:
+        h.bad("42", name, f"rc: plain={r_plain.rc} forced={r_forced.rc} "
+                          f"changed={field(r_forced.out, 'Changed')}")
+
+    name = "an unknown -u name is a command-line error"
+    manifest = root / "u.txt"
+    h.sum("sha256", a, b, "-o", manifest)
+    r = h.verify(manifest, "-u", "bogus", "-o", "-")
+    if r.rc == 64 and 'invalid algorithm: "bogus"' in r.err:
+        h.ok("43", name)
+    else:
+        h.bad("43", name, f"rc={r.rc} err={r.err!r}")
+
+    name = "-u none is accepted, hashes nothing, and leaves every path unsure"
+    r = h.verify(manifest, "-u", "none", "-o", "-")
+    none_lines = [line for line in r.out.splitlines()
+                  if line.startswith("<NONE> ")]
+    if (r.rc == 0 and len(none_lines) == 2
+            and field(r.out, "Algorithm") == "none"
+            and field(r.out, "Not hashed") == "2"
+            and field(r.out, "Hashed") == "0"
+            and field(r.out, "Changed") == "0"
+            and field(r.out, "Unsure") == "2"
+            and field(r.out, "Errors") == "0"):
+        h.ok("44", name)
+    else:
+        h.bad("44", name, f"rc={r.rc} none_lines={len(none_lines)} "
+                          f"not_hashed={field(r.out, 'Not hashed')} "
+                          f"unsure={field(r.out, 'Unsure')}")
+
+
 # ---------------------------------------------------------------- runner
 
 def resolve_binary(explicit: str | None) -> Path | None:
@@ -860,6 +930,7 @@ def main(argv: list[str]) -> int:
         test_cmp(h, root)
         test_manifest_lines(h, root)
         test_stdout_output(h, root)
+        test_use_algo(h, root)
 
     print("\n--------------------------------")
     print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")

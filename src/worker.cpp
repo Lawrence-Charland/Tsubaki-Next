@@ -158,7 +158,11 @@ void work_manager::worker(bool verify)
                 }
             }
             else
+            {
                 unprocessed.fetch_add(1, std::memory_order_relaxed);
+                if (verify)
+                    _unsure.push_back(target.value());
+            }
         }
     }
     if (verify)

@@ -62,17 +62,21 @@ code: 130 when interrupted, 1 when an error was recorded, 0 otherwise.
 
 `verify_main()` is a thin driver over `sum`, not a second pipeline:
 
-- The algorithm comes from the first `# Algorithm:` comment
-  (`get_comment_value()`). A missing or non-regular input exits 66; a missing
-  header, an unknown algorithm or `none` exits 64.
-- It rebuilds an internal `sum` command line — `-l <input>`, `--force-rescan`
-  and the hidden `--verify` flag, plus `-t`, `-k`, `-K`, `-o`, `-v` as given —
-  and calls `sum_main(instance, true)`. Without `-o` the output is
+- The algorithm comes from `-u`/`--use-algo` when given (an unknown name exits
+  64), otherwise from the first `# Algorithm:` comment (`get_comment_value()`).
+  A missing or non-regular input exits 66; a missing header or an unknown
+  algorithm in the header exits 64, and so does a header naming `none`. A `-u
+  none` is accepted and simply hashes nothing.
+- It rebuilds an internal `sum` command line — the resolved algorithm, `-l
+  <input>`, `--force-rescan` and the hidden `--verify` flag, plus `-t`, `-k`,
+  `-K`, `-o`, `-v` as given — and calls `sum_main(instance, true)`. `-u` is not
+  forwarded because it is already resolved. Without `-o` the output is
   `<input>.verify`; an `-o` naming the input is refused (64).
 - `listscanner` fills `task_token::sum` from each `<checksum> <path>` line.
   Workers compare case-insensitively: an empty or `<NONE>` token goes to
-  `unsure`, a mismatch to `changed`. Neither changes the exit status, and the
-  refreshed listing can be verified again.
+  `unsure`, a mismatch to `changed`. A path the run does not hash — interrupted,
+  failed, or `none` — also goes to `unsure`. Neither count changes the exit
+  status, and the refreshed listing can be verified again.
 
 ## Comparison
 
@@ -122,8 +126,8 @@ Entries in `include/cmdline.hpp` may join several groups: `general` holds
 and `verbose` belong to `sum` and `verify`; `output` joins `sum`, `verify` and
 `cmp`; `sum` also has excludes, lists, follow-symlinks, force-rescan, algorithm
 and files; `sum_int` holds the internal `verify_sumint` flag; `verify` adds
-`to_verify`; `cmp` adds `canonical` and `to_compare`. Each driver evaluates only
-its own group.
+`to_verify` and `use_algo`; `cmp` adds `canonical` and `to_compare`. Each
+driver evaluates only its own group.
 
 Consequences worth knowing: `subcmd` takes the first plain argument, so
 `tsubaki sha256 .` is an unknown subcommand; `-e`/`-l` consume values before
@@ -323,7 +327,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `include/core_functions.hpp` | `sum_main()`, `verify_main()` and `cmp_main()` declarations |
 | `include/exit_codes.hpp` | the exit-code macros shared by the four drivers |
 | `src/sum_core.cpp` | `sum` argument group checks, startup sequence, stream construction |
-| `src/verify_core.cpp` | `verify` argument group, header lookup, internal `sum` invocation |
+| `src/verify_core.cpp` | `verify` argument group, `-u` override, header lookup, internal `sum` invocation |
 | `src/cmp_core.cpp` | `cmp` argument group, import of both listings, path and checksum matching, section output |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |

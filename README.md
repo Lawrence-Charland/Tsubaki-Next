@@ -94,7 +94,7 @@ several of them are given, `--help` wins over `--version`, and both win over
 `--algorithm`.
 
 Everything up to [Verifying](#verifying) describes `sum`; `verify` reuses the
-checksum-file format and the `-v`, `-t`, `-k`, `-K` and `-o` options. `cmp`
+checksum-file format and the `-v`, `-t`, `-k`, `-K`, `-o` and `-u` options. `cmp`
 reuses the same format, but takes two files and only the `-o` and `-c`
 options.
 
@@ -165,6 +165,7 @@ so it tracks the implementation instead of repeating the list above by hand.
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
 | `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp); `-` means stdout |
+| `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only) |
 | `-c`, `--canonical`            | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only) |
 | `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
 | `-l<file>`, `--list=<file>`    | read paths from `<file>`; repeatable                                 |
@@ -173,10 +174,10 @@ so it tracks the implementation instead of repeating the list above by hand.
 
 `--threads`, `--excludes` and `--lists` are accepted as aliases.
 
-`verify` accepts `-v`, `-t`, `-k`, `-K` and `-o` with the same meanings. It
-takes no algorithm or file argument, and rejects `-e`, `-l`, `-s` and `-f`:
-the paths, the algorithm and the unconditional rescan all come from the
-checksum file.
+`verify` accepts `-v`, `-t`, `-k`, `-K` and `-o` with the same meanings, plus
+`-u` to name the algorithm. It takes no algorithm or file positional, and
+rejects `-e`, `-l`, `-s` and `-f`: the paths, the algorithm when `-u` is absent
+and the unconditional rescan all come from the checksum file.
 
 `cmp` accepts only `-o` and `-c`. It never hashes anything, so it takes no
 algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `-e`, `-l`,
@@ -199,9 +200,9 @@ tsubaki sum hmac_sha256 . --key=secret
 ```
 
 A separated value is the run of plain arguments right after the switch. How many
-of them are taken depends on the option: `-t`, `-k`, `-K` and `-o` take exactly
-one, `-e` and `-l` take as many as you give, up to the next switch that is still
-in the queue.
+of them are taken depends on the option: `-t`, `-k`, `-K`, `-o` and `-u` take
+exactly one, `-e` and `-l` take as many as you give, up to the next switch that
+is still in the queue.
 
 ```sh
 tsubaki sum sha256 . -e a b c -l list1 list2   # three excludes, two lists
@@ -261,12 +262,17 @@ names:
 tsubaki verify sums.txt                 # writes sums.txt.verify
 tsubaki verify sums.txt -o -            # prints the refreshed checksums
 tsubaki verify sums.txt -o new.txt      # writes new.txt
+tsubaki verify sums.txt -u sha256       # uses sha256 instead of the header
 ```
 
-The algorithm comes from the file's `# Algorithm:` header, so it is never given
-on the command line. Paths, `<NONE>` markers and comment lines are read exactly
-as `-l` would read them, except that every checksum is recomputed: `verify`
-implies `--force-rescan`.
+The algorithm comes from the file's `# Algorithm:` header unless `-u` (or
+`--use-algo`) names one. A forced name is announced on stderr and replaces the
+header entirely, so `-u` also accepts a listing that has no header at all or
+one whose header is stale; an unknown name exits 64. Forcing `none` is allowed,
+but nothing is then hashed: every path stays `Not hashed` and counts as unsure.
+Paths, `<NONE>` markers and comment lines are read exactly as `-l` would read
+them, except that every checksum is recomputed: `verify` implies
+`--force-rescan`.
 
 The output has the same shape as a `sum` run: `<checksum> <path>` lines for
 every processed file, then the report block. The report gains two fields:
@@ -279,21 +285,22 @@ every processed file, then the report block. The report gains two fields:
 A *changed* file is one whose stored checksum differs from the recomputed one.
 An *unsure* file is one the run could not decide about: the listing gave no
 checksum for it (a bare path, or `<NONE> <path>`), or it could not be hashed at
-all — the run was interrupted, or the hash failed. The affected paths are
-listed below each count in the result stream; the copy of the report on stderr
-omits them. A changed or unsure file does not change the exit status; only
-read, write and scan errors do, exactly as in `sum` — a hashing failure is one
-of those, so it still exits 1. The output is a refreshed listing, so a second
-`verify` of it reports `Changed: 0` as long as the files did not change in
-between; paths left as `<NONE>` in it come back as unsure.
+all — the run was interrupted, or the hash failed, or the algorithm was `none`.
+The affected paths are listed below each count in the result stream; the copy of
+the report on stderr omits them. A changed or unsure file does not change the
+exit status; only read, write and scan errors do, exactly as in `sum` — a
+hashing failure is one of those, so it still exits 1. The output is a refreshed
+listing, so a second `verify` of it reports `Changed: 0` as long as the files
+did not change in between; paths left as `<NONE>` in it come back as unsure.
 
-`-v`, `-t`, `-k`, `-K` and `-o` work as they do for `sum`. The key must be
-supplied again for a keyed algorithm, because a checksum file records the
-algorithm name but never the key. A different key produces different
-checksums, so a wrong key reads as every file changed, not as an error. A
-listing written with `none` is rejected (exit 64): it holds no checksums to
-compare. `-o` must not name the input file (exit 64), because the input would
-be truncated before it is read.
+`-v`, `-t`, `-k`, `-K` and `-o` work as they do for `sum`, and `-u` is described
+above. The key must be supplied again for a keyed algorithm, because a checksum
+file records the algorithm name but never the key. A different key produces
+different checksums, so a wrong key reads as every file changed, not as an
+error. A listing written with `none` is rejected (exit 64), because it holds no
+checksums to compare; `-u` with any other algorithm proceeds, while `-u none`
+runs and leaves every path unsure. `-o` must not name the input file (exit 64),
+because the input would be truncated before it is read.
 
 ### Comparing
 
@@ -528,7 +535,7 @@ closed it, the write raises `SIGPIPE` and the default action kills the process
 | --- | --- |
 | `0` | no error was recorded; a `verify` run reports changed and unsure files, and a `cmp` run reports every difference, without treating them as errors |
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error |
-| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header, one written with `none`, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
+| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header when `-u` is absent, a header written with `none`, an unknown `-u` name, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
 | `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is not a regular file, or a `cmp` list cannot be read |
 | `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
 | `73` | the `--output` file cannot be opened for writing, or the output stream fails |

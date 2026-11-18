@@ -38,26 +38,43 @@ int verify_main(argparser::ap_instance &cmdline)
                       << "\"." << std::endl;
             return TSUBAKI_FILE_READ_FAILED;
         }
-        auto get_algo = get_comment_value(path(input), "Algorithm");
-        if (!get_algo)
+        auto &content = cmdline.entry(cmdline_entry::use_algo).content;
+        if (!content.empty())
         {
-            std::cerr << "Error: no \"Algorithm:\" header in \"" << input
-                      << "\"." << std::endl;
-            return TSUBAKI_INVALID_OPERATION;
-        }
-        algo = str_to_alg(get_algo.value());
-        if (algo == algorithm::error)
-        {
-            std::cerr << "Error: unknown algorithm: \"" << get_algo.value()
-                      << "\"." << std::endl;
-            return TSUBAKI_INVALID_OPERATION;
-        }
-        if (algo == algorithm::none)
-        {
-            std::cerr << "Error: a listing made with algorithm \"none\" has "
-                         "no checksums to verify."
+            algo = str_to_alg(content.at(0));
+            if (algo == algorithm::error)
+            {
+                std::cerr << "Error: invalid algorithm: \"" << content.at(0)
+                          << "\"." << std::endl;
+                return TSUBAKI_INVALID_OPERATION;
+            }
+            std::cerr << "Forced to use algorithm " << content.at(0) << "."
                       << std::endl;
-            return TSUBAKI_INVALID_OPERATION;
+        }
+        else
+        {
+            auto get_algo = get_comment_value(path(input), "Algorithm");
+            if (!get_algo)
+            {
+                std::cerr << "Error: no \"Algorithm:\" header in \"" << input
+                          << "\"." << std::endl;
+                return TSUBAKI_INVALID_OPERATION;
+            }
+            algo = str_to_alg(get_algo.value());
+            if (algo == algorithm::error)
+            {
+                std::cerr << "Error: unknown algorithm: \"" << get_algo.value()
+                          << "\"." << std::endl;
+                return TSUBAKI_INVALID_OPERATION;
+            }
+            if (algo == algorithm::none)
+            {
+                std::cerr
+                    << "Error: a listing made with algorithm \"none\" has "
+                       "no checksums to verify."
+                    << std::endl;
+                return TSUBAKI_INVALID_OPERATION;
+            }
         }
     }
     {

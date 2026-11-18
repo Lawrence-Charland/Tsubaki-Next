@@ -39,6 +39,7 @@ inline constexpr const char *lists = "lists";
 inline constexpr const char *files = "files";
 inline constexpr const char *verify_sumint = "verify_sumint";
 inline constexpr const char *to_verify = "to_verify";
+inline constexpr const char *use_algo = "use_algo";
 inline constexpr const char *to_compare = "to_compare";
 inline constexpr const char *canonical = "canonical";
 } // namespace cmdline_entry
@@ -151,7 +152,7 @@ static inline ap_instance def_args()
                     {ap_defkey::max_value_count,"1"},
                 }
             ),
-            ap_entry( // Handled in src/sum_core.cpp, src/verify_core.cpp
+            ap_entry( // Handled in src/sum_core.cpp, src/verify_core.cpp, src/cmp_core.cpp
                 cmdline_entry::output,
                 ap_type::option,
                 {
@@ -236,10 +237,10 @@ static inline ap_instance def_args()
                     {ap_defkey::explanations,"files or directories"},
                 }
             ),
-            ap_entry( // Handled in src/verify_core.cpp
+            ap_entry( // Handled in src/sum_core.cpp
                 cmdline_entry::verify_sumint,
                 ap_type::flag,
-                {//This is the internal option, which should not be exposed to the user.
+                { // This is the internal option, which should not be exposed to the user.
                     {ap_defkey::group,cmdline_group::sum_int},
                     {ap_defkey::explanations,"--verify"},
                     {ap_defkey::long_name,"verify"},
@@ -257,6 +258,17 @@ static inline ap_instance def_args()
                 }
             ),
             ap_entry(
+                cmdline_entry::use_algo,
+                ap_type::option,
+                {
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"-u or --use-algo"},
+                    {ap_defkey::long_name,"use-algo"},
+                    {ap_defkey::short_name,"u"},
+                    {ap_defkey::max_value_count,"1"},
+                }
+            ),
+            ap_entry( // Handled in src/cmp_core.cpp
                 cmdline_entry::canonical,
                 ap_type::flag,
                 {
@@ -267,7 +279,7 @@ static inline ap_instance def_args()
                     {ap_defkey::max_repetition,"1"},
                 }
             ),
-            ap_entry(
+            ap_entry( // Handled in src/cmp_core.cpp
                 cmdline_entry::to_compare,
                 ap_type::positional,
                 {
