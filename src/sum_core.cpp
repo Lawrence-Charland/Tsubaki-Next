@@ -59,7 +59,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
          verbose = static_cast<bool>(
              cmdline.entry(cmdline_entry::verbose).repetition),
          verify =
-             static_cast<bool>(cmdline.entry(cmdline_entry::verify).repetition),
+             static_cast<bool>(cmdline.entry(cmdline_entry::verify_sumint).repetition),
          key_from_stdin = false;
     std::ostream *out;
     std::ofstream fout;

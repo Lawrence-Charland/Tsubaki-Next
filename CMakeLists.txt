@@ -32,7 +32,8 @@ add_executable(tsubaki
     src/cached_taskstream.cpp
     src/sum_core.cpp
     ${lc-argparser_SOURCE_DIR}/src/argparser.cpp
-    src/verify_core.cpp)
+    src/verify_core.cpp
+    src/cmp_core.cpp)
 
 target_compile_definitions(tsubaki PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")
 

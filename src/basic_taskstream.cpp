@@ -50,9 +50,6 @@ std::optional<task_token> basic_taskstream::pop()
                     ", which is a socket"));
             continue;
         }
-        // A device or a FIFO named explicitly is read as a stream; only the
-        // caller knows whether that stream ever reaches EOF. Directory walks
-        // do not get here: dirscanner hands out regular files only.
         return candidate;
     }
 }

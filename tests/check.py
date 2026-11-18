@@ -82,6 +82,9 @@ class Harness:
     def verify(self, *args: object, **kwargs: object) -> Run:
         return self.run("verify", *args, **kwargs)
 
+    def cmp(self, *args: object, **kwargs: object) -> Run:
+        return self.run("cmp", *args, **kwargs)
+
     def ok(self, ident: str, name: str) -> None:
         self.passed += 1
         print(f"  \033[32mPASS\033[0m  {ident}  {name}")
@@ -646,6 +649,95 @@ def test_verify(h: Harness, root: Path) -> None:
                           f"unsure={field(r.out, 'Unsure')}")
 
 
+# ---------------------------------------------------------------- 31-36
+
+def test_cmp(h: Harness, root: Path) -> None:
+    section("31-36 Compare")
+    fx = root / "c"
+    fx.mkdir(parents=True)
+    same, changed = "a" * 64, "b" * 64
+    old, moved = "c" * 64, "d" * 64
+    new, added = "e" * 64, "f" * 64
+    left = fx / "left.txt"
+    right = fx / "right.txt"
+    left.write_text(f"{same} /p/same\n{changed} /p/changed\n"
+                    f"{old} /p/deleted\n{moved} /p/moved\n",
+                    encoding="utf-8")
+    right.write_text(f"{same} /p/same\n{new} /p/changed\n"
+                     f"{added} /p/added\n{moved} /p/moved-here\n",
+                     encoding="utf-8")
+
+    name = "same path: equal checksums are matched, different ones modified"
+    r = h.cmp(left, right, "-o", "-")
+    if (r.rc == 0 and "[=] /p/same" in r.out
+            and "[!] /p/changed" in r.out
+            and "[!] /p/same" not in r.out
+            and "[=] /p/changed" not in r.out):
+        h.ok("31", name)
+    else:
+        h.bad("31", name, f"rc={r.rc} out={r.out!r}")
+
+    name = "same checksum elsewhere: one group of L and R paths"
+    r = h.cmp(left, right, "-o", "-")
+    if (r.rc == 0 and "[D][1][L]/p/moved\n" in r.out
+            and "[D][1][R]/p/moved-here\n" in r.out
+            and "[U][L]/p/deleted\n" in r.out
+            and "[U][R]/p/added\n" in r.out
+            and "[D][2]" not in r.out):
+        h.ok("32", name)
+    else:
+        h.bad("32", name, f"rc={r.rc} out={r.out!r}")
+
+    name = "uppercase hexadecimal checksums are not changes"
+    h_left = fx / "upper-left.txt"
+    h_right = fx / "upper-right.txt"
+    h_left.write_text(f"{same} /u/one\n", encoding="utf-8")
+    h_right.write_text(f"{same.upper()} /u/one\n", encoding="utf-8")
+    r = h.cmp(h_left, h_right, "-o", "-")
+    if r.rc == 0 and "[=] /u/one" in r.out and "[!] /u/one" not in r.out:
+        h.ok("33", name)
+    else:
+        h.bad("33", name, f"rc={r.rc} out={r.out!r}")
+
+    name = "an entry without a checksum is an error and is left out"
+    bad = fx / "bad.txt"
+    empty = fx / "empty.txt"
+    bad.write_text("<NONE> /u/none\n/u/bare\n", encoding="utf-8")
+    empty.write_text("", encoding="utf-8")
+    r = h.cmp(bad, empty, "-o", "-")
+    if (r.rc == 1 and r.out.count("[E] Value:") == 2
+            and "[E] Error messages:" in r.out
+            and "[=] Matched:" in r.out
+            and "/u/none" not in r.out.split("[E] Error messages:")[0]):
+        h.ok("34", name)
+    else:
+        h.bad("34", name, f"rc={r.rc} out={r.out!r}")
+
+    name = "a repeated line is compared once and is not reported twice"
+    dup_left = fx / "dup-left.txt"
+    dup_right = fx / "dup-right.txt"
+    dup_left.write_text(f"{same} /u/same\n{same} /u/same\n", encoding="utf-8")
+    dup_right.write_text(f"{same} /u/same\n", encoding="utf-8")
+    r = h.cmp(dup_left, dup_right, "-o", "-")
+    if (r.rc == 0 and r.out.count("[=] /u/same") == 1
+            and "[U][L]/u/same" not in r.out):
+        h.ok("35", name)
+    else:
+        h.bad("35", name, f"rc={r.rc} out={r.out!r}")
+
+    name = "one path with two checksums on the same side is refused"
+    clash_left = fx / "clash-left.txt"
+    clash_right = fx / "clash-right.txt"
+    clash_left.write_text(f"{same} /u/clash\n{changed} /u/clash\n",
+                          encoding="utf-8")
+    clash_right.write_text("", encoding="utf-8")
+    r = h.cmp(clash_left, clash_right, "-o", "-")
+    if r.rc == 64 and "more than once" in r.err:
+        h.ok("36", name)
+    else:
+        h.bad("36", name, f"rc={r.rc} err={r.err!r}")
+
+
 # ---------------------------------------------------------------- runner
 
 def resolve_binary(explicit: str | None) -> Path | None:
@@ -696,6 +788,7 @@ def main(argv: list[str]) -> int:
         test_key_files(h, root)
         test_special_files(h, root)
         test_verify(h, root)
+        test_cmp(h, root)
 
     print("\n--------------------------------")
     print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")

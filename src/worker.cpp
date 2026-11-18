@@ -57,8 +57,7 @@ void work_result::print(std::ostream &os, bool in_details)
         {
             if (!unsure.empty())
             {
-                os << "#\n# Unsure files:"
-                   << std::endl;
+                os << "#\n# Unsure files:" << std::endl;
                 for (auto &files : unsure)
                     os << "# " << files.p.string() << std::endl;
                 os << "#\n";
@@ -236,6 +235,7 @@ work_result work_manager::run(unsigned thread_count)
     }
     workers.reserve(thread_count);
     auto steady_start = std::chrono::steady_clock::now();
+    os << "# tsubaki checksum result" << std::endl;
     for (unsigned i = 0; i < thread_count; ++i)
         workers.emplace_back(&work_manager::worker, this, verify);
     progress = std::thread(&work_manager::printer, this);

@@ -63,6 +63,8 @@ int main(int argc, char **argv)
             return sum_main(cmdline);
         else if (subcommand == subcommands::verify)
             return verify_main(cmdline);
+        else if (subcommand == subcommands::cmp)
+            return cmp_main(cmdline);
         else
         {
             std::cerr << "Error: unknown subcommand \"" << subcommand << "\""

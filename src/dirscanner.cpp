@@ -111,9 +111,6 @@ std::optional<task_token> dirscanner::pop()
                                              candidate->p.string()));
             continue;
         }
-        // A walk only yields regular files: a FIFO, a socket or a device met
-        // here is skipped instead of reaching a worker, where opening it could
-        // block forever.
         if (std::filesystem::is_regular_file(status))
             return candidate;
     }
