@@ -164,7 +164,7 @@ so it tracks the implementation instead of repeating the list above by hand.
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
-| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp) |
+| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp); `-` means stdout |
 | `-c`, `--canonical`            | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only) |
 | `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
 | `-l<file>`, `--list=<file>`    | read paths from `<file>`; repeatable                                 |
@@ -289,9 +289,11 @@ between; paths left as `<NONE>` in it come back as unsure.
 
 `-v`, `-t`, `-k`, `-K` and `-o` work as they do for `sum`. The key must be
 supplied again for a keyed algorithm, because a checksum file records the
-algorithm name but never the key. A listing written with `none` is rejected
-(exit 64): it holds no checksums to compare. `-o` must not name the input file
-(exit 64), because the input would be truncated before it is read.
+algorithm name but never the key. A different key produces different
+checksums, so a wrong key reads as every file changed, not as an error. A
+listing written with `none` is rejected (exit 64): it holds no checksums to
+compare. `-o` must not name the input file (exit 64), because the input would
+be truncated before it is read.
 
 ### Comparing
 
@@ -304,11 +306,15 @@ tsubaki cmp old.txt new.txt -o diff.cmp   # writes diff.cmp
 ```
 
 Both inputs use the checksum-file format: `#` lines, including a whole report
-block, are ignored, and every other line must be a `<checksum> <path>` pair. A
-bare path or `<NONE> <path>` is recorded as an error and left out, because
-there is no checksum to compare. One of the two files may be `-` for stdin, but
-not both. Checksums are compared as lowercase hexadecimal, so an uppercase
-spelling is not a change.
+block, are ignored, and every other line must be a `<checksum> <path>` pair.
+The separator is either two spaces or a space and the `*` binary marker, which
+is not part of the path. A bare path or `<NONE> <path>` is recorded as an
+error and left out, because there is no checksum to compare. One of the two
+files may be `-` for stdin, but not both. Checksums are compared as lowercase
+hexadecimal, so an uppercase spelling is not a change. Only the checksum
+strings are compared: two listings written with different algorithms, or with
+different keys, share no checksums at all, so every path reads as modified and
+nothing as matched, moved or deleted.
 
 The output has one section per kind of difference:
 
@@ -395,11 +401,20 @@ not expanded; only directory arguments on the command line are walked. A line
 beginning with `#` is a comment even if it was meant as a path, so a file named
 `#name` has to be written as `./#name` or by an absolute path.
 
-A path whose first space-separated field is at least 32 hex digits long would
-be read as a checksum followed by a path, so write such entries as `./name` or
-as absolute paths. A shorter hex field, or a hex-only name with no space in it,
-is unaffected. Paths with spaces need no quoting: an unrecognised line is taken
-whole.
+A line without a checksum is taken whole, spaces included, so a path may
+contain spaces. But a line whose first space-separated field is at least 32
+characters of pure hexadecimal — a field that therefore cannot contain a `/` —
+cannot be told apart from `<checksum> <path>`, and is always read that way.
+That is the price of accepting two formats in one file, so write such a path
+as `./name` or as an absolute path. A shorter hex field, or a hex-only name
+with no space in it, is unaffected.
+
+coreutils separates a checksum from its path with two spaces, or with a space
+and a `*` for a binary read (`sha256sum --binary`); the `*` is dropped and is
+never part of the path, so a listing written either way reads the same. Because
+the output of `sum` uses a single space, a bare path that really starts with
+`*` would read back as that marker: write it as `./*name` or as an absolute
+path.
 
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
 fed back with `-l` to redo only the files that were not hashed.

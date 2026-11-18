@@ -86,11 +86,13 @@ code: 130 when interrupted, 1 when an error was recorded, 0 otherwise.
 - Each list goes through `listscanner` with `rescan = true` and
   `trust = true`: checksums are taken from the listing, the file-type filter is
   off because a path may have been deleted, and a line without a checksum
-  becomes an error entry. At most one side may be stdin; an unreadable list
-  exits 66.
-- Checksums are lowercased. With `-c`, each path is replaced by
-  `std::filesystem::canonical()`, which needs the path to exist, so a deleted
-  file becomes an error instead of a deletion.
+  becomes an error entry. A `*` right after the separator is the binary marker
+  of `sha256sum --binary` and is dropped. At most one side may be stdin; an
+  unreadable list exits 66.
+- Checksums are lowercased; nothing else identifies them, so two listings
+  written with different algorithms or keys share no values. With `-c`, each
+  path is replaced by `std::filesystem::canonical()`, which needs the path to
+  exist, so a deleted file becomes an error instead of a deletion.
 - Duplicates of one path on one side are dropped; two different checksums for
   one path on one side exits 64. A pass over path-sorted entries then pairs the
   same path on both sides as `[!]` (modified) or `[=]` (matched). A second pass
