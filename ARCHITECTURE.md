@@ -343,8 +343,3 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `include/cmdline.hpp` | argument entry definitions |
 | `include/help.hpp`, `src/help.cpp` | help text and the `--algorithm` table |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |
-
-`experiments/timeline_fs/` is not part of the source map: it is a paused sketch
-for comparing more than two runs (`include/timeline_fs.hpp`,
-`src/timeline_fs.cpp`, `src/tmptest.cpp`). `cmp` does not use it, and no CMake
-target builds it.

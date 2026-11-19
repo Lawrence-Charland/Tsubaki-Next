@@ -307,7 +307,3 @@ tsubaki sum sha256 . -e build -l old.txt
 | `include/cmdline.hpp` | 参数条目定义 |
 | `include/help.hpp`, `src/help.cpp` | 帮助文本与 `--algorithm` 表格 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |
-
-`experiments/timeline_fs/` 不属于源码映射：它是为了比较两份以上结果而画的草稿
-（`include/timeline_fs.hpp`、`src/timeline_fs.cpp`、`src/tmptest.cpp`），`cmp`
-不用它，也没有任何 CMake 目标构建它。

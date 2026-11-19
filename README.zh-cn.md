@@ -512,16 +512,6 @@ Tsubaki-Next 是早先 Tsubaki 的精神续作。已归档的
 那条流水线上：它把两份清单读进内存，两边都载入之后才比较。除了这三个子命令，暂时
 没有别的设计。
 
-`timeline_fs` 曾是为“让两份以上的结果可以相互比较”画出的结构：一棵内存树，每个节点
-各自带一份**按快照区分**的子节点表和一份按快照区分的校验和表。先按名字登记一个
-时间 id，再在那个 id 下建目录、建文件、更新或删除。载入任意多个 id 并同时遍历这棵
-树，就能看出各次运行之间变了什么；同一张表也能看出哪些文件内容相同。
-
-`timeline_fs` 的开发已暂停，源码作为实验保留在
-[experiments/timeline_fs/](experiments/timeline_fs/) 而不是源码树里：没有任何目标
-引用它，`cmp` 也不用它——它是两份清单之间的两两比较。模块划分本身见
-[ARCHITECTURE.zh-cn.md](ARCHITECTURE.zh-cn.md)。
-
 ## 架构
 
 模块划分、任务流接口、线程模型和数据流见 [ARCHITECTURE.zh-cn.md](ARCHITECTURE.zh-cn.md)。

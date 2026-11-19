@@ -1,5 +1,7 @@
 build/
 res/
+scripts/
+experiments/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
@@ -7,7 +9,6 @@ Makefile
 compile_commands.json
 AGENTS.md
 CMakeUserPresets.json
-srcipts/build-static-openssl.sh
 
 *.o
 *.obj

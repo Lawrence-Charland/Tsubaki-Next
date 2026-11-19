@@ -609,19 +609,6 @@ collected. `cmp` is the opposite shape and is not built on that pipeline: it
 reads the two listings into memory and compares them only after both are
 loaded. Nothing beyond these three subcommands is designed.
 
-`timeline_fs` was the structure sketched for keeping more than two results
-comparable: an in-memory tree in which every node carries a *per-snapshot*
-child list and a per-snapshot checksum map. A time id is added by name, then
-files and directories are created, updated or removed under that id. Loading
-any number of ids and walking the tree shows what changed between runs, and the
-same map shows which files hold identical content.
-
-Development of `timeline_fs` is paused, so its sources are kept as an
-experiment under [experiments/timeline_fs/](experiments/timeline_fs/) instead
-of the source tree: no target references them, and `cmp` does not use them — it
-compares two listings pairwise. The module layout itself is described in
-[ARCHITECTURE.md](ARCHITECTURE.md).
-
 ## Architecture
 
 The module layout, the task-stream interface, the threading model and the data
