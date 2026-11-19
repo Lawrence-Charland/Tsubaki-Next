@@ -371,8 +371,8 @@ Without `-c`, paths are compared exactly as written, so `./a.txt` and
 passed through `std::filesystem::canonical()` first, which makes each path
 absolute, resolves symlinks and normalizes separators, so differently spelled
 routes to the same file match. Canonicalization needs the path to exist: a
-deleted file cannot be canonicalized, so its entry becomes an error instead of
-a deletion.
+deleted file cannot be canonicalized, so it will be compared with an uncanonicalized 
+path, with an error reported.
 
 Without `-o`, the result goes to `<left-stem>_to_<right-stem>.cmp` in the
 current directory (`old.txt` and `new.txt` give `old_to_new.cmp`), and a notice

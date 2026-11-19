@@ -95,8 +95,8 @@ code: 130 when interrupted, 1 when an error was recorded, 0 otherwise.
   unreadable list exits 66.
 - Checksums are lowercased; nothing else identifies them, so two listings
   written with different algorithms or keys share no values. With `-c`, each
-  path is replaced by `std::filesystem::canonical()`, which needs the path to
-  exist, so a deleted file becomes an error instead of a deletion.
+  path is replaced by `std::filesystem::canonical()`; if the path doesn't exist, 
+  the uncanonicalized path will join the comparison and an error will be reported.
 - Duplicates of one path on one side are dropped; two different checksums for
   one path on one side exits 64. A pass over path-sorted entries then pairs the
   same path on both sides as `[!]` (modified) or `[=]` (matched). A second pass

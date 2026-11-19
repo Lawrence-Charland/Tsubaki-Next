@@ -209,3 +209,5 @@ tsubaki::checksum_file_key(const std::filesystem::path &path,
 
     return to_hex(out, out_len);
 }
+
+// The functions which interact with OpenSSL API were assisted by DeepSeek.

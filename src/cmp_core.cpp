@@ -68,13 +68,12 @@ struct cmp_entry
             if (_canonical)                                                    \
             {                                                                  \
                 std::error_code ec;                                            \
-                entry.p = canonical(entry.p, ec);                              \
+                auto c_p = canonical(entry.p, ec);                             \
                 if (ec)                                                        \
-                {                                                              \
                     errors.emplace_back(ec, "canonicalizing \"" +              \
                                                 entry.shown + "\"");           \
-                    continue;                                                  \
-                }                                                              \
+                else                                                           \
+                    entry.p = std::move(c_p);                                  \
             }                                                                  \
             entry.sum = token->sum;                                            \
             for (char &c : entry.sum)                                          \
