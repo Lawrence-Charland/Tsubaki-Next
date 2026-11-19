@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
-#ifndef LC_PROJECTS_TSUBAKI_WORKER_HPP
-#define LC_PROJECTS_TSUBAKI_WORKER_HPP
+#ifndef LCPROJECTS_TSUBAKI_WORKER_HPP
+#define LCPROJECTS_TSUBAKI_WORKER_HPP
 
 #include "basic_taskstream.hpp"
 #include "checksum.hpp"

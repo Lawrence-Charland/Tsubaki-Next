@@ -247,16 +247,6 @@ static inline ap_instance def_args()
                     {ap_defkey::max_repetition,"1"}
                 }
             ),
-            ap_entry( // Handled in src/verify_core.cpp
-                cmdline_entry::to_verify,
-                ap_type::positional,
-                {
-                    {ap_defkey::group, cmdline_group::verify},
-                    {ap_defkey::explanations,"checksum result to verify"},
-                    {ap_defkey::min_positional_count,"1"},
-                    {ap_defkey::max_positional_count,"1"},
-                }
-            ),
             ap_entry(
                 cmdline_entry::use_algo,
                 ap_type::option,
@@ -266,6 +256,16 @@ static inline ap_instance def_args()
                     {ap_defkey::long_name,"use-algo"},
                     {ap_defkey::short_name,"u"},
                     {ap_defkey::max_value_count,"1"},
+                }
+            ),
+            ap_entry( // Handled in src/verify_core.cpp
+                cmdline_entry::to_verify,
+                ap_type::positional,
+                {
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"checksum result to verify"},
+                    {ap_defkey::min_positional_count,"1"},
+                    {ap_defkey::max_positional_count,"1"},
                 }
             ),
             ap_entry( // Handled in src/cmp_core.cpp

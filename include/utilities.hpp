@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
-#ifndef LCPROJECTS_TSUBAKI_UTILITIES
-#define LCPROJECTS_TSUBAKI_UTILITIES
+#ifndef LCPROJECTS_TSUBAKI_UTILITIES_HPP
+#define LCPROJECTS_TSUBAKI_UTILITIES_HPP
 
 #include <cstddef>
 #include <cstdio>
