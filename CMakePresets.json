@@ -9,7 +9,6 @@
       "binaryDir": "${sourceDir}/build/${presetName}",
       "generator": "Ninja",
       "cacheVariables": {
-        "CMAKE_INSTALL_PREFIX": "$env{HOME}/.local",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },

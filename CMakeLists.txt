@@ -47,7 +47,3 @@ target_include_directories(tsubaki PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(tsubaki PRIVATE ${lc-argparser_SOURCE_DIR}/include)
 
 target_link_libraries(tsubaki PRIVATE OpenSSL::Crypto)
-
-install(TARGETS tsubaki RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-
-install(FILES COPYING DESTINATION ${CMAKE_INSTALL_DOCDIR})
