@@ -87,6 +87,9 @@ std::atomic<unsigned> volatile int_count = 0;
 const constexpr char *term_msg =
     "\nTerminated after Ctrl+C was pressed 5 times.\n";
 
+const constexpr char *int_msg =
+    "\nInterrupted. Completing the output manifest, please wait...\n";
+
 // is_checksum() accepts uppercase input, so a listing written by another tool
 // must not look changed merely because its hex digits are uppercase.
 bool same_digest(const std::string &lhs, const std::string &rhs)
@@ -105,7 +108,9 @@ void on_interrupt(int)
     int_count++;
     if (g_interrupt)
         g_interrupt->store(true, std::memory_order_relaxed);
-    if (int_count == 5)
+    if (int_count == 1)
+        write(2, int_msg, strlen(int_msg));
+    else if (int_count == 5)
     {
         write(2, term_msg, strlen(term_msg));
         _exit(TSUBAKI_TERMINATED);

@@ -20,7 +20,7 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_COMPILER": "g++"
+        "CMAKE_CXX_COMPILER": "/usr/bin/g++"
       }
     },
     {
@@ -30,7 +30,19 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "g++"
+        "CMAKE_CXX_COMPILER": "/usr/bin/g++"
+      }
+    },
+    {
+      "name": "linux-gcc-dist-static",
+      "displayName": "Linux GCC Static Dist",
+      "inherits": "linux-gcc-release",
+      "cacheVariables": {
+        "OPENSSL_USE_STATIC_LIBS": "ON",
+        "OPENSSL_ROOT_DIR": "$env{HOME}/.local/opt/openssl-4.1.0-static",
+        "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "ON",
+        "CMAKE_EXE_LINKER_FLAGS": "-static -Wl,--gc-sections",
+        "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
       }
     }
   ],
@@ -43,6 +55,11 @@
     {
       "name": "linux-gcc-release",
       "configurePreset": "linux-gcc-release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-gcc-dist-static",
+      "configurePreset": "linux-gcc-dist-static",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     }
   ]

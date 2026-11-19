@@ -63,6 +63,33 @@ cmake --preset linux-gcc-release \
 可执行文件在 `build/linux-gcc-release/tsubaki`。另有布局相同的
 `linux-gcc-debug` 预设。
 
+`linux-gcc-dist-static` 是维护者用来构建分发的二进制的预设，不建议用户使用。
+它把 libc、libstdc++ 和 libcrypto 全部静态链接，要求
+`~/.local/opt/openssl-4.1.0-static` 下有一份静态 `libcrypto.a`，用 OpenSSL 源码树
+编一次即可：
+
+```sh
+./Configure --prefix="$HOME/.local/opt/openssl-4.1.0-static" \
+    --openssldir="$HOME/.local/opt/openssl-4.1.0-static/ssl" --libdir=lib \
+    no-shared no-module no-dso no-tests no-apps no-docs \
+    no-zlib no-zstd no-brotli no-legacy no-comp no-ssl-trace \
+    linux-x86_64 -Os
+make -j"$(nproc)" build_libs
+make install_sw
+```
+
+然后 `cmake --preset linux-gcc-dist-static` 和
+`cmake --build --preset linux-gcc-dist-static`。库放在别处就改
+`OPENSSL_ROOT_DIR`。预设里关掉了 PkgConfig 查找，避免 FindOpenSSL 读到系统的
+`openssl.pc` 及其 zlib/brotli 私有依赖。
+
+产物不依赖任何运行时 `.so`，可在任意 x86-64 Linux（内核 4.4 以上）上直接运行。
+链接时可能出现 libcrypto 的 BIO 层带来的 `getaddrinfo`/`gethostbyname` 警告；
+tsubaki 不解析主机名，所以这条警告没有影响。
+
+用户不要用这个预设：它跟着维护者的工具链走，版本比多数目标机器上的新。
+有官方二进制就直接用，否则在本机用 `linux-gcc-release` 自行构建。
+
 ## 用法
 
 ```
