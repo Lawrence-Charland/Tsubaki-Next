@@ -73,34 +73,8 @@ cmake --preset linux-gcc-release \
 The binary lands in `build/linux-gcc-release/tsubaki`. A `linux-gcc-debug`
 preset exists with the same layout.
 
-`linux-gcc-dist-static` is the maintainer-only preset that produces the
-redistributable binary. It links libc, libstdc++ and libcrypto statically and
-expects a static `libcrypto.a` under `~/.local/opt/openssl-4.1.0-static`; build
-one from the OpenSSL source tree:
-
-```sh
-./Configure --prefix="$HOME/.local/opt/openssl-4.1.0-static" \
-    --openssldir="$HOME/.local/opt/openssl-4.1.0-static/ssl" --libdir=lib \
-    no-shared no-module no-dso no-tests no-apps no-docs \
-    no-zlib no-zstd no-brotli no-legacy no-comp no-ssl-trace \
-    linux-x86_64 -Os
-make -j"$(nproc)" build_libs
-make install_sw
-```
-
-Then configure and build with `linux-gcc-dist-static`. Adjust `OPENSSL_ROOT_DIR`
-if the library lives elsewhere. The preset disables the PkgConfig lookup so
-that FindOpenSSL does not read the system `openssl.pc` and its zlib/brotli
-private dependencies.
-
-The result depends on no runtime shared libraries at all, so it runs on any
-x86-64 Linux with a 4.4 or newer kernel. The linker may warn about
-`getaddrinfo`/`gethostbyname` pulled in by libcrypto's BIO layer; tsubaki never
-resolves hostnames, so the warning is harmless.
-
-End users should not use this preset: it is tuned for the maintainer's
-toolchain, which is newer than what most target machines ship. Use a published
-binary if one is available, or build `linux-gcc-release` locally.
+`linux-gcc-dist-static` is a maintainer-only preset for building the
+redistributable binary. End users should build `linux-gcc-release` instead.
 
 ## Usage
 
