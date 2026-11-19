@@ -13,7 +13,7 @@ include(FetchContent)
 FetchContent_Declare(
     LC-ArgParser
     GIT_REPOSITORY https://github.com/Lawrence-Charland/LC-ArgParser.git
-    GIT_TAG 9a0dc54ca561d30aba50b25ce2c0722bb420e17e
+    GIT_TAG 15abf069a547e0fdfafb4b043ff073bdcc662df4
     SOURCE_SUBDIR _build-from-source)
 FetchContent_MakeAvailable(LC-ArgParser)
 
