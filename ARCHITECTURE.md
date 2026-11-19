@@ -64,14 +64,17 @@ code: 130 when interrupted, 1 when an error was recorded, 0 otherwise.
 
 - The algorithm comes from `-u`/`--use-algo` when given (an unknown name exits
   64), otherwise from the first `# Algorithm:` comment (`get_comment_value()`).
-  A missing or non-regular input exits 66; a missing header or an unknown
-  algorithm in the header exits 64, and so does a header naming `none`. A `-u
-  none` is accepted and simply hashes nothing.
+  A missing input or a directory exits 66; any other existing path is read, so
+  a FIFO or `/dev/fd/N` works, and `-` names stdin. Stdin cannot be prefetched
+  and then read again, so a `-` input requires `-u` (64 without it). A missing
+  header or an unknown algorithm in the header exits 64, and so does a header
+  naming `none`. A `-u none` is accepted and simply hashes nothing.
 - It rebuilds an internal `sum` command line — the resolved algorithm, `-l
   <input>`, `--force-rescan` and the hidden `--verify` flag, plus `-t`, `-k`,
   `-K`, `-o`, `-v` as given — and calls `sum_main(instance, true)`. `-u` is not
   forwarded because it is already resolved. Without `-o` the output is
-  `<input>.verify`; an `-o` naming the input is refused (64).
+  `<input>.verify`, or `stdin.verify` for a `-` input; an `-o` naming the input
+  is refused (64).
 - `listscanner` fills `task_token::sum` from each `<checksum> <path>` line.
   Workers compare case-insensitively: an empty or `<NONE>` token goes to
   `unsure`, a mismatch to `changed`. A path the run does not hash — interrupted,
@@ -257,8 +260,8 @@ The codes live in `include/exit_codes.hpp` and are shared by `main()`,
 | --- | --- | --- |
 | `TSUBAKI_SUCCESS` | 0 | no error entry; `verify` differences and `cmp` differences are not errors |
 | `TSUBAKI_HASH_ERROR` | 1 | an error entry was recorded; for `cmp`, a list line without a checksum, a path `-c` could not canonicalize, or a list read error |
-| `TSUBAKI_INVALID_OPERATION` | 64 | a rejected command line; `verify` also for an unusable `Algorithm:` header or an output equal to the input; `cmp` also when both lists are stdin, when the output names one of the lists, or one path repeats with different checksums (`EX_USAGE`) |
-| `TSUBAKI_FILE_READ_FAILED` | 66 | an unreadable `--key-file`, an empty key file, a missing/non-regular `verify` input, or an unreadable `cmp` list (`EX_NOINPUT`) |
+| `TSUBAKI_INVALID_OPERATION` | 64 | a rejected command line; `verify` also for an unusable `Algorithm:` header, a `-` input with no `-u`, or an output equal to the input; `cmp` also when both lists are stdin, when the output names one of the lists, or one path repeats with different checksums (`EX_USAGE`) |
+| `TSUBAKI_FILE_READ_FAILED` | 66 | an unreadable `--key-file`, an empty key file, a missing or directory `verify` input, or an unreadable `cmp` list (`EX_NOINPUT`) |
 | `TSUBAKI_FATAL` | 70 | `argc` is 0 (`EX_SOFTWARE`) |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | the `--output` file cannot be opened, or the result stream fails (`EX_CANTCREAT`) |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |

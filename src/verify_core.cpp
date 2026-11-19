@@ -32,7 +32,8 @@ int verify_main(argparser::ap_instance &cmdline)
 
     {
         std::error_code ec;
-        if (!is_regular_file(path(input), ec))
+        if (input != "-" && (!exists(path(input), ec) ||
+                             is_directory(path(input), ec)))
         {
             std::cerr << "Error: cannot read the input file \"" << input
                       << "\"." << std::endl;
@@ -50,6 +51,13 @@ int verify_main(argparser::ap_instance &cmdline)
             }
             std::cerr << "Forced to use algorithm " << content.at(0) << "."
                       << std::endl;
+        }
+        else if (input == "-")
+        {
+            std::cerr << "Error: cannot prefetch the \"Algorithm:\" header "
+                         "from stdin.\nPlease use -u to specify the algorithm."
+                      << std::endl;
+            return TSUBAKI_INVALID_OPERATION;
         }
         else
         {
@@ -81,7 +89,9 @@ int verify_main(argparser::ap_instance &cmdline)
         auto &content = cmdline.entry(cmdline_entry::output).content;
         if (content.empty())
         {
-            output = path(input).concat(".verify").string();
+            output = path((input == "-" ? "stdin" : input))
+                         .concat(".verify")
+                         .string();
             std::cerr << "The output file will be \"" << output << "\"."
                       << std::endl;
         }

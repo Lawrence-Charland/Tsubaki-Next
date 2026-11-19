@@ -877,6 +877,69 @@ def test_use_algo(h: Harness, root: Path) -> None:
                           f"unsure={field(r.out, 'Unsure')}")
 
 
+# ---------------------------------------------------------------- 45-48
+
+def test_verify_streams(h: Harness, root: Path) -> None:
+    section("45-48 Verify from a stream")
+    fx = root / "v45"
+    a = write(fx / "a.txt", b"hello\n")
+    manifest_text = SHA256_HEADER + f"{digest(a)} {a}\n"
+    want = f"{digest(a)} {a}"
+
+    name = 'a "-" manifest needs -u, because its header cannot be prefetched'
+    r = h.verify("-", stdin_data=manifest_text)
+    if r.rc == 64 and "cannot prefetch" in r.err and "-u" in r.err:
+        h.ok("45", name)
+    else:
+        h.bad("45", name, f"rc={r.rc} err={r.err!r}")
+
+    name = 'a "-" manifest with -u is verified into stdin.verify'
+    cwd = fx / "cwd"
+    cwd.mkdir()
+    r = h.verify("-", "-u", "sha256", stdin_data=manifest_text, cwd=cwd)
+    produced = cwd / "stdin.verify"
+    report = produced.read_text(encoding="utf-8") if produced.exists() else ""
+    if (r.rc == 0 and field(report, "Changed") == "0"
+            and field(report, "Unsure") == "0"
+            and want in report
+            and 'The output file will be "stdin.verify"' in r.err):
+        h.ok("46", name)
+    else:
+        h.bad("46", name, f"rc={r.rc} created={produced.exists()} "
+                          f"changed={field(report, 'Changed')}")
+
+    name = "a directory is refused as a manifest, not read as one"
+    r = h.verify(fx)
+    if r.rc == 66 and "cannot read the input file" in r.err:
+        h.ok("47", name)
+    else:
+        h.bad("47", name, f"rc={r.rc} err={r.err!r}")
+
+    fx = root / "v48"
+    fifo = fx / "pipe"
+    fx.mkdir(parents=True)
+    os.mkfifo(fifo)
+
+    def writer() -> None:
+        try:
+            with open(fifo, "wb") as f:
+                f.write(manifest_text.encode())
+        except OSError:
+            pass
+
+    name = "a named pipe is read as a manifest instead of being refused"
+    th = threading.Thread(target=writer, daemon=True)
+    th.start()
+    r = h.verify(fifo, "-u", "sha256", "-o", "-", timeout=10)
+    th.join(timeout=5)
+    if (r.rc == 0 and field(r.out, "Changed") == "0"
+            and result_lines(r.out) == [want]):
+        h.ok("48", name)
+    else:
+        h.bad("48", name, f"rc={r.rc} (124 means it hung) "
+                          f"result={result_lines(r.out)}")
+
+
 # ---------------------------------------------------------------- runner
 
 def resolve_binary(explicit: str | None) -> Path | None:
@@ -931,6 +994,7 @@ def main(argv: list[str]) -> int:
         test_manifest_lines(h, root)
         test_stdout_output(h, root)
         test_use_algo(h, root)
+        test_verify_streams(h, root)
 
     print("\n--------------------------------")
     print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")

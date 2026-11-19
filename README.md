@@ -77,7 +77,7 @@ preset exists with the same layout.
 
 ```
 tsubaki sum [options] <algorithm> <file|dir>...
-tsubaki verify [options] <checksum-file>
+tsubaki verify [options] <checksum-file|->   (- for stdin, needs -u)
 tsubaki cmp [options] <left-list> <right-list>
 tsubaki --help
 tsubaki --version
@@ -177,7 +177,9 @@ so it tracks the implementation instead of repeating the list above by hand.
 `verify` accepts `-v`, `-t`, `-k`, `-K` and `-o` with the same meanings, plus
 `-u` to name the algorithm. It takes no algorithm or file positional, and
 rejects `-e`, `-l`, `-s` and `-f`: the paths, the algorithm when `-u` is absent
-and the unconditional rescan all come from the checksum file.
+and the unconditional rescan all come from the checksum file. That file may be
+`-` for stdin, but the `Algorithm:` header cannot then be prefetched, so a `-`
+input requires `-u`.
 
 `cmp` accepts only `-o` and `-c`. It never hashes anything, so it takes no
 algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `-e`, `-l`,
@@ -263,7 +265,14 @@ tsubaki verify sums.txt                 # writes sums.txt.verify
 tsubaki verify sums.txt -o -            # prints the refreshed checksums
 tsubaki verify sums.txt -o new.txt      # writes new.txt
 tsubaki verify sums.txt -u sha256       # uses sha256 instead of the header
+cat sums.txt | tsubaki verify - -u sha256   # reads the listing from stdin
 ```
+
+The listing may be `-` for stdin. The `Algorithm:` header cannot be read without
+consuming the stream that the paths still have to come from, so a `-` listing
+requires `-u` and exits 64 without it; stdin may also be named only once, so
+`-K -` is refused alongside a `-` listing. Without `-o` the output is named
+after the input, which for stdin is `stdin.verify`.
 
 The algorithm comes from the file's `# Algorithm:` header unless `-u` (or
 `--use-algo`) names one. A forced name is announced on stderr and replaces the
@@ -535,8 +544,8 @@ closed it, the write raises `SIGPIPE` and the default action kills the process
 | --- | --- |
 | `0` | no error was recorded; a `verify` run reports changed and unsure files, and a `cmp` run reports every difference, without treating them as errors |
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error |
-| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header when `-u` is absent, a header written with `none`, an unknown `-u` name, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
-| `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is not a regular file, or a `cmp` list cannot be read |
+| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header when `-u` is absent, a `-` input with no `-u`, a header written with `none`, an unknown `-u` name, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
+| `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is a directory, or a `cmp` list cannot be read |
 | `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
 | `73` | the `--output` file cannot be opened for writing, or the output stream fails |
 | `130` | the run was interrupted with `Ctrl-C` |

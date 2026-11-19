@@ -57,13 +57,15 @@ try/catch 里，逃出的异常映射成 255。
 `verify_main()` 是套在 `sum` 上的薄驱动，而不是第二套流水线：
 
 - 算法在给了 `-u`/`--use-algo` 时取自它（名字未知退出 64），否则取自第一条
-  `# Algorithm:` 注释（`get_comment_value()`）。输入不存在或不是普通文件退出 66；
-  没有头、头里的算法未知或头里写的是 `none` 退出 64；`-u none` 则是允许的，只是
-  什么哈希都不算。
+  `# Algorithm:` 注释（`get_comment_value()`）。输入不存在或是目录退出 66；其余已
+  存在的路径都照读，所以 FIFO 和 `/dev/fd/N` 也能用，`-` 表示 stdin。stdin 没法先预读
+  再重新读一遍，所以 `-` 输入必须配 `-u`（否则 64）；没有头、头里的算法未知或头里写的
+  是 `none` 退出 64；`-u none` 则是允许的，只是什么哈希都不算。
 - 它重新拼出内部 `sum` 命令行——已确定的算法、`-l <输入>`、`--force-rescan` 和隐藏
   的 `--verify` 标志，加上按原样转发的 `-t`、`-k`、`-K`、`-o`、`-v`——再调用
   `sum_main(instance, true)`。`-u` 不会被转发，因为它在这之前就已经解开。不给 `-o`
-  时输出为 `<输入>.verify`；`-o` 指向输入文件会被拒绝（64）。
+  时输出为 `<输入>.verify`，输入是 `-` 时为 `stdin.verify`；`-o` 指向输入文件会被拒绝
+  （64）。
 - `listscanner` 从每条 `<校验和> <路径>` 行填入 `task_token::sum`。工作线程忽略
   大小写地比较：`sum` 为空或该行是 `<NONE>` 的记入 `unsure`，不相同的记入
   `changed`。没有被真正计算哈希的路径——被中断、计算失败或算法为 `none`——同样记入
@@ -225,8 +227,8 @@ hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Uns
 | --- | --- | --- |
 | `TSUBAKI_SUCCESS` | 0 | 没有错误条目；`verify` 和 `cmp` 报出的差异都不算错误 |
 | `TSUBAKI_HASH_ERROR` | 1 | 记录过错误条目；对 `cmp` 来说是没有校验和的清单行、`-c` 无法规范化的路径，或清单读取失败 |
-| `TSUBAKI_INVALID_OPERATION` | 64 | 命令行被拒；`verify` 对不可用的 `Algorithm:` 头或输出指向输入也返回它；`cmp` 在两份清单都是 stdin、输出指向其中一份清单、或同一路径重复且校验和不同时也返回它（`EX_USAGE`） |
-| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` 读不了、密钥文件为空、`verify` 的输入不存在或不是普通文件、`cmp` 的清单读不了（`EX_NOINPUT`） |
+| `TSUBAKI_INVALID_OPERATION` | 64 | 命令行被拒；`verify` 对不可用的 `Algorithm:` 头、没配 `-u` 的 `-` 输入或输出指向输入也返回它；`cmp` 在两份清单都是 stdin、输出指向其中一份清单、或同一路径重复且校验和不同时也返回它（`EX_USAGE`） |
+| `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` 读不了、密钥文件为空、`verify` 的输入不存在或是个目录、`cmp` 的清单读不了（`EX_NOINPUT`） |
 | `TSUBAKI_FATAL` | 70 | `argc` 为 0（`EX_SOFTWARE`） |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | `--output` 文件打不开，或结果流写失败（`EX_CANTCREAT`） |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |

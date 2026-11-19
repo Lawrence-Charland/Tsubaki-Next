@@ -14,7 +14,7 @@ constexpr std::string_view help_body =
 
 Usage:
   {program} sum [options] <algorithm> <file|dir>...
-  {program} verify [options] <manifest>
+  {program} verify [options] <manifest|->
   {program} cmp [options] <left-manifest> <right-manifest>
   {program} --help | --version | --algorithm
 
