@@ -3,9 +3,13 @@
 
 #include "help.hpp"
 #include "checksum.hpp"
+#include "dynamic_provider_api.hpp"
 
+#include <algorithm>
+#include <iomanip>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace tsubaki
 {
@@ -99,6 +103,7 @@ std::string help_text(std::string_view program)
 
 void list_algorithm(std::ostream &os)
 {
+    os << "---------- Built-in ----------" << std::endl;
     size_t w = std::string_view{"ALGORITHM"}.size();
     for (const auto &it : mapper)
         w = std::max(w, std::string_view(it).size());
@@ -108,5 +113,35 @@ void list_algorithm(std::ostream &os)
     for (const auto &it : mapper)
         os << std::left << std::setw(w) << it
            << (is_keyed(str_to_alg(it)) ? "Yes" : "No") << '\n';
+
+    dpa_instance dpa;
+    const auto &providers = dpa.show_mapper();
+    if (providers.empty())
+        return;
+
+    os << std::endl << "---------- Dynamic providers ----------" << std::endl;
+    std::size_t sw = std::string_view{"ALGORITHM"}.size();
+    std::vector<std::string> names;
+    names.reserve(providers.size());
+    for (const auto &it : providers)
+    {
+        names.push_back(it.first);
+        sw = std::max(sw, it.first.size());
+    }
+    sw += 2;
+    // provider_mapper is unordered, so sort the names to keep the output
+    // stable.
+    std::sort(names.begin(), names.end());
+
+    const std::size_t kw = std::string_view{"KEYED"}.size() + 2;
+    os << std::left << std::setw(sw) << "ALGORITHM" << std::setw(kw) << "KEYED"
+       << "SOURCE\n";
+    for (const auto &name : names)
+    {
+        const provider &p = providers.at(name);
+        const bool keyed = p.is_keyed != nullptr && p.is_keyed();
+        os << std::left << std::setw(sw) << name << std::setw(kw)
+           << (keyed ? "Yes" : "No") << p.display_path.string() << '\n';
+    }
 }
 } // namespace tsubaki

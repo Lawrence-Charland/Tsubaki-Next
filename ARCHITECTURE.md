@@ -177,18 +177,26 @@ queue on whichever child is yielding and only hashing runs in parallel. A
 
 ## Hashing
 
-`ALGORITHM_LIST` in `include/checksum.hpp` generates the algorithm enum, the
-name table and the `str_to_alg()` / `alg_to_str()` pair. `src/checksum.cpp`
+`ALGORITHM_LIST` in `include/checksum.hpp` is the only list of algorithms. Each
+row gives the enum name, the command-line literal, whether the algorithm is
+keyed and its key limit; the same macro generates the `algorithm` enum and
+`algorithm_table`, which `algorithms` exposes as the table `--algorithm` prints.
+`str_to_alg()` and `alg_to_str()` look a name up in that table. `src/checksum.cpp`
 holds all OpenSSL use: `digest_for()` maps plain digests to `EVP_MD`,
 `mac_for()` maps keyed algorithms to a `mac_spec`, and `stream_file()` feeds
 64 KiB chunks to a callback. `checksum_file()` and `checksum_file_key()` run
 that stream through `EVP_Digest*` and `EVP_MAC*` respectively.
 
-`checksum_api` (`alg` plus an optional `key`, with `calc(path)`) is what the
-workers receive. Failures come back as `std::unexpected(std::error_code)`,
-never as exceptions, and `algorithm::none` returns `<NONE>` without opening the
-file. The key policy lives in `max_key_length()` and `check_key_validity()` and
-is checked once in `sum_main`, before any file is opened.
+`checksum_api` is the only handle the rest of the program uses. Its constructor
+resolves a literal algorithm name and records `unknown_algorithm` instead of
+handing back a sentinel; `set_key()` is the only way to supply a key and records
+`missing_key` or `invalid_key`; `hashing()`, `keyed()`, `name()` and `calc(path)`
+answer the questions the drivers ask. Callers never touch the `algorithm` enum,
+which is what lets a later provider add an algorithm `ALGORITHM_LIST` does not
+name. Failures come back as `std::unexpected(std::error_code)`, never as
+exceptions, and `algorithm::none` returns `<NONE>` without opening the file. The
+key policy itself lives in `max_key_length()` and `check_key_validity()`, both
+read from the algorithm row.
 
 Files are read with plain `read()` calls over their logical length, so holes in
 a sparse file cost their full size and memory stays at one 64 KiB buffer. An
@@ -209,11 +217,11 @@ printer, and waits.
   `changed` or `unsure`.
 - The printer repaints one stderr line every 100 ms until the run finishes or
   is interrupted.
-- `run()` returns a `work_result` (algorithm, verify flag, errors, changed,
-  unsure, counters, interrupt flag, duration), so the caller decides where to
-  print it.
+- `run()` returns a `work_result` (algorithm name, verify flag, errors,
+  changed, unsure, counters, interrupt flag, duration), so the caller decides
+  where to print it.
 
-`work_result::print(os, details)` writes the report block: algorithm, processed
+`work_result::print(os, details)` writes the report block: algorithm name, processed
 (= hashed + failed), hashed, failed, not hashed, duration, then `Changed` and
 `Unsure` in verify mode, the error count, the interrupt warning, and — with
 `details` — the error list and the per-count path lists.
@@ -297,10 +305,10 @@ sorts it twice and writes the sections; no task stream or worker is involved.
   and add an entry to `def_args()` if it needs its own syntax.
 - **New output sink**: `work_manager` is the only consumer; hand it a different
   `std::ostream` or replace it.
-- **New algorithm**: add one line to `ALGORITHM_LIST`; a plain digest also needs
-  a `digest_for()` case, a keyed one a `mac_for()` case, an `is_keyed()`
-  enumerator, a `max_key_length()` limit when it caps the key, and its name in
-  the hand-written list in `src/help.cpp`.
+- **New algorithm**: add one row to `ALGORITHM_LIST` with its literal, keyed
+  flag and key limit; a plain digest then needs a `digest_for()` case and a
+  keyed one a `mac_for()` case. Nothing else lists algorithms: the
+  `--algorithm` table, name lookup and key policy all read that row.
 
 ## Source map
 
@@ -315,7 +323,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `tsubaki::fanin_taskstream` | class | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
 | `tsubaki::work_manager` | class | — | worker pool, progress line, interrupt flag, and the `changed`/`unsure` vectors of a verify run |
 | `tsubaki::work_result` | class | — | value snapshot returned by `run()`, with `print()`; it holds no reference to the manager |
-| `tsubaki::checksum_api` | struct | — | carries the chosen algorithm and key, and routes `calc()` to the digest or the MAC path |
+| `tsubaki::checksum_api` | class | — | resolves a literal algorithm name, holds the key, answers `hashing()` / `keyed()` / `name()`, and routes `calc()` to the digest or the MAC path |
 | `tsubaki::task_token` | struct | — | the path a worker processes plus the checksum read from the listing, empty outside rescan mode |
 | `tsubaki::error_entry` | struct | — | `std::error_code` plus the operation that failed |
 | `tsubaki::fd_guard` | class | — | closes a file descriptor on destruction; used by the hashing code |
@@ -337,7 +345,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
 | `include/cached_taskstream.hpp`, `src/cached_taskstream.cpp` | fixed path replay |
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | multi-source merge |
-| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`, `str_to_alg()` / `alg_to_str()`, `is_keyed()`, `checksum_api`, `EVP_MD` and `EVP_MAC` hashing |
+| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`, `algorithm_table`, `str_to_alg()` / `alg_to_str()`, `checksum_api`, `EVP_MD` and `EVP_MAC` hashing |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |

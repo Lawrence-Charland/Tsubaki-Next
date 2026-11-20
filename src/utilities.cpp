@@ -12,6 +12,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <utility>
+#include <vector>
 
 namespace tsubaki
 {
@@ -36,6 +37,31 @@ void trim_str(std::string &target)
     target.erase(
         std::find_if(target.rbegin(), target.rend(), is_not_space).base(),
         target.end());
+}
+
+std::vector<std::string> get_env_arr(const std::string &env_name,
+                                     char separator)
+{
+    std::vector<std::string> result;
+    const char *raw = std::getenv(env_name.c_str());
+    if (raw == nullptr)
+        return result;
+    const std::string value(raw);
+    std::string::size_type start = 0;
+    while (start <= value.size())
+    {
+        std::string::size_type pos = value.find(separator, start);
+        if (pos == std::string::npos)
+        {
+            if (start < value.size())
+                result.emplace_back(value, start);
+            break;
+        }
+        if (pos > start)
+            result.emplace_back(value, start, pos - start);
+        start = pos + 1;
+    }
+    return result;
 }
 
 bool is_checksum(const std::string &target)

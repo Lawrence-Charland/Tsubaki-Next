@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "argparser.hpp"
-#include "checksum.hpp"
+#include "checksum_api.hpp"
 #include "cmdline.hpp"
 #include "core_functions.hpp"
 #include "exit_codes.hpp"
@@ -28,12 +28,12 @@ int verify_main(argparser::ap_instance &cmdline)
 
     std::string input = cmdline.entry(cmdline_entry::to_verify).content.at(0);
     std::string output;
-    algorithm algo;
+    checksum_api resolved;
 
     {
         std::error_code ec;
-        if (input != "-" && (!exists(path(input), ec) ||
-                             is_directory(path(input), ec)))
+        if (input != "-" &&
+            (!exists(path(input), ec) || is_directory(path(input), ec)))
         {
             std::cerr << "Error: cannot read the input file \"" << input
                       << "\"." << std::endl;
@@ -42,8 +42,8 @@ int verify_main(argparser::ap_instance &cmdline)
         auto &content = cmdline.entry(cmdline_entry::use_algo).content;
         if (!content.empty())
         {
-            algo = str_to_alg(content.at(0));
-            if (algo == algorithm::error)
+            resolved.set_algo(content.at(0));
+            if (!resolved.ok())
             {
                 std::cerr << "Error: invalid algorithm: \"" << content.at(0)
                           << "\"." << std::endl;
@@ -68,14 +68,14 @@ int verify_main(argparser::ap_instance &cmdline)
                           << "\"." << std::endl;
                 return TSUBAKI_INVALID_OPERATION;
             }
-            algo = str_to_alg(get_algo.value());
-            if (algo == algorithm::error)
+            resolved.set_algo(get_algo.value());
+            if (!resolved.ok())
             {
                 std::cerr << "Error: unknown algorithm: \"" << get_algo.value()
                           << "\"." << std::endl;
                 return TSUBAKI_INVALID_OPERATION;
             }
-            if (algo == algorithm::none)
+            if (!resolved.hashing())
             {
                 std::cerr
                     << "Error: a listing made with algorithm \"none\" has "
@@ -110,7 +110,7 @@ int verify_main(argparser::ap_instance &cmdline)
     }
 
     std::vector<std::string> sum_cmd = {std::string(cmdline.argv_zero())};
-    sum_cmd.push_back(alg_to_str(algo));
+    sum_cmd.push_back(resolved.name());
     sum_cmd.push_back("-l");
     sum_cmd.push_back(input);
     {

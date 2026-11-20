@@ -5,11 +5,12 @@
 #define LCPROJECTS_TSUBAKI_WORKER_HPP
 
 #include "basic_taskstream.hpp"
-#include "checksum.hpp"
+#include "checksum_api.hpp"
 
 #include <atomic>
 #include <mutex>
 #include <ostream>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -18,7 +19,7 @@ namespace tsubaki
 class work_result
 {
   public:
-    algorithm alg = algorithm::error;
+    std::string algorithm_name;
     bool verify = false;
     std::vector<error_entry> errors;
     std::vector<task_token> changed;
@@ -31,15 +32,16 @@ class work_result
     double duration = 0;
 
     work_result() = default;
-    work_result(algorithm _alg, bool _verify,
+    work_result(const std::string &_algorithm_name, bool _verify,
                 const std::vector<error_entry> &_errors,
                 const std::vector<task_token> &_changed,
                 const std::vector<task_token> &_unsure, unsigned _success,
                 unsigned _failed, unsigned _unprocessed, double _duration,
                 bool _int)
-        : alg(_alg), verify(_verify), errors(_errors), changed(_changed),
-          unsure(_unsure), success(_success), failed(_failed),
-          unprocessed(_unprocessed), duration(_duration), interrupted(_int)
+        : algorithm_name(_algorithm_name), verify(_verify), errors(_errors),
+          changed(_changed), unsure(_unsure), success(_success),
+          failed(_failed), unprocessed(_unprocessed), interrupted(_int),
+          duration(_duration)
     {
     }
     void print(std::ostream &os, bool in_details = true);
@@ -52,7 +54,7 @@ class work_manager
     basic_taskstream &tasks;
     std::vector<std::thread> workers;
     std::thread progress;
-    const checksum_api api;
+    const checksum_api &api;
     std::atomic<bool> interrupted = false;
     std::atomic<unsigned> success = 0;
     std::atomic<unsigned> failed = 0;
@@ -72,7 +74,7 @@ class work_manager
     work_manager(basic_taskstream &_tasks, std::ostream &_os,
                  const checksum_api &_api, bool _verify, bool verbose,
                  bool _catch_sigint)
-        : os(_os), tasks(_tasks), verify(_verify), quiet(!verbose), api(_api),
+        : os(_os), tasks(_tasks), api(_api), verify(_verify), quiet(!verbose),
           catch_sigint(_catch_sigint)
     {
     }

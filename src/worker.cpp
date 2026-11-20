@@ -4,6 +4,7 @@
 #include "worker.hpp"
 #include "basic_taskstream.hpp"
 #include "checksum.hpp"
+#include "checksum_api.hpp"
 #include "exit_codes.hpp"
 #include "utilities.hpp"
 
@@ -31,7 +32,7 @@ namespace tsubaki
 void work_result::print(std::ostream &os, bool in_details)
 {
     os << "# ---------- Summary ----------\n";
-    os << "# Algorithm:         " << alg_to_str(alg) << std::endl;
+    os << "# Algorithm:         " << algorithm_name << std::endl;
     os << "# Processed:         " << success + failed << std::endl;
     os << "# Hashed:            " << success << std::endl;
     os << "# Failed:            " << failed << std::endl;
@@ -151,7 +152,7 @@ void work_manager::worker(bool verify)
         {
             std::osyncstream(os)
                 << checksum.value() << ' ' << target->p.string() << '\n';
-            if (api.alg != algorithm::none)
+            if (api.hashing())
             {
                 success.fetch_add(1, std::memory_order_relaxed);
                 if (verify)
@@ -180,7 +181,7 @@ void work_manager::worker(bool verify)
 
 void work_manager::printer()
 {
-    if (quiet || api.alg == algorithm::none)
+    if (quiet || !api.hashing())
         return;
     std::size_t width;
     std::size_t tick = 0;
@@ -256,8 +257,9 @@ work_result work_manager::run(unsigned thread_count)
         g_interrupt = nullptr;
         std::signal(SIGINT, previous);
     }
-    return work_result(api.alg, verify, tasks.take_errors(), changed, unsure,
-                       success.load(), failed.load(), unprocessed.load(),
+    return work_result(api.name(), verify, tasks.take_errors(),
+                       changed, unsure, success.load(), failed.load(),
+                       unprocessed.load(),
                        std::chrono::duration<double>(duration).count(),
                        static_cast<bool>(int_count.load()));
 }

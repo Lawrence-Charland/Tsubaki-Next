@@ -46,6 +46,7 @@ enum class algorithm
 #define ALGORITHM_ENUM_ITEM(name, str) name,
     ALGORITHM_LIST(ALGORITHM_ENUM_ITEM)
 #undef ALGORITHM_ENUM_ITEM
+    dynamic,
     error,
 };
 
@@ -100,8 +101,6 @@ inline constexpr bool is_keyed(const algorithm &alg)
     }
 }
 
-// The longest key an algorithm accepts, in bytes; 0 means there is no upper
-// bound (HMAC) or that the algorithm is not keyed at all.
 inline constexpr std::size_t max_key_length(const algorithm &alg)
 {
     switch (alg)
@@ -115,8 +114,6 @@ inline constexpr std::size_t max_key_length(const algorithm &alg)
     }
 }
 
-// A keyed algorithm needs a non-empty key that fits its limit; a plain digest
-// ignores the key, so any value passes.
 inline constexpr bool check_key_validity(const std::string &key,
                                          const algorithm &alg)
 {
@@ -125,29 +122,6 @@ inline constexpr bool check_key_validity(const std::string &key,
     const std::size_t limit = max_key_length(alg);
     return !key.empty() && (limit == 0 || key.size() <= limit);
 }
-
-struct checksum_api
-{
-    algorithm alg = algorithm::none;
-    std::string key;
-    // Will not check the validity, which should be guaranteed external.
-
-    checksum_api() = default;
-    explicit checksum_api(algorithm _alg) : alg(_alg)
-    {
-    }
-    checksum_api(algorithm _alg, const std::string &_key) : alg(_alg), key(_key)
-    {
-    }
-
-    inline std::expected<std::string, std::error_code>
-    calc(const std::filesystem::path &target) const
-    {
-        if (!is_keyed(alg))
-            return checksum_file(target, alg);
-        return checksum_file_key(target, key, alg);
-    }
-};
 } // namespace tsubaki
 
 #endif

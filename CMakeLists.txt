@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2026 Lawrence Charland
+
 cmake_minimum_required(VERSION 3.10...3.28)
 
 project(Tsubaki-Next VERSION 2.0.1 LANGUAGES CXX)
@@ -27,13 +30,15 @@ add_executable(tsubaki
     src/basic_taskstream.cpp
     src/fanin_taskstream.cpp
     src/checksum.cpp
+    src/checksum_api.cpp
     src/help.cpp
     src/worker.cpp
     src/cached_taskstream.cpp
     src/sum_core.cpp
     ${lc-argparser_SOURCE_DIR}/src/argparser.cpp
     src/verify_core.cpp
-    src/cmp_core.cpp)
+    src/cmp_core.cpp
+    src/dynamic_provider_api.cpp)
 
 target_compile_definitions(tsubaki PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")
 

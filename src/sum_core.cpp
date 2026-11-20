@@ -4,7 +4,7 @@
 #include "argparser.hpp"
 #include "basic_taskstream.hpp"
 #include "cached_taskstream.hpp"
-#include "checksum.hpp"
+#include "checksum_api.hpp"
 #include "cmdline.hpp"
 #include "core_functions.hpp"
 #include "dirscanner.hpp"
@@ -24,6 +24,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace tsubaki
@@ -69,8 +70,8 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
         // Decide the algorithm
         {
             auto &content = cmdline.entry(cmdline_entry::algorithm).content;
-            api.alg = str_to_alg(content.at(0));
-            if (api.alg == algorithm::error)
+            api.set_algo(content.at(0));
+            if (!api.ok())
             {
                 std::cerr << "Error: unknown algorithm: \"" << content.at(0)
                           << "\"." << std::endl;
@@ -89,11 +90,11 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                           << std::endl;
                 return TSUBAKI_INVALID_OPERATION;
             }
-            if (!is_keyed(api.alg))
+            if (!api.keyed())
             {
                 if (!key_cont.empty() || !key_file_cont.empty())
                 {
-                    std::cerr << "Warning: \"" << alg_to_str(api.alg)
+                    std::cerr << "Warning: \"" << api.name()
                               << "\" doesn't need key." << std::endl;
                     std::cerr << "Will go ahead anyway ignoring the specified "
                                  "key."
@@ -128,19 +129,17 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                     }
                     key = key_read.value();
                 }
-                if (key.empty())
+                if (!api.set_key(std::move(key)))
                 {
-                    std::cerr << "Error: \"" << alg_to_str(api.alg)
-                              << "\" needs a key." << std::endl;
+                    if (api.error() == checksum_error::missing_key)
+                        std::cerr << "Error: \"" << api.name()
+                                  << "\" needs a key." << std::endl;
+                    else
+                        std::cerr
+                            << "Error: the key is not valid for algorithm \""
+                            << api.name() << "\"." << std::endl;
                     return TSUBAKI_INVALID_OPERATION;
                 }
-                if (!check_key_validity(key, api.alg))
-                {
-                    std::cerr << "Error: the key is not valid for algorithm \""
-                              << alg_to_str(api.alg) << "\"." << std::endl;
-                    return TSUBAKI_INVALID_OPERATION;
-                }
-                api.key = key;
             }
         }
         // Decide the thread count

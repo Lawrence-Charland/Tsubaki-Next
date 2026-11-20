@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace tsubaki
 {
@@ -18,6 +19,9 @@ std::pair<std::string, std::string>
 get_equation(const std::string &target, char separator, bool trim = true);
 
 void trim_str(std::string &target);
+
+std::vector<std::string> get_env_arr(const std::string &env_name,
+                                     char separator);
 
 bool is_checksum(const std::string &target);
 

@@ -156,16 +156,21 @@ std::vector<error_entry> take_errors();
 
 ## 哈希计算
 
-`include/checksum.hpp` 里的 `ALGORITHM_LIST` 生成算法枚举、名字表以及
-`str_to_alg()` / `alg_to_str()`。OpenSSL 的调用都在 `src/checksum.cpp`：
-`digest_for()` 把普通摘要映射到 `EVP_MD`，`mac_for()` 把密钥算法映射到
+`include/checksum.hpp` 里的 `ALGORITHM_LIST` 是唯一的算法清单：每一行给出枚举名、
+命令行字面量、是否密钥算法以及密钥长度上限；同一个宏生成 `algorithm` 枚举和
+`algorithm_table`，再由 `algorithms` 暴露成 `--algorithm` 打印的那张表。
+`str_to_alg()` 与 `alg_to_str()` 就在这张表里查找。OpenSSL 的调用都在
+`src/checksum.cpp`：`digest_for()` 把普通摘要映射到 `EVP_MD`，`mac_for()` 把密钥算法映射到
 `mac_spec`，`stream_file()` 按 64 KiB 分块喂给回调。`checksum_file()` 与
 `checksum_file_key()` 分别走 `EVP_Digest*` 和 `EVP_MAC*`。
 
-工作线程拿到的是 `checksum_api`（`alg` 加可选 `key`，入口是 `calc(path)`）。失败
-一律以 `std::unexpected(std::error_code)` 返回，不抛异常；`algorithm::none` 不打开
-文件，直接返回 `<NONE>`。密钥策略在 `max_key_length()` 和 `check_key_validity()`
-里，由 `sum_main` 在打开任何文件之前检查一次。
+程序其余部分只接触 `checksum_api` 这一个句柄：构造函数解析字面算法名，失败时记下
+`unknown_algorithm` 而不是返回一个哨兵；`set_key()` 是提供密钥的唯一入口，失败时记下
+`missing_key` 或 `invalid_key`；`hashing()`、`keyed()`、`name()`、`calc(path)` 回答
+各 driver 需要的问题。调用方因此完全不碰 `algorithm` 枚举，将来 provider 才能加入
+`ALGORITHM_LIST` 里没有的算法。失败一律以 `std::unexpected(std::error_code)` 返回，
+不抛异常；`algorithm::none` 不打开文件，直接返回 `<NONE>`。密钥策略在
+`max_key_length()` 和 `check_key_validity()` 里，两者都读算法那一行。
 
 文件用普通 `read()` 按逻辑长度读取：稀疏文件的空洞按实际大小收费，内存始终只有
 一块 64 KiB 缓冲。显式给出的 FIFO 或设备按阻塞方式打开，可能让工作线程一直等下去；
@@ -182,10 +187,10 @@ std::vector<error_entry> take_errors();
   unsure）；否则调用 `api.calc()`，经 `std::osyncstream` 写一行，并更新计数器、
   `changed` 或 `unsure`。
 - 进度线程每 100 ms 往 stderr 重画一行，直到运行结束或被中断。
-- `run()` 返回 `work_result`（算法、verify 标志、错误、changed、unsure、计数器、
+- `run()` 返回 `work_result`（算法名、verify 标志、错误、changed、unsure、计数器、
   中断标志、耗时），打印到哪里由调用方决定。
 
-`work_result::print(os, details)` 写报告块：算法、processed（= hashed + failed）、
+`work_result::print(os, details)` 写报告块：算法名、processed（= hashed + failed）、
 hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Unsure`，然后是错误
 数、中断警告；`details` 为真时再写错误列表和各计数下的路径列表。
 
@@ -262,9 +267,9 @@ tsubaki sum sha256 . -e build -l old.txt
 - **新增输入源**：从 `basic_taskstream` 派生，实现 `pop_raw()`；需要自己的语法就
   在 `def_args()` 里加条目。
 - **换输出端**：`work_manager` 是唯一的消费者，换一个 `std::ostream` 或整个替换。
-- **新增算法**：在 `ALGORITHM_LIST` 里加一行；普通摘要还要加一个 `digest_for()`
-  case，密钥算法还要加 `mac_for()` case、`is_keyed()` 枚举值，限制长度时加
-  `max_key_length()` 分支，最后把名字加进 `src/help.cpp` 里那份手写清单。
+- **新增算法**：在 `ALGORITHM_LIST` 里加一行，写清字面量、是否密钥算法和密钥长度
+  上限；普通摘要再加一个 `digest_for()` case，密钥算法再加一个 `mac_for()` case。
+  其他地方不需要列算法：`--algorithm` 表、名字查找和密钥策略都读这一行。
 
 ## 源码映射
 
@@ -279,7 +284,7 @@ tsubaki sum sha256 . -e build -l old.txt
 | `tsubaki::fanin_taskstream` | class | `basic_taskstream` | 汇流多个子流，用 `unique_ptr` 持有它们 |
 | `tsubaki::work_manager` | class | — | 工作线程池、进度行、中断标志，以及校验运行用的 `changed`/`unsure` 向量 |
 | `tsubaki::work_result` | class | — | `run()` 返回的值快照，带 `print()`；不引用 manager |
-| `tsubaki::checksum_api` | struct | — | 携带选定的算法与密钥，把 `calc()` 分到摘要或 MAC 路径 |
+| `tsubaki::checksum_api` | class | — | 解析字面算法名、持有密钥，回答 `hashing()` / `keyed()` / `name()`，把 `calc()` 分到摘要或 MAC 路径 |
 | `tsubaki::task_token` | struct | — | 一条任务：路径加上清单里读到的校验和（重扫模式之外为空） |
 | `tsubaki::error_entry` | struct | — | `std::error_code` 加上出错时的操作描述 |
 | `tsubaki::fd_guard` | class | — | 析构时关闭文件描述符，哈希代码在用 |
@@ -301,7 +306,7 @@ tsubaki sum sha256 . -e build -l old.txt
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
 | `include/cached_taskstream.hpp`, `src/cached_taskstream.cpp` | 固定路径回放 |
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | 多源汇流 |
-| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`、`str_to_alg()` / `alg_to_str()`、`is_keyed()`、`checksum_api`、`EVP_MD` 与 `EVP_MAC` 哈希 |
+| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`、`algorithm_table`、`str_to_alg()` / `alg_to_str()`、`checksum_api`、`EVP_MD` 与 `EVP_MAC` 哈希 |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、注释查找、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |
