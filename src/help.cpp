@@ -145,4 +145,15 @@ void list_algorithm(std::ostream &os)
            << (keyed ? "Yes" : "No") << p.display_path.string() << '\n';
     }
 }
+
+std::string get_compiler_info()
+{
+#if defined(__clang__)
+    return "Clang " + std::string(__clang_version__);
+#elif defined(__GNUC__)
+    return "GCC " + std::string(__VERSION__);
+#else
+    return "Unknown";
+#endif
+}
 } // namespace tsubaki

@@ -76,8 +76,18 @@ cmake --preset linux-gcc-release \
 The binary lands in `build/linux-gcc-release/tsubaki`. A `linux-gcc-debug`
 preset exists with the same layout.
 
-`linux-gcc-dist-static` is a maintainer-only preset for building the
-redistributable binary. End users should build `linux-gcc-release` instead.
+Every GCC preset has a Clang counterpart that differs only in the compiler
+(`/usr/bin/clang++`): `linux-clang-debug`, `linux-clang-release` and
+`linux-clang-dist-static`. Substitute the name, for example
+`cmake --preset linux-clang-release`. Both families pin the compiler by
+absolute path (`/usr/bin/g++` or `/usr/bin/clang++`), so pass
+`-DCMAKE_CXX_COMPILER=/path/to/c++` on the configure line if yours lives
+elsewhere.
+
+`linux-gcc-dist-static` and `linux-clang-dist-static` are maintainer-only
+presets for building the redistributable binary; both link the same static
+`libcrypto` from `res/openssl-static-for-tsubaki`. End users should build
+`linux-gcc-release` instead.
 
 ## Usage
 

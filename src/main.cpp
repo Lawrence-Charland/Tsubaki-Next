@@ -41,8 +41,12 @@ int main(int argc, char **argv)
         }
         if (cmdline.entry(cmdline_entry::version).repetition)
         {
-            std::cout << "Tsubaki " << TSUBAKI_VERSION << std::endl;
-            std::cout << "OpenSSL " << OpenSSL_version(OPENSSL_VERSION_STRING)
+            std::cout << "Tsubaki version:  " << TSUBAKI_VERSION << std::endl;
+            std::cout << "OpenSSL version:  "
+                      << OpenSSL_version(OPENSSL_VERSION_STRING) << std::endl;
+            std::cout << "Compiler:         " << get_compiler_info()
+                      << std::endl;
+            std::cout << "Built time:       " << __DATE__ << " " << __TIME__
                       << std::endl;
             return TSUBAKI_SUCCESS;
         }

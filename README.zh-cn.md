@@ -65,8 +65,15 @@ cmake --preset linux-gcc-release \
 可执行文件在 `build/linux-gcc-release/tsubaki`。另有布局相同的
 `linux-gcc-debug` 预设。
 
-`linux-gcc-dist-static` 是维护者构建分发二进制用的预设，用户请改用
-`linux-gcc-release`。
+每个 GCC 预设都有一个对应的 Clang 预设，只有编译器不同（`/usr/bin/clang++`）：
+`linux-clang-debug`、`linux-clang-release`、`linux-clang-dist-static`。把预设名
+替换掉即可，例如 `cmake --preset linux-clang-release`。两套预设都用绝对路径固定了
+编译器（`/usr/bin/g++` 或 `/usr/bin/clang++`），如果本机装在其它的位置，配置时加
+`-DCMAKE_CXX_COMPILER=/path/to/c++`。
+
+`linux-gcc-dist-static` 与 `linux-clang-dist-static` 是维护者构建分发二进制用的
+预设，两者链接的是同一份 `res/openssl-static-for-tsubaki` 里的静态 `libcrypto`。
+用户请改用 `linux-gcc-release`。
 
 ## 用法
 

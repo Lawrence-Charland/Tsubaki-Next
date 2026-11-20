@@ -43,6 +43,38 @@
         "CMAKE_EXE_LINKER_FLAGS": "-static -Wl,--gc-sections",
         "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
       }
+    },
+    {
+      "name": "linux-clang-debug",
+      "displayName": "Linux Clang Debug",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "/usr/bin/clang++"
+      }
+    },
+    {
+      "name": "linux-clang-release",
+      "displayName": "Linux Clang Release",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "/usr/bin/clang++"
+      }
+    },
+    {
+      "name": "linux-clang-dist-static",
+      "displayName": "Linux Clang Static Dist",
+      "inherits": "linux-clang-release",
+      "cacheVariables": {
+        "OPENSSL_USE_STATIC_LIBS": "ON",
+        "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki",
+        "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "ON",
+        "CMAKE_EXE_LINKER_FLAGS": "-static -Wl,--gc-sections",
+        "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
+      }
     }
   ],
   "buildPresets": [
@@ -59,6 +91,21 @@
     {
       "name": "linux-gcc-dist-static",
       "configurePreset": "linux-gcc-dist-static",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-clang-debug",
+      "configurePreset": "linux-clang-debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-clang-release",
+      "configurePreset": "linux-clang-release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-clang-dist-static",
+      "configurePreset": "linux-clang-dist-static",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     }
   ]

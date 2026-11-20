@@ -21,6 +21,8 @@ inline constexpr const char *version = TSUBAKI_VERSION;
 std::string help_text(std::string_view program);
 
 void list_algorithm(std::ostream &os);
+
+std::string get_compiler_info();
 } // namespace tsubaki
 
 #endif
