@@ -141,6 +141,11 @@ provider 模块被加载时，后面还会跟一张 `ALGORITHM`、`KEYED`、`SOU
 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，用 `:` 分隔；每个目录会被递归遍历，扩展名恰好是
 `.so` 的文件才会被加载（`libx.so.1` 会被跳过）。空段直接忽略。
 
+现成的六个算法在
+[Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
+里——BLAKE3、SM3、HMAC-SM3、SHA-512/256、SHA3-224 和 SHA3-384，一个 CMake 工程
+全包；想看清契约被编译成什么样，看它最快，自己写 provider 也可以直接照抄。
+
 - **provider 要导出什么。** 四个 `extern "C"` 符号，声明在
   `include/dynamic_provider_header.hpp` 里：`tsubaki_provider_name()` 给出命令行上
   用的名字，`tsubaki_is_keyed()` 说明是否需要密钥，`tsubaki_check_key()` 接受或拒绝
@@ -158,7 +163,9 @@ provider 模块被加载时，后面还会跟一张 `ALGORITHM`、`KEYED`、`SOU
   unsure。何况比 MD5 还弱的算法本来就不该走这套 ABI。
 - **怎么编译。** 这条边界是 C++ 而不是 C：`std::string`、`std::filesystem::path`
   和 `std::expected<std::string, std::error_code>` 都按引用跨界，所以 provider 必须
-  用和 `tsubaki` 相同的编译器与标准库，以 C++23 编成 `-fPIC` 动态库。
+  用和 `tsubaki` 相同的编译器与标准库，以 C++23 编成 `-fPIC` 动态库。一个工程里
+  可以放多个算法——推荐先这样组织，契约头文件和读取文件的循环都能共用——一个名字
+  出一个 `.so`，目录遍历会把它们全部收进来。
 - **出错会怎样。** 路径不是可读目录、`dlopen` 拒绝某个 `.so`、少了符号：各打一行
   `Error:` 到 stderr 然后跳过，都不改变退出码。模块与进程同寿，没有任何地方会卸载
   它们。

@@ -168,6 +168,12 @@ directories in `TSUBAKI_DYNAMIC_PROVIDER_PATHS`, separated by `:`; each one is
 walked recursively and every file whose extension is exactly `.so` is loaded
 (`libx.so.1` is skipped). Empty segments are ignored.
 
+Six algorithms live in
+[Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
+— BLAKE3, SM3, HMAC-SM3, SHA-512/256, SHA3-224 and SHA3-384 — as one CMake
+project; it is the shortest way to see the contract compiled and is a fair
+template for a provider of your own.
+
 - **What a provider exports.** Four `extern "C"` symbols, declared for it in
   `include/dynamic_provider_header.hpp`, which also states the contract in full:
   `tsubaki_provider_name()` returns the name to use on the command line,
@@ -190,7 +196,10 @@ walked recursively and every file whose extension is exactly `.so` is loaded
 - **How it must be built.** The boundary is C++, not C: `std::string`,
   `std::filesystem::path` and `std::expected<std::string, std::error_code>` are
   passed by reference, so a provider needs the same compiler and standard
-  library as `tsubaki`, compiled as a C++23 `-fPIC` shared object.
+  library as `tsubaki`, compiled as a C++23 `-fPIC` shared object. One project
+  may build several algorithms — try this first: they share the contract header
+  and the file loop — emitting one `.so` per name, and the directory walk picks
+  up every one of them.
 - **What goes wrong.** A path that is not a readable directory, a `.so` that
   `dlopen` refuses, a missing symbol: each prints one `Error:` line on stderr
   and is skipped, and none of them changes the exit status. Modules stay loaded
