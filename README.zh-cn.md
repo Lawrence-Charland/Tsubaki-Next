@@ -131,9 +131,10 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 一致，BLAKE2 MAC 与 `openssl mac -macopt key:<密钥> BLAKE2BMAC`（或 `BLAKE2SMAC`）
 一致。输出是小写十六进制，长度由算法决定。
 
-`tsubaki -a`（`--algorithm`）把同一批名字打成两列表格（`ALGORITHM`、`KEYED`），内容
-直接从定义算法的那个宏生成，所以跟着实现走，而不是把上面的列表再抄一遍。有
-provider 模块被加载时，后面还会跟一张 `ALGORITHM`、`KEYED`、`SOURCE` 表，见下一节。
+`tsubaki -a`（`--algorithm`）把同一批名字打成两列表格（`ALGORITHM`、`KEYED`）：名字
+逐个取自解析器自己用的那张字面量表，`KEYED` 取自密钥策略，所以表格跟着实现走，而不
+是把上面的列表再抄一遍。有 provider 模块被加载时，后面还会跟一张 `ALGORITHM`、
+`KEYED`、`SOURCE` 表，见下一节。
 
 ### 动态算法
 
@@ -154,8 +155,9 @@ provider 模块被加载时，后面还会跟一张 `ALGORITHM`、`KEYED`、`SOU
   方式、`noexcept`、必须赋值的出参、摘要的最小长度、名字与输出的绑定关系都写在
   里面，写 provider 时照它做即可。
 - **名字能用在哪。** 所有接受算法名的地方，包括 `verify` 的 `-u`。内建名字永远
-  优先：先查内建清单再问模块，所以 `.so` 抢不走 `sha256`。两个 provider 抢同一个
-  名字时先加载的胜出——先是环境变量里的顺序，然后才是各目录内的遍历顺序。
+  优先：模块自报的名字若是内建算法，加载时就被拒掉并打印出文件名，根本进不了表，
+  所以 `.so` 抢不走 `sha256`。两个 provider 抢同一个名字时先加载的胜出——先是
+  环境变量里的顺序，然后才是各目录内的遍历顺序。
 - **密钥。** 带密钥的 provider 索取密钥的方式与内建密钥算法一致（`needs a key`，
   退出码 64），合法性由 `tsubaki_check_key()` 判断，没有长度上限可声明。
 - **摘要长什么样。** 至少 32 个十六进制字符，也就是 MD5 的长度。`listscanner` 只从

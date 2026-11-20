@@ -3,7 +3,7 @@
 
 #include "help.hpp"
 #include "checksum.hpp"
-#include "dynamic_provider_api.hpp"
+#include "dpframework.hpp"
 
 #include <algorithm>
 #include <iomanip>
@@ -115,8 +115,8 @@ void list_algorithm(std::ostream &os)
         os << std::left << std::setw(w) << it
            << (is_keyed(str_to_alg(it)) ? "Yes" : "No") << '\n';
 
-    dpa_instance dpa;
-    const auto &providers = dpa.show_mapper();
+    dpf_instance dpf;
+    const auto &providers = dpf.show_mapper();
     if (providers.empty())
         return;
 

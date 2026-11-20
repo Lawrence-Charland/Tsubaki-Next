@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
-#include "dynamic_provider_api.hpp"
+#include "dpframework.hpp"
 #include "basic_taskstream.hpp"
+#include "checksum.hpp"
 #include "dirscanner.hpp"
 #include "utilities.hpp"
 
@@ -31,6 +32,11 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
         error = provider_msg::dlsym_fail;
         return;
     }
+    if (str_to_alg(name()) != algorithm::error)
+    {
+        error = provider_msg::refused;
+        return;
+    }
     is_keyed = reinterpret_cast<decltype(is_keyed)>(
         dlsym(handle, TSUBAKI_SYMBOL_IS_KEYED));
     if (const char *err = dlerror())
@@ -55,7 +61,7 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
     error = provider_msg::success;
 }
 
-dpa_instance::dpa_instance()
+dpf_instance::dpf_instance()
 {
     search_paths = get_env_arr(TSUBAKI_PROVIDERS_ENV_NAME, ':');
     for (auto &path : search_paths)
@@ -84,6 +90,10 @@ dpa_instance::dpa_instance()
                     std::cerr << "Error: dlsym failed for \""
                               << target.value().p.string() << "\"" << std::endl;
                     break;
+                case provider_msg::refused:
+                    std::cerr << "Error: refused to load \""
+                              << target.value().p.string() << "\"" << std::endl;
+                    break;
                 default:
                     std::cerr << "Error: failed to load provider \""
                               << target.value().p.string() << "\"."
@@ -99,7 +109,7 @@ dpa_instance::dpa_instance()
     }
 }
 
-const provider &dpa_instance::find_provider(const std::string &key) const
+const provider &dpf_instance::find_provider(const std::string &key) const
 {
     auto find = provider_mapper.find(key);
     if (find == provider_mapper.end())

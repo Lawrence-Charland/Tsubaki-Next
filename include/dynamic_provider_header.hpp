@@ -27,7 +27,9 @@
 //     name, so keeping it means keeping the old output.
 //   - tsubaki_check_key() is asked only for a keyed provider, and only about a
 //     non-empty key; it decides whether the key is acceptable.
-//   - tsubaki_provider_name() returns a non-null, stable string.
+//   - tsubaki_provider_name() returns a non-null, stable string, and it must
+//     not be a built-in name: while loading, tsubaki compares it against its own
+//     list and refuses the module there, before resolving the other symbols.
 //   - A module is never unloaded, so a provider may keep whatever the loader
 //     initialized, and must not assume any cleanup call.
 //
@@ -51,7 +53,9 @@
 //     出新版本：清单只记录名字，留着名字就等于承诺输出不变。
 //   - tsubaki_check_key() 只在 provider 带密钥时被询问，而且只会收到非空
 //     密钥；由它判断该密钥是否可用。
-//   - tsubaki_provider_name() 返回非空且稳定的字符串。
+//   - tsubaki_provider_name() 返回非空且稳定的字符串，而且不能是内建算法
+//     名字：加载时 tsubaki 会拿它去比对自己的内建清单，命中就在那里拒掉
+//     这个模块，其余符号根本不会被解析。
 //   - 模块不会被卸载，所以 provider 可以一直持有加载器初始化时给的东西，
 //     也不要指望有任何清理调用。
 

@@ -5,7 +5,7 @@
 #define LCPROJECTS_TSUBAKI_CHECKSUM_API_HPP
 
 #include "checksum.hpp"
-#include "dynamic_provider_api.hpp"
+#include "dpframework.hpp"
 
 #include <expected>
 #include <filesystem>
@@ -30,8 +30,8 @@ class checksum_api
     std::string display_algo_name;
     std::string key;
     checksum_error err = checksum_error::none;
-    inline static dpa_instance dpa;
-    provider pro = dpa.not_found;
+    inline static dpf_instance dpf;
+    provider pro = dpf.not_found;
 
   public:
     checksum_api();

@@ -178,12 +178,17 @@ queue on whichever child is yielding and only hashing runs in parallel. A
 
 ## Hashing
 
-`ALGORITHM_LIST` in `include/checksum.hpp` is the only list of built-in
-algorithms. Each row gives the enum name and the command-line literal; the same
+`ALGORITHM_LIST` in `include/checksum.hpp` is the single list of built-in
+names. Each row gives the enum name and the command-line literal; the same
 macro generates the `algorithm` enum and `mapper`, the literal vector that
-`str_to_alg()` and `alg_to_str()` index. `is_keyed()` and `max_key_length()` are
-`switch`es over the enum, and `check_key_validity()` turns both into the key
-policy. `src/checksum.cpp` holds all OpenSSL use: `digest_for()` maps plain
+`str_to_alg()` and `alg_to_str()` index. It does not absorb the per-algorithm
+behaviour, which stays in hand-written `switch`es over the enum: `is_keyed()`
+and `max_key_length()` in the same header, `digest_for()` and `mac_for()` in
+`src/checksum.cpp`. `check_key_validity()` turns the first two into the key
+policy. A new row is therefore necessary but not sufficient: it still needs the
+matching `digest_for()` or `mac_for()` case.
+
+`src/checksum.cpp` holds all OpenSSL use: `digest_for()` maps plain
 digests to `EVP_MD`, `mac_for()` maps keyed algorithms to a `mac_spec`, and
 `stream_file()` feeds 64 KiB chunks to a callback. `checksum_file()` and
 `checksum_file_key()` run that stream through `EVP_Digest*` and `EVP_MAC*`
@@ -208,26 +213,34 @@ indefinitely; the interrupt flag is only checked between files.
 
 `algorithm::dynamic` is a sentinel, not a table row: `mapper` has no entry for
 it, so `alg_to_str()` would throw and the name shown in the report comes from
-the provider instead. `dpa_instance` (`include/dynamic_provider_api.hpp`) does
+the provider instead. `dpf_instance` (`include/dpframework.hpp`) does
 the loading:
 
 - The constructor splits `TSUBAKI_DYNAMIC_PROVIDER_PATHS` on `:`, drops empty
   segments, and walks each one with `dirscanner`, so the scan is recursive and
-  does not follow symlinked directories. `dirscanner` rejects a path that is not
-  a readable directory with `std::invalid_argument`; the constructor catches it
-  per path, prints it and moves on.
+  does not follow symlinked directories. `dirscanner` rejects a path that does
+  not exist or is not a directory with `std::invalid_argument`; the constructor
+  catches it per path, prints it and moves on.
 - Every file whose extension is exactly `.so` becomes a `provider`: `dlopen()`
-  with `RTLD_NOW | RTLD_LOCAL`, then `dlsym()` for the four `tsubaki_*` symbols
-  declared in `include/dynamic_provider_header.hpp`. `provider_msg` records how
-  far that got; anything but `success` is printed and dropped. The handle is
-  never closed, so a module lives as long as the process.
+  with `RTLD_NOW | RTLD_LOCAL`, then `dlsym()` for `tsubaki_provider_name()`,
+  whose answer is checked against `str_to_alg()`. A module reporting a built-in
+  name is refused at that point, before the other three symbols are looked up,
+  so a `.so` cannot shadow `sha256` even when it loads first. What survives gets
+  `dlsym()` for the remaining `tsubaki_*` symbols declared in
+  `include/dynamic_provider_header.hpp`. `provider_msg` records how far that
+  got; anything but `success` is printed and dropped. The handle is never
+  closed, so a module lives as long as the process.
 - `provider_mapper` is keyed by the name the module reports and filled with
   `emplace()`, so a duplicate keeps whichever module claimed the name first.
 
-The scan runs once per `checksum_api` construction, because each one owns a
-`dpa_instance`: one scan for `sum`, two for `verify` (its own plus the internal
-`sum`), none for `cmp`, one for `--algorithm`. `set_algo()` tries `str_to_alg()`
-before `find_provider()`, so a built-in name always wins. For a provider,
+`checksum_api` holds its `dpf_instance` as `inline static`, so the process scans
+once, when the first `checksum_api` is constructed, and every later one reuses
+that map: `sum` and `verify` share a single scan even though `verify` builds two
+`checksum_api` objects (its own and the one inside the internal `sum`), and
+`cmp` builds none, so it never scans. `list_algorithm()` in `src/help.cpp` is
+the exception: `--algorithm` constructs a local `dpf_instance` of its own.
+`set_algo()` tries `str_to_alg()` before `find_provider()`, so name lookup
+cannot reach a provider for a built-in name either. For a provider,
 `keyed()` asks `tsubaki_is_keyed()`, `set_key()` asks `tsubaki_check_key()`
 instead of `check_key_validity()`, and `calc()` calls `tsubaki_checksum_file()`
 with an `expected` out-parameter the module must assign, success or failure.
@@ -350,9 +363,10 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 - **New algorithm without rebuilding this tree**: write a provider `.so` against
   `include/dynamic_provider_header.hpp` and point
   `TSUBAKI_DYNAMIC_PROVIDER_PATHS` at it. The name then resolves through
-  `dpa_instance`, `--algorithm` lists it with its `SOURCE`, and `verify -u`
-  accepts it. A built-in name always wins, and the digest must be at least 32
-  hex characters or a manifest cannot be read back.
+  `dpf_instance`, `--algorithm` lists it with its `SOURCE`, and `verify -u`
+  accepts it. A module that reports a built-in name is refused at load, so it
+  cannot shadow one, and the digest must be at least 32 hex characters or a
+  manifest cannot be read back.
 
 ## Source map
 
@@ -369,13 +383,13 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `tsubaki::work_result` | class | — | value snapshot returned by `run()`, with `print()`; it holds no reference to the manager |
 | `tsubaki::checksum_api` | class | — | resolves a literal algorithm name, holds the key, answers `hashing()` / `keyed()` / `name()`, and routes `calc()` to the digest path, the MAC path or a provider |
 | `tsubaki::checksum_error` | enum class | — | why a `checksum_api` is unusable: `none`, `unknown_algorithm`, `missing_key`, `invalid_key` |
-| `tsubaki::dpa_instance` | class | — | scans `TSUBAKI_DYNAMIC_PROVIDER_PATHS` once at construction and maps provider names to loaded modules |
-| `tsubaki::provider` | struct | — | one `dlopen`ed module: its handle, the four resolved symbols, and the `provider_msg` of the step that stopped it |
-| `tsubaki::provider_msg` | enum class | — | `success`, `dlopen_fail`, `dlsym_fail` or `unknown`: how far a module got |
+| `tsubaki::dpf_instance` | class | — | scans `TSUBAKI_DYNAMIC_PROVIDER_PATHS` once at construction and maps provider names to loaded modules |
+| `tsubaki::provider` | struct | — | one `dlopen`ed module: its handle, the symbols resolved so far, and the `provider_msg` of the step that stopped it |
+| `tsubaki::provider_msg` | enum class | — | `success`, `dlopen_fail`, `dlsym_fail`, `refused` or `unknown`: how far a module got |
 | `tsubaki::task_token` | struct | — | the path a worker processes plus the checksum read from the listing, empty outside rescan mode |
 | `tsubaki::error_entry` | struct | — | `std::error_code` plus the operation that failed |
 | `tsubaki::fd_guard` | class | — | closes a file descriptor on destruction; used by the hashing code |
-| `tsubaki::algorithm` | enum class | — | the built-in list generated from `ALGORITHM_LIST`, plus `dynamic` for a provider-backed name and `error` for a failed `str_to_alg()` |
+| `tsubaki::algorithm` | enum class | — | the built-in enum generated from `ALGORITHM_LIST`, plus `dynamic` for a provider-backed name and `error` for a failed `str_to_alg()` |
 | `tsubaki::mac_spec` | struct | — | internal to `src/checksum.cpp`: the `EVP_MAC` name and the digest parameter, if any |
 
 ### Files
@@ -396,7 +410,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `include/checksum.hpp` | `ALGORITHM_LIST`, the `algorithm` enum, `mapper`, `str_to_alg()` / `alg_to_str()`, the key policy, and the `checksum_file()` / `checksum_file_key()` declarations |
 | `src/checksum.cpp` | the OpenSSL side: `digest_for()`, `mac_for()`, `stream_file()`, `checksum_file()` and `checksum_file_key()` |
 | `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` and `checksum_api`: name resolution, key handling, `calc()` routing |
-| `include/dynamic_provider_api.hpp`, `src/dynamic_provider_api.cpp` | `provider_msg`, `provider` (one `dlopen`/`dlsym` load) and `dpa_instance` (the environment scan) |
+| `include/dpframework.hpp`, `src/dpframework.cpp` | `provider_msg`, `provider` (one `dlopen`/`dlsym` load) and `dpf_instance` (the environment scan) |
 | `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: the four `extern "C"` symbols |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |

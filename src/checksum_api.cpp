@@ -3,7 +3,7 @@
 
 #include "checksum_api.hpp"
 #include "checksum.hpp"
-#include "dynamic_provider_api.hpp"
+#include "dpframework.hpp"
 
 #include <expected>
 #include <string>
@@ -44,14 +44,14 @@ const std::string &checksum_api::name() const
 bool checksum_api::set_algo(const std::string &name)
 {
     algo = str_to_alg(name);
-    pro = dpa.not_found;
+    pro = dpf.not_found;
     if (algo != algorithm::error)
     {
         display_algo_name = alg_to_str(algo);
         err = checksum_error::none;
         return true;
     }
-    pro = dpa.find_provider(name);
+    pro = dpf.find_provider(name);
     if (pro.error != provider_msg::success)
     {
         err = checksum_error::unknown_algorithm;

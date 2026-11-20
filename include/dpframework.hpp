@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
-#ifndef LCPROJECTS_TSUBAKI_DYNAMIC_PROVIDER_API_HPP
-#define LCPROJECTS_TSUBAKI_DYNAMIC_PROVIDER_API_HPP
+#ifndef LCPROJECTS_TSUBAKI_DPFRAMEWORK_HPP
+#define LCPROJECTS_TSUBAKI_DPFRAMEWORK_HPP
 
 #include <expected>
 #include <filesystem>
@@ -24,6 +24,7 @@ enum class provider_msg
     unknown,
     dlopen_fail,
     dlsym_fail,
+    refused,
     success,
 };
 
@@ -42,7 +43,7 @@ struct provider
     provider() = default;
 };
 
-class dpa_instance //[D]ynamic [P]rovider [A]pi
+class dpf_instance // [D]ynamic [P]rovider [F]ramework
 {
   private:
     std::vector<std::string> search_paths;
@@ -51,9 +52,9 @@ class dpa_instance //[D]ynamic [P]rovider [A]pi
   public:
     const provider not_found;
 
-    dpa_instance();
-    dpa_instance(const dpa_instance &) = delete;
-    dpa_instance &operator=(const dpa_instance &) = delete;
+    dpf_instance();
+    dpf_instance(const dpf_instance &) = delete;
+    dpf_instance &operator=(const dpf_instance &) = delete;
 
     const provider &find_provider(const std::string &key) const;
     const std::unordered_map<std::string, provider> &show_mapper() const

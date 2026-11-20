@@ -156,8 +156,9 @@ The digests agree with `openssl dgst -<name>`, the HMACs with
 lowercase hexadecimal, and its length is set by the algorithm.
 
 `tsubaki -a` (or `--algorithm`) prints the same names as a two-column table
-(`ALGORITHM`, `KEYED`), generated from the macro that defines the algorithms,
-so it tracks the implementation instead of repeating the list above by hand.
+(`ALGORITHM`, `KEYED`): the names are walked from the literal list the parser
+itself uses and `KEYED` comes from the key policy, so the table tracks the
+implementation instead of repeating the list above by hand.
 A second `ALGORITHM`, `KEYED`, `SOURCE` table follows when provider modules were
 loaded; see below.
 
@@ -182,10 +183,11 @@ template for a provider of your own.
   into an `std::expected<std::string, std::error_code>` that it must assign
   whether it succeeds or fails.
 - **Where the name works.** Everywhere an algorithm name is accepted, `verify`
-  `-u` included. A built-in name always wins: the built-in list is searched
-  before any module, so a `.so` cannot shadow `sha256`. Between two providers
-  claiming one name, the first loaded wins — the order in the environment
-  variable, then the walk order inside each directory.
+  `-u` included. A built-in name always wins: a module that reports one is
+  refused while it loads, with an error naming the file, and never reaches the
+  table, so a `.so` cannot shadow `sha256`. Between two providers claiming one
+  name, the first loaded wins — the order in the environment variable, then the
+  walk order inside each directory.
 - **Keys.** A keyed provider is asked for a key like any built-in keyed
   algorithm (`needs a key`, exit status 64) and validates it through
   `tsubaki_check_key()`; there is no length limit to declare.

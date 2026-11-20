@@ -38,7 +38,7 @@ add_executable(tsubaki
     ${lc-argparser_SOURCE_DIR}/src/argparser.cpp
     src/verify_core.cpp
     src/cmp_core.cpp
-    src/dynamic_provider_api.cpp)
+    src/dpframework.cpp)
 
 target_compile_definitions(tsubaki PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")
 
