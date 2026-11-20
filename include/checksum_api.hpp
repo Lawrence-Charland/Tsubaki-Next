@@ -30,7 +30,7 @@ class checksum_api
     std::string display_algo_name;
     std::string key;
     checksum_error err = checksum_error::none;
-    dpa_instance dpa;
+    inline static dpa_instance dpa;
     provider pro = dpa.not_found;
 
   public:
