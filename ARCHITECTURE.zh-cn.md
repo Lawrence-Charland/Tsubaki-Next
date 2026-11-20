@@ -108,9 +108,9 @@ Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`。
   落到谁手里；`evaluate(group)` 只处理一个组。
 
 `include/cmdline.hpp` 里的条目可以同时属于多个组：`general` 放 `subcmd`、
-`--help`、`--version`、`--algorithm`；`key-file`、`key`、`threads`、`verbose`
-属于 `sum` 和 `verify`；`output` 属于 `sum`、`verify` 和 `cmp`；`sum` 还有
-excludes、lists、follow-symlinks、force-rescan、algorithm、files；`sum_int` 放
+`--help`、`--version`、`--algorithm`；`key-file`、`key`、`strip-crlf`、
+`threads`、`verbose` 属于 `sum` 和 `verify`；`output` 属于 `sum`、`verify` 和
+`cmp`；`sum` 还有 excludes、lists、follow-symlinks、force-rescan、algorithm、files；`sum_int` 放
 内部的 `verify_sumint` 标志；`verify` 加 `to_verify` 和 `use_algo`；`cmp` 加
 `canonical` 和 `to_compare`。每个驱动只评估自己那一组。
 
@@ -156,25 +156,54 @@ std::vector<error_entry> take_errors();
 
 ## 哈希计算
 
-`include/checksum.hpp` 里的 `ALGORITHM_LIST` 是唯一的算法清单：每一行给出枚举名、
-命令行字面量、是否密钥算法以及密钥长度上限；同一个宏生成 `algorithm` 枚举和
-`algorithm_table`，再由 `algorithms` 暴露成 `--algorithm` 打印的那张表。
-`str_to_alg()` 与 `alg_to_str()` 就在这张表里查找。OpenSSL 的调用都在
-`src/checksum.cpp`：`digest_for()` 把普通摘要映射到 `EVP_MD`，`mac_for()` 把密钥算法映射到
-`mac_spec`，`stream_file()` 按 64 KiB 分块喂给回调。`checksum_file()` 与
+`include/checksum.hpp` 里的 `ALGORITHM_LIST` 是唯一的内建算法清单：每一行给出枚举名
+和命令行字面量；同一个宏生成 `algorithm` 枚举和 `mapper`（字面量向量），
+`str_to_alg()` 与 `alg_to_str()` 就在它里面查找。`is_keyed()` 和 `max_key_length()`
+是对枚举的 `switch`，`check_key_validity()` 把两者合成密钥策略。OpenSSL 的调用都在
+`src/checksum.cpp`：`digest_for()` 把普通摘要映射到 `EVP_MD`，`mac_for()` 把密钥算法
+映射到 `mac_spec`，`stream_file()` 按 64 KiB 分块喂给回调。`checksum_file()` 与
 `checksum_file_key()` 分别走 `EVP_Digest*` 和 `EVP_MAC*`。
 
-程序其余部分只接触 `checksum_api` 这一个句柄：构造函数解析字面算法名，失败时记下
-`unknown_algorithm` 而不是返回一个哨兵；`set_key()` 是提供密钥的唯一入口，失败时记下
-`missing_key` 或 `invalid_key`；`hashing()`、`keyed()`、`name()`、`calc(path)` 回答
-各 driver 需要的问题。调用方因此完全不碰 `algorithm` 枚举，将来 provider 才能加入
-`ALGORITHM_LIST` 里没有的算法。失败一律以 `std::unexpected(std::error_code)` 返回，
-不抛异常；`algorithm::none` 不打开文件，直接返回 `<NONE>`。密钥策略在
-`max_key_length()` 和 `check_key_validity()` 里，两者都读算法那一行。
+程序其余部分只接触 `checksum_api`（`include/checksum_api.hpp`、`src/checksum_api.cpp`）
+这一个句柄：`set_algo()` 解析字面算法名，失败时记下 `unknown_algorithm` 而不是返回
+一个哨兵；`set_key()` 是提供密钥的唯一入口，失败时记下 `missing_key` 或
+`invalid_key`；`hashing()`、`keyed()`、`name()`、`calc(path)` 回答各 driver 需要的
+问题。调用方因此完全不碰 `algorithm` 枚举，provider 才能加入 `ALGORITHM_LIST` 里
+没有的算法。失败一律以 `std::unexpected(std::error_code)` 返回，不抛异常；
+`algorithm::none` 不打开文件，直接返回 `<NONE>`。
 
 文件用普通 `read()` 按逻辑长度读取：稀疏文件的空洞按实际大小收费，内存始终只有
 一块 64 KiB 缓冲。显式给出的 FIFO 或设备按阻塞方式打开，可能让工作线程一直等下去；
 中断标志只在文件与文件之间检查。
+
+### 动态 provider
+
+`algorithm::dynamic` 是哨兵而不是表里的一行：`mapper` 里没有它，`alg_to_str()` 会抛
+异常，报告里显示的名字由 provider 自己给出。加载逻辑在 `dpa_instance`
+（`include/dynamic_provider_api.hpp`）里：
+
+- 构造函数按 `:` 切分 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，丢掉空段，然后用
+  `dirscanner` 逐个遍历，所以扫描是递归的，且不跟随指向目录的软链接。路径不是可读
+  目录时 `dirscanner` 抛 `std::invalid_argument`，构造函数按路径接住、打印并继续。
+- 后缀恰好是 `.so` 的文件才会变成 `provider`：`dlopen()`（`RTLD_NOW |
+  RTLD_LOCAL`），再为 `include/dynamic_provider_header.hpp` 里声明的四个
+  `tsubaki_*` 符号 `dlsym()`。`provider_msg` 记下走到哪一步；只要不是 `success`
+  就打印出来并丢弃。句柄永不关闭，模块与进程同寿。
+- `provider_mapper` 以模块自报的名字为键，用 `emplace()` 填充，所以重名时保留先
+  认领那个名字的模块。
+
+每个 `checksum_api` 各持有一个 `dpa_instance`，所以扫描随构造发生一次：`sum` 一次、
+`verify` 两次（自己一次加上内部那次 `sum`）、`cmp` 零次、`--algorithm` 一次。
+`set_algo()` 先试 `str_to_alg()` 再问 `find_provider()`，所以内建名字永远优先。对
+provider 来说，`keyed()` 问 `tsubaki_is_keyed()`，`set_key()` 问
+`tsubaki_check_key()` 而不是 `check_key_validity()`，`calc()` 调
+`tsubaki_checksum_file()`，那个 `expected` 出参无论成败都必须由模块赋值。
+
+这条边界是 C++ 而不是 C：`std::string`、`std::filesystem::path` 和
+`std::expected<std::string, std::error_code>` 都按引用跨界，所以 provider 必须用和
+`tsubaki` 相同的编译器与标准库、以 C++23 编译成 `-fPIC` 动态库。它算出的摘要至少
+要有 32 个十六进制字符（也就是 MD5 的长度），因为 `listscanner` 只从这一长度起才认
+校验和；更短的值会被当成路径读回来，`verify` 会把那一行算作 unsure。
 
 ## 工作线程、进度与报告
 
@@ -267,9 +296,14 @@ tsubaki sum sha256 . -e build -l old.txt
 - **新增输入源**：从 `basic_taskstream` 派生，实现 `pop_raw()`；需要自己的语法就
   在 `def_args()` 里加条目。
 - **换输出端**：`work_manager` 是唯一的消费者，换一个 `std::ostream` 或整个替换。
-- **新增算法**：在 `ALGORITHM_LIST` 里加一行，写清字面量、是否密钥算法和密钥长度
-  上限；普通摘要再加一个 `digest_for()` case，密钥算法再加一个 `mac_for()` case。
-  其他地方不需要列算法：`--algorithm` 表、名字查找和密钥策略都读这一行。
+- **新增算法**：在 `ALGORITHM_LIST` 里加一行写字面量，扩展 `is_keyed()`（密钥有
+  长度上限时再加 `max_key_length()`），然后普通摘要加一个 `digest_for()` case，
+  密钥算法加一个 `mac_for()` case。`mapper`、名字查找和 `--algorithm` 表都跟着那一
+  行走；是否密钥算法、密钥上限是对同一枚举的 switch。
+- **不重新编译本项目就加算法**：照 `include/dynamic_provider_header.hpp` 写一个
+  provider 动态库，把 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 指向它。名字随后经
+  `dpa_instance` 解析，`--algorithm` 会连 `SOURCE` 一起列出，`verify -u` 也认。
+  内建名字永远优先；摘要至少要有 32 个十六进制字符，否则清单读不回来。
 
 ## 源码映射
 
@@ -284,11 +318,15 @@ tsubaki sum sha256 . -e build -l old.txt
 | `tsubaki::fanin_taskstream` | class | `basic_taskstream` | 汇流多个子流，用 `unique_ptr` 持有它们 |
 | `tsubaki::work_manager` | class | — | 工作线程池、进度行、中断标志，以及校验运行用的 `changed`/`unsure` 向量 |
 | `tsubaki::work_result` | class | — | `run()` 返回的值快照，带 `print()`；不引用 manager |
-| `tsubaki::checksum_api` | class | — | 解析字面算法名、持有密钥，回答 `hashing()` / `keyed()` / `name()`，把 `calc()` 分到摘要或 MAC 路径 |
+| `tsubaki::checksum_api` | class | — | 解析字面算法名、持有密钥，回答 `hashing()` / `keyed()` / `name()`，把 `calc()` 分到摘要路径、MAC 路径或 provider |
+| `tsubaki::checksum_error` | enum class | — | `checksum_api` 不可用的原因：`none`、`unknown_algorithm`、`missing_key`、`invalid_key` |
+| `tsubaki::dpa_instance` | class | — | 构造时扫描一次 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，把 provider 名字映射到已加载模块 |
+| `tsubaki::provider` | struct | — | 一个已经 `dlopen` 的模块：句柄、四个解析好的符号，以及停在哪个 `provider_msg` |
+| `tsubaki::provider_msg` | enum class | — | `success`、`dlopen_fail`、`dlsym_fail`、`unknown`：模块走到了哪一步 |
 | `tsubaki::task_token` | struct | — | 一条任务：路径加上清单里读到的校验和（重扫模式之外为空） |
 | `tsubaki::error_entry` | struct | — | `std::error_code` 加上出错时的操作描述 |
 | `tsubaki::fd_guard` | class | — | 析构时关闭文件描述符，哈希代码在用 |
-| `tsubaki::algorithm` | enum class | — | 由 `ALGORITHM_LIST` 生成的算法清单，外加表示 `str_to_alg()` 失败的 `error` |
+| `tsubaki::algorithm` | enum class | — | 由 `ALGORITHM_LIST` 生成的内建清单，外加表示 provider 算法的 `dynamic` 和表示 `str_to_alg()` 失败的 `error` |
 | `tsubaki::mac_spec` | struct | — | 只在 `src/checksum.cpp` 内部使用：`EVP_MAC` 名字和摘要参数（如果有） |
 
 ### 文件
@@ -306,7 +344,11 @@ tsubaki sum sha256 . -e build -l old.txt
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
 | `include/cached_taskstream.hpp`, `src/cached_taskstream.cpp` | 固定路径回放 |
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | 多源汇流 |
-| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`、`algorithm_table`、`str_to_alg()` / `alg_to_str()`、`checksum_api`、`EVP_MD` 与 `EVP_MAC` 哈希 |
+| `include/checksum.hpp` | `ALGORITHM_LIST`、`algorithm` 枚举、`mapper`、`str_to_alg()` / `alg_to_str()`、密钥策略，以及 `checksum_file()` / `checksum_file_key()` 的声明 |
+| `src/checksum.cpp` | OpenSSL 那一侧：`digest_for()`、`mac_for()`、`stream_file()`、`checksum_file()`、`checksum_file_key()` |
+| `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` 与 `checksum_api`：名字解析、密钥处理、`calc()` 分派 |
+| `include/dynamic_provider_api.hpp`, `src/dynamic_provider_api.cpp` | `provider_msg`、`provider`（一次 `dlopen`/`dlsym`）与 `dpa_instance`（环境变量扫描） |
+| `include/dynamic_provider_header.hpp` | provider 编译时对照的 ABI：四个 `extern "C"` 符号 |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、注释查找、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |

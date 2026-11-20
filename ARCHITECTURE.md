@@ -125,9 +125,10 @@ and compiled in as a source file. Tsubaki-Next only uses `ap_instance`,
   `evaluate(group)` restricts this to one group.
 
 Entries in `include/cmdline.hpp` may join several groups: `general` holds
-`subcmd`, `--help`, `--version`, `--algorithm`; `key-file`, `key`, `threads`
-and `verbose` belong to `sum` and `verify`; `output` joins `sum`, `verify` and
-`cmp`; `sum` also has excludes, lists, follow-symlinks, force-rescan, algorithm
+`subcmd`, `--help`, `--version`, `--algorithm`; `key-file`, `key`, `strip-crlf`,
+`threads` and `verbose` belong to `sum` and `verify`; `output` joins `sum`,
+`verify` and `cmp`; `sum` also has excludes, lists, follow-symlinks,
+force-rescan, algorithm
 and files; `sum_int` holds the internal `verify_sumint` flag; `verify` adds
 `to_verify` and `use_algo`; `cmp` adds `canonical` and `to_compare`. Each
 driver evaluates only its own group.
@@ -177,31 +178,67 @@ queue on whichever child is yielding and only hashing runs in parallel. A
 
 ## Hashing
 
-`ALGORITHM_LIST` in `include/checksum.hpp` is the only list of algorithms. Each
-row gives the enum name, the command-line literal, whether the algorithm is
-keyed and its key limit; the same macro generates the `algorithm` enum and
-`algorithm_table`, which `algorithms` exposes as the table `--algorithm` prints.
-`str_to_alg()` and `alg_to_str()` look a name up in that table. `src/checksum.cpp`
-holds all OpenSSL use: `digest_for()` maps plain digests to `EVP_MD`,
-`mac_for()` maps keyed algorithms to a `mac_spec`, and `stream_file()` feeds
-64 KiB chunks to a callback. `checksum_file()` and `checksum_file_key()` run
-that stream through `EVP_Digest*` and `EVP_MAC*` respectively.
+`ALGORITHM_LIST` in `include/checksum.hpp` is the only list of built-in
+algorithms. Each row gives the enum name and the command-line literal; the same
+macro generates the `algorithm` enum and `mapper`, the literal vector that
+`str_to_alg()` and `alg_to_str()` index. `is_keyed()` and `max_key_length()` are
+`switch`es over the enum, and `check_key_validity()` turns both into the key
+policy. `src/checksum.cpp` holds all OpenSSL use: `digest_for()` maps plain
+digests to `EVP_MD`, `mac_for()` maps keyed algorithms to a `mac_spec`, and
+`stream_file()` feeds 64 KiB chunks to a callback. `checksum_file()` and
+`checksum_file_key()` run that stream through `EVP_Digest*` and `EVP_MAC*`
+respectively.
 
-`checksum_api` is the only handle the rest of the program uses. Its constructor
-resolves a literal algorithm name and records `unknown_algorithm` instead of
-handing back a sentinel; `set_key()` is the only way to supply a key and records
-`missing_key` or `invalid_key`; `hashing()`, `keyed()`, `name()` and `calc(path)`
-answer the questions the drivers ask. Callers never touch the `algorithm` enum,
-which is what lets a later provider add an algorithm `ALGORITHM_LIST` does not
-name. Failures come back as `std::unexpected(std::error_code)`, never as
-exceptions, and `algorithm::none` returns `<NONE>` without opening the file. The
-key policy itself lives in `max_key_length()` and `check_key_validity()`, both
-read from the algorithm row.
+`checksum_api` (`include/checksum_api.hpp`, `src/checksum_api.cpp`) is the only
+handle the rest of the program uses. `set_algo()` resolves a literal algorithm
+name and records `unknown_algorithm` instead of handing back a sentinel;
+`set_key()` is the only way to supply a key and records `missing_key` or
+`invalid_key`; `hashing()`, `keyed()`, `name()` and `calc(path)` answer the
+questions the drivers ask. Callers never touch the `algorithm` enum, which is
+what lets a provider add an algorithm `ALGORITHM_LIST` does not name. Failures
+come back as `std::unexpected(std::error_code)`, never as exceptions, and
+`algorithm::none` returns `<NONE>` without opening the file.
 
 Files are read with plain `read()` calls over their logical length, so holes in
 a sparse file cost their full size and memory stays at one 64 KiB buffer. An
 explicitly named FIFO or device is opened blocking and can keep a worker
 indefinitely; the interrupt flag is only checked between files.
+
+### Dynamic providers
+
+`algorithm::dynamic` is a sentinel, not a table row: `mapper` has no entry for
+it, so `alg_to_str()` would throw and the name shown in the report comes from
+the provider instead. `dpa_instance` (`include/dynamic_provider_api.hpp`) does
+the loading:
+
+- The constructor splits `TSUBAKI_DYNAMIC_PROVIDER_PATHS` on `:`, drops empty
+  segments, and walks each one with `dirscanner`, so the scan is recursive and
+  does not follow symlinked directories. `dirscanner` rejects a path that is not
+  a readable directory with `std::invalid_argument`; the constructor catches it
+  per path, prints it and moves on.
+- Every file whose extension is exactly `.so` becomes a `provider`: `dlopen()`
+  with `RTLD_NOW | RTLD_LOCAL`, then `dlsym()` for the four `tsubaki_*` symbols
+  declared in `include/dynamic_provider_header.hpp`. `provider_msg` records how
+  far that got; anything but `success` is printed and dropped. The handle is
+  never closed, so a module lives as long as the process.
+- `provider_mapper` is keyed by the name the module reports and filled with
+  `emplace()`, so a duplicate keeps whichever module claimed the name first.
+
+The scan runs once per `checksum_api` construction, because each one owns a
+`dpa_instance`: one scan for `sum`, two for `verify` (its own plus the internal
+`sum`), none for `cmp`, one for `--algorithm`. `set_algo()` tries `str_to_alg()`
+before `find_provider()`, so a built-in name always wins. For a provider,
+`keyed()` asks `tsubaki_is_keyed()`, `set_key()` asks `tsubaki_check_key()`
+instead of `check_key_validity()`, and `calc()` calls `tsubaki_checksum_file()`
+with an `expected` out-parameter the module must assign, success or failure.
+
+The boundary is C++, not C: `std::string`, `std::filesystem::path` and
+`std::expected<std::string, std::error_code>` cross it by reference, so a
+provider needs the same compiler and standard library as `tsubaki`, C++23, and
+a `-fPIC` shared object. Its digest must be at least 32 hex characters — MD5's
+length — because `listscanner` only recognises a checksum from that length up;
+a shorter one is read back as a path, and `verify` calls the line unsure.
+
 
 ## Workers, progress and report
 
@@ -305,10 +342,17 @@ sorts it twice and writes the sections; no task stream or worker is involved.
   and add an entry to `def_args()` if it needs its own syntax.
 - **New output sink**: `work_manager` is the only consumer; hand it a different
   `std::ostream` or replace it.
-- **New algorithm**: add one row to `ALGORITHM_LIST` with its literal, keyed
-  flag and key limit; a plain digest then needs a `digest_for()` case and a
-  keyed one a `mac_for()` case. Nothing else lists algorithms: the
-  `--algorithm` table, name lookup and key policy all read that row.
+- **New algorithm**: add one row to `ALGORITHM_LIST` with its literal, extend
+  `is_keyed()` (and `max_key_length()` if the key has a limit), then give a
+  plain digest a `digest_for()` case and a keyed one a `mac_for()` case.
+  `mapper`, name lookup and the `--algorithm` table follow the row; the keyed
+  flag and the key limit are switches over the same enum.
+- **New algorithm without rebuilding this tree**: write a provider `.so` against
+  `include/dynamic_provider_header.hpp` and point
+  `TSUBAKI_DYNAMIC_PROVIDER_PATHS` at it. The name then resolves through
+  `dpa_instance`, `--algorithm` lists it with its `SOURCE`, and `verify -u`
+  accepts it. A built-in name always wins, and the digest must be at least 32
+  hex characters or a manifest cannot be read back.
 
 ## Source map
 
@@ -323,11 +367,15 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `tsubaki::fanin_taskstream` | class | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
 | `tsubaki::work_manager` | class | — | worker pool, progress line, interrupt flag, and the `changed`/`unsure` vectors of a verify run |
 | `tsubaki::work_result` | class | — | value snapshot returned by `run()`, with `print()`; it holds no reference to the manager |
-| `tsubaki::checksum_api` | class | — | resolves a literal algorithm name, holds the key, answers `hashing()` / `keyed()` / `name()`, and routes `calc()` to the digest or the MAC path |
+| `tsubaki::checksum_api` | class | — | resolves a literal algorithm name, holds the key, answers `hashing()` / `keyed()` / `name()`, and routes `calc()` to the digest path, the MAC path or a provider |
+| `tsubaki::checksum_error` | enum class | — | why a `checksum_api` is unusable: `none`, `unknown_algorithm`, `missing_key`, `invalid_key` |
+| `tsubaki::dpa_instance` | class | — | scans `TSUBAKI_DYNAMIC_PROVIDER_PATHS` once at construction and maps provider names to loaded modules |
+| `tsubaki::provider` | struct | — | one `dlopen`ed module: its handle, the four resolved symbols, and the `provider_msg` of the step that stopped it |
+| `tsubaki::provider_msg` | enum class | — | `success`, `dlopen_fail`, `dlsym_fail` or `unknown`: how far a module got |
 | `tsubaki::task_token` | struct | — | the path a worker processes plus the checksum read from the listing, empty outside rescan mode |
 | `tsubaki::error_entry` | struct | — | `std::error_code` plus the operation that failed |
 | `tsubaki::fd_guard` | class | — | closes a file descriptor on destruction; used by the hashing code |
-| `tsubaki::algorithm` | enum class | — | the algorithm list generated from `ALGORITHM_LIST`, plus `error` for a failed `str_to_alg()` |
+| `tsubaki::algorithm` | enum class | — | the built-in list generated from `ALGORITHM_LIST`, plus `dynamic` for a provider-backed name and `error` for a failed `str_to_alg()` |
 | `tsubaki::mac_spec` | struct | — | internal to `src/checksum.cpp`: the `EVP_MAC` name and the digest parameter, if any |
 
 ### Files
@@ -345,7 +393,11 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
 | `include/cached_taskstream.hpp`, `src/cached_taskstream.cpp` | fixed path replay |
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | multi-source merge |
-| `include/checksum.hpp`, `src/checksum.cpp` | `ALGORITHM_LIST`, `algorithm_table`, `str_to_alg()` / `alg_to_str()`, `checksum_api`, `EVP_MD` and `EVP_MAC` hashing |
+| `include/checksum.hpp` | `ALGORITHM_LIST`, the `algorithm` enum, `mapper`, `str_to_alg()` / `alg_to_str()`, the key policy, and the `checksum_file()` / `checksum_file_key()` declarations |
+| `src/checksum.cpp` | the OpenSSL side: `digest_for()`, `mac_for()`, `stream_file()`, `checksum_file()` and `checksum_file_key()` |
+| `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` and `checksum_api`: name resolution, key handling, `calc()` routing |
+| `include/dynamic_provider_api.hpp`, `src/dynamic_provider_api.cpp` | `provider_msg`, `provider` (one `dlopen`/`dlsym` load) and `dpa_instance` (the environment scan) |
+| `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: the four `extern "C"` symbols |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |

@@ -12,7 +12,6 @@
 #include <iostream>
 #include <optional>
 #include <string>
-#include <system_error>
 #include <utility>
 
 namespace tsubaki
@@ -58,17 +57,9 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
 
 dpa_instance::dpa_instance()
 {
-    // std::cerr << "Info: constructing dpa_instance" << std::endl;
     search_paths = get_env_arr(TSUBAKI_PROVIDERS_ENV_NAME, ':');
     for (auto &path : search_paths)
     {
-        std::error_code ec;
-        if (!std::filesystem::is_directory(path, ec))
-        {
-            std::cerr << "Error: provider path \"" << path
-                      << "\" is not a readable directory." << std::endl;
-            continue;
-        }
         try
         {
             dirscanner so_scanner(std::filesystem::path(path), {}, false);

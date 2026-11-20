@@ -6,7 +6,9 @@ A reimplementation of the Tsubaki checksum tool, with checksum computation at
 its core. It covers most plain digests and keyed hashes, and hashes a single
 file, a whole directory tree, or every path named in an existing list — pulling
 from all of them at once and hashing in parallel. A directory scan takes its
-own exclude list.
+own exclude list. Algorithms outside the built-in list can come from shared
+objects named by an environment variable; see
+[Dynamic algorithms](#dynamic-algorithms).
 
 The result is a *manifest* — the checksum file `sum` writes: `<checksum>
 <path>` lines plus a `#` report block. Because a manifest is a plain file, the
@@ -33,6 +35,7 @@ turns it into a fine-grained comparison against the old one.
 - [Build](#build)
 - [Usage](#usage)
   - [Algorithms](#algorithms)
+  - [Dynamic algorithms](#dynamic-algorithms)
   - [Options](#options)
   - [Option values](#option-values)
   - [Keyed hashes](#keyed-hashes)
@@ -155,6 +158,54 @@ lowercase hexadecimal, and its length is set by the algorithm.
 `tsubaki -a` (or `--algorithm`) prints the same names as a two-column table
 (`ALGORITHM`, `KEYED`), generated from the macro that defines the algorithms,
 so it tracks the implementation instead of repeating the list above by hand.
+A second `ALGORITHM`, `KEYED`, `SOURCE` table follows when provider modules were
+loaded; see below.
+
+### Dynamic algorithms
+
+An algorithm that is not built in can come from a shared object. List the
+directories in `TSUBAKI_DYNAMIC_PROVIDER_PATHS`, separated by `:`; each one is
+walked recursively and every file whose extension is exactly `.so` is loaded
+(`libx.so.1` is skipped). Empty segments are ignored.
+
+- **What a provider exports.** Four `extern "C"` symbols, declared for it in
+  `include/dynamic_provider_header.hpp`, which also states the contract in full:
+  `tsubaki_provider_name()` returns the name to use on the command line,
+  `tsubaki_is_keyed()` says whether a key is required, `tsubaki_check_key()`
+  accepts or rejects a key, and `tsubaki_checksum_file()` computes the digest
+  into an `std::expected<std::string, std::error_code>` that it must assign
+  whether it succeeds or fails.
+- **Where the name works.** Everywhere an algorithm name is accepted, `verify`
+  `-u` included. A built-in name always wins: the built-in list is searched
+  before any module, so a `.so` cannot shadow `sha256`. Between two providers
+  claiming one name, the first loaded wins — the order in the environment
+  variable, then the walk order inside each directory.
+- **Keys.** A keyed provider is asked for a key like any built-in keyed
+  algorithm (`needs a key`, exit status 64) and validates it through
+  `tsubaki_check_key()`; there is no length limit to declare.
+- **What the digest must look like.** At least 32 hexadecimal characters —
+  MD5's length. `listscanner` only recognises a checksum from that length up, so
+  a shorter digest is read back as a path and `verify` reports the line as
+  unsure. Anything weaker than MD5 has no business behind this ABI anyway.
+- **How it must be built.** The boundary is C++, not C: `std::string`,
+  `std::filesystem::path` and `std::expected<std::string, std::error_code>` are
+  passed by reference, so a provider needs the same compiler and standard
+  library as `tsubaki`, compiled as a C++23 `-fPIC` shared object.
+- **What goes wrong.** A path that is not a readable directory, a `.so` that
+  `dlopen` refuses, a missing symbol: each prints one `Error:` line on stderr
+  and is skipped, and none of them changes the exit status. Modules stay loaded
+  for the life of the process; nothing unloads them.
+
+`--algorithm` lists what it found in its own table:
+
+```
+---------- Dynamic providers ----------
+ALGORITHM  KEYED  SOURCE
+blake3     No     /home/user/lib/tsubaki/blake3.so
+```
+
+`SOURCE` is the module path, which makes a stale duplicate easy to spot when two
+directories both hold a build of the same algorithm.
 
 ### Options
 
@@ -162,11 +213,12 @@ so it tracks the implementation instead of repeating the list above by hand.
 | ------------------------------ | -------------------------------------------------------------------- |
 | `-h`, `--help`                 | print help and exit                                                  |
 | `-V`, `--version`              | print the version and exit                                           |
-| `-a`, `--algorithm`            | print the algorithms and whether each one is keyed, then exit; needs no subcommand |
+| `-a`, `--algorithm`            | print the algorithms, whether each one is keyed and, for a provider, the module it came from, then exit; needs no subcommand |
 | `-v`, `--verbose`              | live progress indicator on stderr; not shown for `none`              |
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
+| `--strip-crlf`                 | read the key file (or `-K -` stdin) with LF-only line endings, so a CRLF file yields the same key as an LF one |
 | `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp); `-` means stdout |
 | `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only) |
 | `-c`, `--canonical`            | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only) |
@@ -177,17 +229,17 @@ so it tracks the implementation instead of repeating the list above by hand.
 
 `--threads`, `--excludes` and `--lists` are accepted as aliases.
 
-`verify` accepts `-v`, `-t`, `-k`, `-K` and `-o` with the same meanings, plus
-`-u` to name the algorithm. It takes no algorithm or file positional, and
-rejects `-e`, `-l`, `-s` and `-f`: the paths, the algorithm when `-u` is absent
-and the unconditional rescan all come from the checksum file. That file may be
-`-` for stdin, but the `Algorithm:` header cannot then be prefetched, so a `-`
-input requires `-u`.
+`verify` accepts `-v`, `-t`, `-k`, `-K`, `--strip-crlf` and `-o` with the same
+meanings, plus `-u` to name the algorithm. It takes no algorithm or file
+positional, and rejects `-e`, `-l`, `-s` and `-f`: the paths, the algorithm when
+`-u` is absent and the unconditional rescan all come from the checksum file.
+That file may be `-` for stdin, but the `Algorithm:` header cannot then be
+prefetched, so a `-` input requires `-u`.
 
 `cmp` accepts only `-o` and `-c`. It never hashes anything, so it takes no
-algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `-e`, `-l`,
-`-s` and `-f` are rejected with exit status 64. Its two positionals are the
-result files to compare, not paths to hash.
+algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `--strip-crlf`,
+`-e`, `-l`, `-s` and `-f` are rejected with exit status 64. Its two positionals
+are the result files to compare, not paths to hash.
 
 Parsing itself is done by
 [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser), a small
@@ -233,11 +285,14 @@ A key comes from one of two places, never both:
   whole stream is read and any run of trailing CR/LF is dropped, so
   `echo secret > key` yields `secret`, while interior newlines, NUL bytes and
   trailing spaces stay part of the key. A missing, unreadable or empty file
-  exits 66.
+  exits 66. Add `--strip-crlf` when the file may have been written on Windows:
+  it drops the CR of every CRLF line ending, so `a\r\nb\r\n` becomes `a\nb`
+  instead of `a\r\nb`. It never rewrites a `--key` literal.
 
 `-k` and `-K` together are rejected with exit status 64, and so is `-K -`
 together with a `-` input: stdin may be named only once. With a plain digest,
-either form is ignored with a warning and the key file is not even opened.
+`-k`, `-K` and `--strip-crlf` are ignored with a warning and the key file is
+not even opened.
 
 One run uses one key for every file; to check the same tree under two keys, run
 the command twice.

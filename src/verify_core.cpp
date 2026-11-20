@@ -144,6 +144,8 @@ int verify_main(argparser::ap_instance &cmdline)
     }
     if (cmdline.entry(cmdline_entry::verbose).repetition)
         sum_cmd.push_back("-v");
+    if (cmdline.entry(cmdline_entry::strip_crlf).repetition)
+        sum_cmd.push_back("--strip-crlf");
     sum_cmd.push_back("--force-rescan");
     sum_cmd.push_back("--verify");
 

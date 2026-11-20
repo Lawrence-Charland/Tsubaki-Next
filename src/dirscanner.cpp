@@ -12,11 +12,9 @@ namespace tsubaki
 {
 using namespace std::filesystem;
 
-dirscanner::dirscanner(const std::filesystem::path &dir,
-                       const std::vector<path> &_excludes, bool follow_symlink)
-    : it(dir, directory_options::skip_permission_denied |
-                  (follow_symlink ? directory_options::follow_directory_symlink
-                                  : directory_options::none))
+namespace
+{
+const path &checked_directory(const path &dir)
 {
     if (!exists(dir))
         throw std::invalid_argument("cannot access directory \"" +
@@ -24,6 +22,17 @@ dirscanner::dirscanner(const std::filesystem::path &dir,
     if (!is_directory(dir))
         throw std::invalid_argument("\"" + dir.string() +
                                     "\" is not a directory");
+    return dir;
+}
+} // namespace
+
+dirscanner::dirscanner(const std::filesystem::path &dir,
+                       const std::vector<path> &_excludes, bool follow_symlink)
+    : it(checked_directory(dir),
+         directory_options::skip_permission_denied |
+             (follow_symlink ? directory_options::follow_directory_symlink
+                             : directory_options::none))
+{
     std::error_code ec;
     for (auto &it : _excludes)
     {

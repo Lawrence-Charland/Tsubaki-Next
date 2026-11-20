@@ -79,7 +79,7 @@ bool is_checksum(const std::string &target)
     return true;
 }
 
-std::optional<std::string> get_file_content(std::istream &is)
+std::optional<std::string> get_file_content(std::istream &is, bool strip_crlf)
 {
     std::string key;
     std::string line;
@@ -88,6 +88,8 @@ std::optional<std::string> get_file_content(std::istream &is)
     {
         while (std::getline(is, line))
         {
+            if (strip_crlf && !line.empty() && line.back() == '\r')
+                line.pop_back();
             if (!first)
                 key.push_back('\n');
             key += line;

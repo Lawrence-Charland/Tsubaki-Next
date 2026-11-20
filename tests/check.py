@@ -940,6 +940,80 @@ def test_verify_streams(h: Harness, root: Path) -> None:
                           f"result={result_lines(r.out)}")
 
 
+# ---------------------------------------------------------------- 49-52
+
+def test_strip_crlf(h: Harness, root: Path) -> None:
+    section("49-52 Strip CRLF from a key file")
+    fx = root / "t49"
+    a = write(fx / "a.txt", b"hello\n")
+    key_crlf = root / "key-strip-crlf"
+    key_crlf.write_text("a\r\nb\r\n", encoding="utf-8")
+    key_lf = root / "key-strip-lf"
+    key_lf.write_text("a\nb\n", encoding="utf-8")
+    want = result_lines(h.sum("hmac_sha256", a, "-k", "a\nb").out)
+
+    name = "--strip-crlf makes a CRLF key file hash like the same key with bare LFs"
+    r_plain = h.sum("hmac_sha256", a, "-K", key_crlf)
+    r_strip = h.sum("hmac_sha256", a, "-K", key_crlf, "--strip-crlf")
+    r_lf = h.sum("hmac_sha256", a, "-K", key_lf, "--strip-crlf")
+    if (want and result_lines(r_plain.out) != want
+            and result_lines(r_strip.out) == want
+            and result_lines(r_lf.out) == want):
+        h.ok("49", name)
+    else:
+        h.bad("49", name, f"plain={result_lines(r_plain.out)} "
+                          f"stripped={result_lines(r_strip.out)} "
+                          f"lf={result_lines(r_lf.out)} want={want}")
+
+    name = ("the flag also reaches -K -, leaves a -k literal alone, "
+            "and only warns on a plain digest")
+    r_stdin = h.sum("hmac_sha256", a, "-K", "-", "--strip-crlf",
+                    stdin_data="a\r\nb\r\n")
+    r_literal = h.sum("hmac_sha256", a, "-k", "a\r\nb", "--strip-crlf")
+    r_plain = h.sum("sha256", a, "--strip-crlf")
+    if (result_lines(r_stdin.out) == want and r_stdin.rc == 0
+            and r_literal.rc == 0
+            and result_lines(r_literal.out) != want
+            and r_plain.rc == 0
+            and result_lines(r_plain.out) == [f"{digest(a)} {a}"]
+            and "doesn't need key" in r_plain.err):
+        h.ok("50", name)
+    else:
+        h.bad("50", name, f"stdin={result_lines(r_stdin.out)} "
+                          f"literal={result_lines(r_literal.out)} "
+                          f"plain={result_lines(r_plain.out)} "
+                          f"plain_err={r_plain.err.strip()!r}")
+
+    name = "verify --strip-crlf re-hashes with the stripped key; without it the file reads as changed"
+    manifest = root / "strip.txt"
+    h.sum("hmac_sha256", a, "-K", key_crlf, "--strip-crlf", "-o", manifest)
+    r_flag = h.verify(manifest, "-K", key_crlf, "--strip-crlf", "-o", "-")
+    r_no_flag = h.verify(manifest, "-K", key_crlf, "-o", "-")
+    if (r_flag.rc == 0 and field(r_flag.out, "Changed") == "0"
+            and field(r_flag.out, "Errors") == "0"
+            and r_no_flag.rc == 0 and field(r_no_flag.out, "Changed") == "1"):
+        h.ok("51", name)
+    else:
+        h.bad("51", name, f"rc: flag={r_flag.rc} plain={r_no_flag.rc} "
+                          f"changed: flag={field(r_flag.out, 'Changed')} "
+                          f"plain={field(r_no_flag.out, 'Changed')}")
+
+    name = ("a repeated --strip-crlf exits 64, it never supplies a key itself, "
+            "and --help lists it")
+    r_twice = h.sum("hmac_sha256", a, "-k", "secret",
+                    "--strip-crlf", "--strip-crlf")
+    r_no_key = h.sum("hmac_sha256", a, "--strip-crlf")
+    r_help = h.run("--help")
+    if (r_twice.rc == 64 and "Too many repetitions" in r_twice.err
+            and r_no_key.rc == 64 and "needs a key" in r_no_key.err
+            and not result_lines(r_no_key.out)
+            and r_help.rc == 0 and "--strip-crlf" in r_help.out):
+        h.ok("52", name)
+    else:
+        h.bad("52", name, f"rc: twice={r_twice.rc} nokey={r_no_key.rc} "
+                          f"help={r_help.rc} listed={'--strip-crlf' in r_help.out}")
+
+
 # ---------------------------------------------------------------- runner
 
 def resolve_binary(explicit: str | None) -> Path | None:
@@ -995,6 +1069,7 @@ def main(argv: list[str]) -> int:
         test_stdout_output(h, root)
         test_use_algo(h, root)
         test_verify_streams(h, root)
+        test_strip_crlf(h, root)
 
     print("\n--------------------------------")
     print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")
