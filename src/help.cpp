@@ -111,17 +111,14 @@ void list_algorithm(std::ostream &os)
     for (const auto &it : mapper)
         w = std::max(w, std::string_view(it).size());
     w += 2;
-
     os << std::left << std::setw(w) << "ALGORITHM" << "KEYED\n";
     for (const auto &it : mapper)
         os << std::left << std::setw(w) << it
            << (is_keyed(str_to_alg(it)) ? "Yes" : "No") << '\n';
-
     dpf_instance dpf;
     const auto &providers = dpf.show_mapper();
     if (providers.empty())
         return;
-
     os << std::endl << "---------- Dynamic providers ----------" << std::endl;
     std::size_t sw = std::string_view{"ALGORITHM"}.size();
     std::vector<std::string> names;
@@ -134,8 +131,15 @@ void list_algorithm(std::ostream &os)
     sw += 2;
     // provider_mapper is unordered, so sort the names to keep the output
     // stable.
-    std::sort(names.begin(), names.end());
-
+    std::sort(names.begin(), names.end(),
+              [&dpf](const std::string &l, const std::string &r) -> bool
+              {
+                  bool l_keyed = dpf.find_provider(l).is_keyed();
+                  bool r_keyed = dpf.find_provider(r).is_keyed();
+                  if (l_keyed != r_keyed)
+                      return l_keyed < r_keyed;
+                  return l < r;
+              });
     const std::size_t kw = std::string_view{"KEYED"}.size() + 2;
     os << std::left << std::setw(sw) << "ALGORITHM" << std::setw(kw) << "KEYED"
        << "SOURCE\n";
@@ -163,12 +167,6 @@ void show_version(std::ostream &os)
 {
     // First line stays machine-parseable: "<name> <version>".
     os << "tsubaki " << version << '\n';
-
-    const auto put = [&os](std::string_view label, const std::string &value)
-    {
-        os << "  " << std::left << std::setw(18) << std::string{label}
-           << std::right << value << '\n';
-    };
 
 #if defined(TSUBAKI_GIT_COMMIT)
     const std::string commit = TSUBAKI_GIT_COMMIT;
@@ -261,18 +259,19 @@ void show_version(std::ostream &os)
     openssl = OpenSSL_version(OPENSSL_VERSION_STRING);
 #endif
 
-    put("Commit:", commit);
-    put("Build:", config);
-    put("C++ standard:", cxxstd);
-    put("Compiler:", get_compiler_info());
-    put("Platform:", platform);
-    put("CPU features:", features);
-    put("CPU threads:", std::to_string(std::thread::hardware_concurrency()));
-    put("OpenSSL:", openssl);
+    os << "     Commit:         " << commit << std::endl;
+    os << "     C++ Standard:   " << cxxstd << std::endl;
+    os << "     Compiler:       " << get_compiler_info() << std::endl;
+    os << "     Platform:       " << platform << std::endl;
+    os << "     CPU features:   " << features << std::endl;
+    os << "     CPU threads:    "
+       << std::to_string(std::thread::hardware_concurrency()) << std::endl;
 #if defined(TSUBAKI_BUILD_TIMESTAMP)
-    put("Built:", TSUBAKI_BUILD_TIMESTAMP);
+    os << "     Built:          " << TSUBAKI_BUILD_TIMESTAMP << std::endl;
 #endif
-    put("License:", "GPL-2.0-only");
-    put("Homepage:", "https://github.com/Lawrence-Charland/Tsubaki-Next");
+    os << "     License:        GPL-2.0-only" << std::endl;
+    os << "     Homepage:       "
+          "https://github.com/Lawrence-Charland/Tsubaki-Next"
+       << std::endl;
 }
 } // namespace tsubaki
