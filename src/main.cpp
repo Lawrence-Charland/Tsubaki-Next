@@ -10,7 +10,6 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
-#include <openssl/crypto.h>
 #include <string>
 #include <vector>
 
@@ -41,13 +40,7 @@ int main(int argc, char **argv)
         }
         if (cmdline.entry(cmdline_entry::version).repetition)
         {
-            std::cout << "Tsubaki version:  " << TSUBAKI_VERSION << std::endl;
-            std::cout << "OpenSSL version:  "
-                      << OpenSSL_version(OPENSSL_VERSION_STRING) << std::endl;
-            std::cout << "Compiler:         " << get_compiler_info()
-                      << std::endl;
-            std::cout << "Built time:       " << __DATE__ << " " << __TIME__
-                      << std::endl;
+            show_version(std::cout);
             return TSUBAKI_SUCCESS;
         }
         if (cmdline.entry(cmdline_entry::list_alg).repetition)

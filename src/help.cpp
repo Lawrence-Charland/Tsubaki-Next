@@ -7,8 +7,10 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <openssl/crypto.h>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace tsubaki
@@ -155,5 +157,122 @@ std::string get_compiler_info()
 #else
     return "Unknown";
 #endif
+}
+
+void show_version(std::ostream &os)
+{
+    // First line stays machine-parseable: "<name> <version>".
+    os << "tsubaki " << version << '\n';
+
+    const auto put = [&os](std::string_view label, const std::string &value)
+    {
+        os << "  " << std::left << std::setw(18) << std::string{label}
+           << std::right << value << '\n';
+    };
+
+#if defined(TSUBAKI_GIT_COMMIT)
+    const std::string commit = TSUBAKI_GIT_COMMIT;
+#else
+    const std::string commit = "unknown";
+#endif
+
+    std::string config;
+#if defined(NDEBUG)
+    config = "release";
+#else
+    config = "debug";
+#endif
+#if defined(__OPTIMIZE__)
+    config += ", optimized";
+#else
+    config += ", unoptimized";
+#endif
+
+    std::string cxxstd;
+#if __cplusplus >= 202302L
+    cxxstd = "C++23";
+#elif __cplusplus >= 202002L
+    cxxstd = "C++20";
+#elif __cplusplus >= 201703L
+    cxxstd = "C++17";
+#else
+    cxxstd = "C++" + std::to_string(__cplusplus);
+#endif
+
+    std::string platform;
+#if defined(_WIN32)
+    platform = "Windows";
+#elif defined(__APPLE__)
+    platform = "macOS";
+#elif defined(__linux__)
+    platform = "Linux";
+#elif defined(__FreeBSD__)
+    platform = "FreeBSD";
+#else
+    platform = "unknown OS";
+#endif
+    platform += " (";
+#if defined(__x86_64__) || defined(_M_X64)
+    platform += "x86_64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    platform += "arm64";
+#elif defined(__i386__) || defined(_M_IX86)
+    platform += "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+    platform += "arm";
+#else
+    platform += "unknown arch";
+#endif
+#if defined(__GLIBC__)
+    platform += ", glibc " + std::to_string(__GLIBC__) + '.' +
+                std::to_string(__GLIBC_MINOR__);
+#elif defined(__MUSL__)
+    platform += ", musl";
+#endif
+    platform += ')';
+
+    // Runtime CPU dispatch underlies checksum throughput, so report it.
+    std::string features;
+#if (defined(__x86_64__) || defined(__i386__)) &&                              \
+    (defined(__GNUC__) || defined(__clang__))
+    const auto add = [&features](const char *name)
+    {
+        if (!features.empty())
+            features += ' ';
+        features += name;
+    };
+    // __builtin_cpu_supports() only accepts string literals.
+    if (__builtin_cpu_supports("aes"))
+        add("aes");
+    if (__builtin_cpu_supports("avx2"))
+        add("avx2");
+    if (__builtin_cpu_supports("sha"))
+        add("sha");
+    if (__builtin_cpu_supports("avx512f"))
+        add("avx512f");
+#endif
+    if (features.empty())
+        features = "not reported";
+
+    std::string openssl;
+#if defined(OPENSSL_FULL_VERSION_STRING)
+    openssl = OpenSSL_version(OPENSSL_FULL_VERSION_STRING);
+#else
+    openssl = OpenSSL_version(OPENSSL_VERSION_STRING);
+#endif
+
+    put("Commit:", commit);
+    put("Build:", config);
+    put("C++ standard:", cxxstd);
+    put("Compiler:", get_compiler_info());
+    put("Platform:", platform);
+    put("CPU features:", features);
+    put("CPU threads:", std::to_string(std::thread::hardware_concurrency()));
+    put("OpenSSL:", openssl);
+#if defined(TSUBAKI_BUILD_TIMESTAMP)
+    put("Built:", TSUBAKI_BUILD_TIMESTAMP);
+#endif
+    put("License:", "GPL-2.0-only");
+    put("Homepage:", "https://github.com/Lawrence-Charland/Tsubaki-Next");
 }
 } // namespace tsubaki

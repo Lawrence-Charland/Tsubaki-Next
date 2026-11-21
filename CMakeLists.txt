@@ -40,7 +40,36 @@ add_executable(tsubaki
     src/cmp_core.cpp
     src/dpframework.cpp)
 
-target_compile_definitions(tsubaki PRIVATE TSUBAKI_VERSION="${PROJECT_VERSION}")
+    # ---- build provenance for `tsubaki -V` ----
+set(TSUBAKI_GIT_COMMIT "unknown")
+find_package(Git QUIET)
+if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --short=12 HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE _tsubaki_sha
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" status --porcelain --untracked-files=no
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE _tsubaki_dirty
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(NOT "${_tsubaki_sha}" STREQUAL "")
+        set(TSUBAKI_GIT_COMMIT "${_tsubaki_sha}")
+        if(NOT "${_tsubaki_dirty}" STREQUAL "")
+            string(APPEND TSUBAKI_GIT_COMMIT "-dirty")
+        endif()
+    endif()
+endif()
+
+string(TIMESTAMP TSUBAKI_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
+
+target_compile_definitions(tsubaki PRIVATE
+    TSUBAKI_VERSION="${PROJECT_VERSION}"
+    TSUBAKI_GIT_COMMIT="${TSUBAKI_GIT_COMMIT}"
+    TSUBAKI_BUILD_TIMESTAMP="${TSUBAKI_BUILD_TIMESTAMP}")
 
 set_target_properties(tsubaki PROPERTIES
     CXX_STANDARD 23

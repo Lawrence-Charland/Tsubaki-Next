@@ -22,6 +22,8 @@ std::string help_text(std::string_view program);
 
 void list_algorithm(std::ostream &os);
 
+void show_version(std::ostream &os);
+
 std::string get_compiler_info();
 } // namespace tsubaki
 
