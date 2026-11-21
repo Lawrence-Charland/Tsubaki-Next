@@ -262,6 +262,7 @@ void show_version(std::ostream &os)
     os << "     Commit:         " << commit << std::endl;
     os << "     C++ Standard:   " << cxxstd << std::endl;
     os << "     Compiler:       " << get_compiler_info() << std::endl;
+    os << "     Build config:   " << config << std::endl;
     os << "     Platform:       " << platform << std::endl;
     os << "     CPU features:   " << features << std::endl;
     os << "     CPU threads:    "
