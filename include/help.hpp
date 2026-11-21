@@ -6,7 +6,6 @@
 
 #include <ostream>
 #include <string>
-#include <string_view>
 
 // Injected by CMake through target_compile_definitions(). The fallback keeps
 // IDE builds and single-file compiles working.
@@ -18,7 +17,7 @@ namespace tsubaki
 {
 inline constexpr const char *version = TSUBAKI_VERSION;
 
-std::string help_text(std::string_view program);
+void print_help(std::ostream &os, const std::string &program);
 
 void list_algorithm(std::ostream &os);
 

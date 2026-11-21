@@ -35,7 +35,7 @@ int main(int argc, char **argv)
         // Help, version and list args. Shouldn't check errors.
         if (cmdline.entry(cmdline_entry::help).repetition)
         {
-            std::cout << help_text(program) << std::endl;
+            print_help(std::cout, program);
             return TSUBAKI_SUCCESS;
         }
         if (cmdline.entry(cmdline_entry::version).repetition)

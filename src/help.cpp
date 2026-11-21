@@ -6,16 +6,18 @@
 #include "dpframework.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <iomanip>
 #include <openssl/crypto.h>
+#include <ostream>
 #include <string>
-#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace tsubaki
 {
-constexpr std::string_view help_body =
+const std::string help_body =
     R"HELP({program} {version} - build a checksum manifest, and verify or compare it
 
 Usage:
@@ -77,15 +79,15 @@ Repository:
   https://github.com/Lawrence-Charland/Tsubaki-Next
 )HELP";
 
-std::string replace_placeholder(std::string_view body, std::string_view key,
-                                std::string_view value)
+std::string replace_placeholder(const std::string &body, const std::string &key,
+                                const std::string &value)
 {
     std::string result;
     result.reserve(body.size() + value.size() * 8);
     for (std::size_t pos = 0;;)
     {
         const std::size_t found = body.find(key, pos);
-        if (found == std::string_view::npos)
+        if (found == std::string::npos)
         {
             result.append(body.substr(pos));
             break;
@@ -97,9 +99,9 @@ std::string replace_placeholder(std::string_view body, std::string_view key,
     return result;
 }
 
-std::string help_text(std::string_view program)
+void print_help(std::ostream &os, const std::string &program)
 {
-    return replace_placeholder(
+    os << replace_placeholder(
         replace_placeholder(help_body, "{program}", program), "{version}",
         version);
 }
@@ -107,49 +109,45 @@ std::string help_text(std::string_view program)
 void list_algorithm(std::ostream &os)
 {
     os << "---------- Built-in ----------" << std::endl;
-    size_t w = std::string_view{"ALGORITHM"}.size();
+    size_t w = std::string("ALGORITHM").length();
     for (const auto &it : mapper)
-        w = std::max(w, std::string_view(it).size());
+        if (it != "none")
+            w = std::max(w, std::string(it).length());
     w += 2;
     os << std::left << std::setw(w) << "ALGORITHM" << "KEYED\n";
     for (const auto &it : mapper)
-        os << std::left << std::setw(w) << it
-           << (is_keyed(str_to_alg(it)) ? "Yes" : "No") << '\n';
+        if (it != "none")
+            os << std::left << std::setw(w) << it
+               << (is_keyed(str_to_alg(it)) ? "Yes" : "No") << '\n';
+    os << "(" << mapper.size() - 1 << " built-in algorithms in total)"
+       << std::endl;
     dpf_instance dpf;
     const auto &providers = dpf.show_mapper();
     if (providers.empty())
         return;
     os << std::endl << "---------- Dynamic providers ----------" << std::endl;
-    std::size_t sw = std::string_view{"ALGORITHM"}.size();
-    std::vector<std::string> names;
-    names.reserve(providers.size());
-    for (const auto &it : providers)
-    {
-        names.push_back(it.first);
-        sw = std::max(sw, it.first.size());
-    }
-    sw += 2;
-    // provider_mapper is unordered, so sort the names to keep the output
-    // stable.
-    std::sort(names.begin(), names.end(),
-              [&dpf](const std::string &l, const std::string &r) -> bool
+    std::size_t sw = std::string("ALGORITHM").length();
+    std::size_t kw = std::string("KEYED").length() + 2;
+    std::vector<std::pair<std::string, provider>> pros(providers.begin(),
+                                                       providers.end());
+    std::sort(pros.begin(), pros.end(),
+              [](const std::pair<std::string, provider> &l,
+                 const std::pair<std::string, provider> &r) -> bool
               {
-                  bool l_keyed = dpf.find_provider(l).is_keyed();
-                  bool r_keyed = dpf.find_provider(r).is_keyed();
-                  if (l_keyed != r_keyed)
-                      return l_keyed < r_keyed;
-                  return l < r;
+                  if (l.second.is_keyed() != r.second.is_keyed())
+                      return l.second.is_keyed() < r.second.is_keyed();
+                  return l.first < r.first;
               });
-    const std::size_t kw = std::string_view{"KEYED"}.size() + 2;
-    os << std::left << std::setw(sw) << "ALGORITHM" << std::setw(kw) << "KEYED"
-       << "SOURCE\n";
-    for (const auto &name : names)
-    {
-        const provider &p = providers.at(name);
-        const bool keyed = p.is_keyed != nullptr && p.is_keyed();
-        os << std::left << std::setw(sw) << name << std::setw(kw)
-           << (keyed ? "Yes" : "No") << p.display_path.string() << '\n';
-    }
+    for (auto &it : pros)
+        sw = std::max(sw, it.first.length());
+    sw += 2;
+    os << std::setw(sw) << "ALGORITHM" << std::setw(kw) << "KEYED" << "SOURCE"
+       << std::endl;
+    for (auto &it : pros)
+        os << std::setw(sw) << it.first << std::setw(kw)
+           << (it.second.is_keyed() ? "YES" : "NO")
+           << it.second.display_path.string() << std::endl;
+    os << "(" << pros.size() << " dynamic algorithms loaded)" << std::endl;
 }
 
 std::string get_compiler_info()
