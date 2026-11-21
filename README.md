@@ -179,11 +179,11 @@ directories in `TSUBAKI_DYNAMIC_PROVIDER_PATHS`, separated by `:`; each one is
 walked recursively and every file whose extension is exactly `.so` is loaded
 (`libx.so.1` is skipped). Empty segments are ignored.
 
-Six algorithms live in
+Ready-made providers live in
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
-— BLAKE3, SM3, HMAC-SM3, SHA-512/256, SHA3-224 and SHA3-384 — as one CMake
-project; it is the shortest way to see the contract compiled and is a fair
-template for a provider of your own.
+as one CMake project; that repository's README lists what it currently ships.
+It is the shortest way to see the contract compiled and is a fair template for
+a provider of your own.
 
 - **What a provider exports.** Four `extern "C"` symbols, declared for it in
   `include/dynamic_provider_header.hpp`, which also states the contract in full:

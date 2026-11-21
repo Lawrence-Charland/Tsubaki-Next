@@ -149,10 +149,10 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，用 `:` 分隔；每个目录会被递归遍历，扩展名恰好是
 `.so` 的文件才会被加载（`libx.so.1` 会被跳过）。空段直接忽略。
 
-现成的六个算法在
+现成的 provider 在
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
-里——BLAKE3、SM3、HMAC-SM3、SHA-512/256、SHA3-224 和 SHA3-384，一个 CMake 工程
-全包；想看清契约被编译成什么样，看它最快，自己写 provider 也可以直接照抄。
+里，一个 CMake 工程全包，具体有哪些算法以那个仓库的 README 为准；想看清契约被
+编译成什么样，看它最快，自己写 provider 也可以直接照抄。
 
 - **provider 要导出什么。** 四个 `extern "C"` 符号，声明在
   `include/dynamic_provider_header.hpp` 里：`tsubaki_provider_name()` 给出命令行上
