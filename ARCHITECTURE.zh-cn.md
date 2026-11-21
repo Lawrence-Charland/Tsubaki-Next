@@ -206,13 +206,20 @@ std::vector<error_entry> take_errors();
 `find_provider()`，所以按名字查找同样碰不到内建名字对应的 provider。对
 provider 来说，`keyed()` 问 `tsubaki_is_keyed()`，`set_key()` 问
 `tsubaki_check_key()` 而不是 `check_key_validity()`，`calc()` 调
-`tsubaki_checksum_file()`，那个 `expected` 出参无论成败都必须由模块赋值。
+`tsubaki_checksum_file()`，它按值返回一个 `tsubaki_checksum_result`：一块
+`TSUBAKI_MAX_RESULT_LENGTH` 字节、归 `checksum_api` 所有的摘要缓冲，加上一个
+errno 风格的错误码，模块无论成败都必须填好。
 
-这条边界是 C++ 而不是 C：`std::string`、`std::filesystem::path` 和
-`std::expected<std::string, std::error_code>` 都按引用跨界，所以 provider 必须用和
-`tsubaki` 相同的编译器与标准库、以 C++23 编译成 `-fPIC` 动态库。它算出的摘要至少
-要有 32 个十六进制字符（也就是 MD5 的长度），因为 `listscanner` 只从这一长度起才认
-校验和；更短的值会被当成路径读回来，`verify` 会把那一行算作 unsure。
+这条边界上走的是纯数据。`calc()` 把结果留在自己的栈上，交给模块的只有两个只能读的
+`const char *`；模块把摘要写进随结构体一起回来的缓冲，用 `int` 报错。模块分配的东西
+这里永远不释放，这里的东西模块也永远不释放，静态链接的 `tsubaki`（自带一份 glibc）
+才能加载一个把共享 glibc 带进来的模块而不发生跨分配器 free。返回的 `expected` 里那个
+`std::error_code` 由 `checksum_api` 用 `std::make_error_code()` 从那个 `int` 造出来，
+category 和它产生的消息都留在 tsubaki 自己那份标准库里；模块内部造出来的
+`error_code` 会带着模块那份库的 category，它的消息也会在那边分配、在这边释放。模块
+仍然必须自包含，不能保留那两个指针，并且要匹配 tsubaki 链接时所用的那一代 glibc。
+它算出的摘要至少要有 32 个十六进制字符（也就是 MD5 的长度），因为 `listscanner` 只从
+这一长度起才认校验和；更短的值会被当成路径读回来，`verify` 会把那一行算作 unsure。
 
 ## 工作线程、进度与报告
 

@@ -8,20 +8,35 @@
 // shared object exporting exactly these four symbols, and tsubaki reaches it
 // through nothing else.
 //
-//   - Build it as C++23 with the same compiler and standard library as the
-//     tsubaki binary. std::string, std::filesystem::path and
-//     std::expected<std::string, std::error_code> cross the boundary by
-//     reference, so another libstdc++ is not compatible, and a C compiler
-//     cannot produce one.
-//   - Every function keeps its noexcept. Nothing may escape into tsubaki; wrap
-//     a body that can throw.
-//   - tsubaki_checksum_file() assigns `out` on every path, success or failure.
-//     A default-constructed `out` means "success, empty digest" and would be
-//     written to the manifest as a blank checksum.
-//   - A successful digest is hexadecimal and at least 32 characters long,
-//     MD5's width. listscanner recognises a checksum from that length up, so a
+//   - Only plain data crosses the boundary. The `char *` arguments are
+//     tsubaki's memory: read-only, and valid only for the length of the call,
+//     so a module must not keep either pointer. The result is a plain aggregate
+//     returned by value and its buffer belongs to tsubaki too. No std::string,
+//     no std::filesystem::path, no std::expected, no std::error_code, no
+//     exception and no allocation of the module's own is ever handed back.
+//     That is what makes a statically linked tsubaki safe: nothing the module
+//     allocates is freed by tsubaki, and nothing tsubaki owns is freed by the
+//     module.
+//   - Because only plain data crosses, the two sides need not share a standard
+//     library, but they must agree on the ABI: same architecture, same calling
+//     convention, C++23, and the module built as a position-independent shared
+//     object.
+//   - Every function keeps its noexcept. Anything that can throw is caught
+//     inside the module; nothing may escape into tsubaki.
+//   - tsubaki_checksum_file() fills `result` on every path, success or failure,
+//     and starts from a zeroed struct so that no field is ever read unset.
+//     `result.result` is tsubaki's buffer of TSUBAKI_MAX_RESULT_LENGTH bytes:
+//     the digest goes there and nowhere else, never past the end, and a digest
+//     that does not fit is an error rather than a truncation.
+//   - `result.errcode` is 0 on success and an errno value otherwise, and it is
+//     the only way to report a failure. Do not build a std::error_code in the
+//     module: its category lives in the module's own standard library, so the
+//     message it produces would be allocated there and freed by tsubaki.
+//   - A successful digest is hexadecimal, at least 32 characters long, MD5's
+//     width. listscanner recognises a checksum from that length up, so a
 //     shorter value is read back as a path and a manifest holding it verifies
-//     as unsure. Write lowercase, like the built-in algorithms.
+//     as unsure. Write lowercase, like the built-in algorithms, and NUL
+//     terminate it inside the buffer.
 //   - The name is the contract. A digest that changes length or meaning needs a
 //     new name, not a new version of the old one: a manifest records only the
 //     name, so keeping it means keeping the old output.
@@ -32,51 +47,69 @@
 //     list and refuses the module there, before resolving the other symbols.
 //   - A module is never unloaded, so a provider may keep whatever the loader
 //     initialized, and must not assume any cleanup call.
+//   - A module is self-contained: tsubaki exports no symbols to it and hands it
+//     no runtime to borrow. A statically linked tsubaki still loads modules
+//     through the system C library, so the module must be built against the
+//     same glibc generation that tsubaki was linked with.
 //
 // tsubaki 与 provider 模块之间的契约，全文如下：provider 是一个共享对象（`.so`），
 // 只导出下面这四个符号，tsubaki 也只通过它们访问 provider。
 //
-//   - 按 C++23 编译，编译器与标准库要和编译出 tsubaki 可执行文件的那一套一致。
-//     std::string、std::filesystem::path 和
-//     std::expected<std::string, std::error_code> 都是按引用跨边界的，
-//     换成另一份 libstdc++ 就不兼容，C 编译器也造不出这样的模块。
-//   - 每个函数都要守住 noexcept。任何东西都不能逃进 tsubaki；函数体里可能
-//     抛异常的部分自己用 try/catch 包住。
-//   - tsubaki_checksum_file() 无论走哪条分支都要给 `out` 赋值，成功失败都
-//     一样。默认构造的 `out` 表示"成功、摘要为空"，这个空值会被当成空白
-//     校验和写进清单。
-//   - 成功的摘要是十六进制，长度至少 32 个字符，也就是 MD5 的宽度。
-//     listscanner 只把这一长度及以上的串当成校验和，所以更短的值会被当成
-//     路径读回来，含这种值的清单在 verify 时算 unsure。写小写，和内置算法
-//     一致。
-//   - 名字就是契约。摘要的长度或含义变了，就要换新名字，而不是在旧名字下
-//     出新版本：清单只记录名字，留着名字就等于承诺输出不变。
-//   - tsubaki_check_key() 只在 provider 带密钥时被询问，而且只会收到非空
-//     密钥；由它判断该密钥是否可用。
-//   - tsubaki_provider_name() 返回非空且稳定的字符串，而且不能是内建算法
-//     名字：加载时 tsubaki 会拿它去比对自己的内建清单，命中就在那里拒掉
-//     这个模块，其余符号根本不会被解析。
-//   - 模块不会被卸载，所以 provider 可以一直持有加载器初始化时给的东西，
-//     也不要指望有任何清理调用。
+//   - 跨边界的只有纯数据。`char *` 参数是 tsubaki 的内存：只读，且只在本次调用
+//     期间有效，所以模块不能保留这两个指针。返回值是按值传回的平凡聚合体，它里面
+//     的缓冲同样属于 tsubaki。std::string、std::filesystem::path、std::expected、
+//     std::error_code、异常，以及模块自己分配的任何对象都不会交回给 tsubaki。
+//     静态链接的 tsubaki 之所以能安全加载模块，靠的正是这一点：模块分配的东西永远
+//     不由 tsubaki 释放，tsubaki 的东西也永远不由模块释放。
+//   - 因为只跨纯数据，两边不必共用同一套标准库；但仍须在同一 ABI 下编译：同一
+//     架构、同一调用约定、C++23，模块按位置无关的方式编成共享对象。
+//   - 每个函数都要守住 noexcept。任何可能抛异常的部分都在模块内部 catch 掉，什么
+//     都不能逃进 tsubaki。
+//   - tsubaki_checksum_file() 无论成功失败都要填好 `result`，并且从一个全零的结构
+//     体开始，免得有任何字段没赋值就被读到。`result.result` 是 tsubaki 的缓冲，大小
+//     为 TSUBAKI_MAX_RESULT_LENGTH：摘要只能写在这里，不许越过边界，装不下的摘要算
+//     错误，不做截断。
+//   - `result.errcode` 成功时为 0，失败时为 errno 值，这是报错的唯一途径。不要在
+//     模块里构造 std::error_code：它的 category 住在模块自己那份标准库里，由它产生
+//     的错误消息会在那边分配、由 tsubaki 释放。
+//   - 成功的摘要是十六进制，长度至少 32 个字符，也就是 MD5 的宽度。listscanner 只
+//     把这一长度及以上的串当成校验和，所以更短的值会被当成路径读回来，含这种值的
+//     清单在 verify 时算 unsure。写小写，和内置算法一致，并在缓冲内用 NUL 结尾。
+//   - 名字就是契约。摘要的长度或含义变了，就要换新名字，而不是在旧名字下出新版本：
+//     清单只记录名字，留着名字就等于承诺输出不变。
+//   - tsubaki_check_key() 只在 provider 带密钥时被询问，而且只会收到非空密钥；由它
+//     判断该密钥是否可用。
+//   - tsubaki_provider_name() 返回非空且稳定的字符串，而且不能是内建算法名字：加载
+//     时 tsubaki 会拿它去比对自己的内建清单，命中就在那里拒掉这个模块，其余符号
+//     根本不会被解析。
+//   - 模块不会被卸载，所以 provider 可以一直持有加载器初始化时给的东西，也不要指望
+//     有任何清理调用。
+//   - 模块必须自包含：tsubaki 不向它导出符号，也不给它可借用的运行时。静态链接的
+//     tsubaki 仍然要通过系统 C 库来加载模块，所以模块必须针对 tsubaki 链接时所用的
+//     同一代 glibc 编译。
 
-#include <expected>
-#include <filesystem>
-#include <string>
-#include <system_error>
+// 256 hex characters, twice the widest digest built here, plus the terminating
+// NUL that lets tsubaki read the result as a C string.
+#define TSUBAKI_MAX_RESULT_LENGTH 257
 
-namespace tsubaki::provider
+namespace tsubaki
 {
 extern "C"
 {
+    struct tsubaki_checksum_result
+    {
+        char result[TSUBAKI_MAX_RESULT_LENGTH];
+        int errcode;
+    };
+
     const char *tsubaki_provider_name() noexcept;
 
     bool tsubaki_is_keyed() noexcept;
 
-    bool tsubaki_check_key(const std::string &key) noexcept;
+    bool tsubaki_check_key(const char *key) noexcept;
 
-    void tsubaki_checksum_file(
-        const std::filesystem::path &path, const std::string &key,
-        std::expected<std::string, std::error_code> &out) noexcept;
+    tsubaki_checksum_result tsubaki_checksum_file(const char *path,
+                                                  const char *key) noexcept;
 }
-} // namespace tsubaki::provider
+} // namespace tsubaki
 #endif

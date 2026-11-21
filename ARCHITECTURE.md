@@ -242,15 +242,27 @@ the exception: `--algorithm` constructs a local `dpf_instance` of its own.
 `set_algo()` tries `str_to_alg()` before `find_provider()`, so name lookup
 cannot reach a provider for a built-in name either. For a provider,
 `keyed()` asks `tsubaki_is_keyed()`, `set_key()` asks `tsubaki_check_key()`
-instead of `check_key_validity()`, and `calc()` calls `tsubaki_checksum_file()`
-with an `expected` out-parameter the module must assign, success or failure.
+instead of `check_key_validity()`, and `calc()` calls `tsubaki_checksum_file()`,
+which returns a `tsubaki_checksum_result` by value: a digest buffer of
+`TSUBAKI_MAX_RESULT_LENGTH` bytes that belongs to `checksum_api`, plus an
+errno-style code the module must fill on every path.
 
-The boundary is C++, not C: `std::string`, `std::filesystem::path` and
-`std::expected<std::string, std::error_code>` cross it by reference, so a
-provider needs the same compiler and standard library as `tsubaki`, C++23, and
-a `-fPIC` shared object. Its digest must be at least 32 hex characters — MD5's
-length — because `listscanner` only recognises a checksum from that length up;
-a shorter one is read back as a path, and `verify` calls the line unsure.
+The boundary carries plain data only. `calc()` keeps the result on its own
+stack and hands the module two `const char *` it may only read; the module
+writes the digest into the buffer that came back with the struct and reports
+failure as an `int`. Nothing the module allocates is ever freed here, and
+nothing here is freed there, which is what lets a statically linked `tsubaki` —
+one private copy of glibc — load a module that brings in the shared one without
+a cross-allocator free. The `std::error_code` in the returned `expected` is
+built by `checksum_api` from that `int` with `std::make_error_code()`, so its
+category and the message it produces stay in tsubaki's own standard library; an
+`error_code` made inside a module would carry a category from the module's
+library and its message would be allocated there and freed here. A module is
+still self-contained, must not keep either pointer, and has to match the glibc
+generation tsubaki was linked with. Its digest must be at least 32 hex
+characters — MD5's length — because `listscanner` only recognises a checksum
+from that length up; a shorter one is read back as a path, and `verify` calls
+the line unsure.
 
 
 ## Workers, progress and report

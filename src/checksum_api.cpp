@@ -4,6 +4,7 @@
 #include "checksum_api.hpp"
 #include "checksum.hpp"
 #include "dpframework.hpp"
+#include "dynamic_provider_header.hpp"
 
 #include <expected>
 #include <string>
@@ -12,8 +13,6 @@
 
 namespace tsubaki
 {
-checksum_api::checksum_api() = default;
-
 bool checksum_api::ok() const
 {
     return err == checksum_error::none;
@@ -78,7 +77,7 @@ bool checksum_api::set_key(std::string _key)
     }
     if (algo == algorithm::dynamic)
     {
-        if (pro.check_key == nullptr || !pro.check_key(_key))
+        if (pro.check_key == nullptr || !pro.check_key(_key.c_str()))
         {
             err = checksum_error::invalid_key;
             return false;
@@ -108,9 +107,10 @@ checksum_api::calc(const std::filesystem::path &target) const
     if (pro.implement == nullptr)
         return std::unexpected(
             std::make_error_code(std::errc::operation_not_supported));
-
-    std::expected<std::string, std::error_code> result;
-    pro.implement(target, key, result);
-    return result;
+    auto result = pro.implement(target.c_str(), key.c_str());
+    auto ec = std::make_error_code(static_cast<std::errc>(result.errcode));
+    if (ec)
+        return std::unexpected(ec);
+    return std::string(result.result);
 }
 } // namespace tsubaki

@@ -190,8 +190,12 @@ template for a provider of your own.
   `tsubaki_provider_name()` returns the name to use on the command line,
   `tsubaki_is_keyed()` says whether a key is required, `tsubaki_check_key()`
   accepts or rejects a key, and `tsubaki_checksum_file()` computes the digest
-  into an `std::expected<std::string, std::error_code>` that it must assign
-  whether it succeeds or fails.
+  into a `tsubaki_checksum_result` returned by value: a caller-owned buffer for
+  the digest plus an errno-style `errcode`, both filled on success and on
+  failure. Only plain data crosses — no `std::string`, no
+  `std::filesystem::path`, no `std::expected`, no `std::error_code` — so
+  nothing is ever allocated on one side and freed on the other. That is what
+  lets a statically linked `tsubaki` load modules at all.
 - **Where the name works.** Everywhere an algorithm name is accepted, `verify`
   `-u` included. A built-in name always wins: a module that reports one is
   refused while it loads, with an error naming the file, and never reaches the
@@ -202,16 +206,20 @@ template for a provider of your own.
   algorithm (`needs a key`, exit status 64) and validates it through
   `tsubaki_check_key()`; there is no length limit to declare.
 - **What the digest must look like.** At least 32 hexadecimal characters —
-  MD5's length. `listscanner` only recognises a checksum from that length up, so
-  a shorter digest is read back as a path and `verify` reports the line as
-  unsure. Anything weaker than MD5 has no business behind this ABI anyway.
-- **How it must be built.** The boundary is C++, not C: `std::string`,
-  `std::filesystem::path` and `std::expected<std::string, std::error_code>` are
-  passed by reference, so a provider needs the same compiler and standard
-  library as `tsubaki`, compiled as a C++23 `-fPIC` shared object. One project
-  may build several algorithms — try this first: they share the contract header
-  and the file loop — emitting one `.so` per name, and the directory walk picks
-  up every one of them.
+  MD5's length — lowercase, NUL terminated, and shorter than
+  `TSUBAKI_MAX_RESULT_LENGTH`. `listscanner` only recognises a checksum from
+  that length up, so a shorter digest is read back as a path and `verify`
+  reports the line as unsure. Anything weaker than MD5 has no business behind
+  this ABI anyway.
+- **How it must be built.** A C++23 `-fPIC` shared object for the same
+  architecture and calling convention as `tsubaki`. The boundary carries plain
+  data only, so the two sides no longer have to share one standard library, but
+  a module is self-contained: `tsubaki` exports no symbols to it and hands it no
+  runtime to borrow, and a statically linked `tsubaki` still loads modules
+  through the system C library, so the module has to match the glibc generation
+  `tsubaki` was linked with. One project may build several algorithms — try
+  this first: they share the contract header and the file loop — emitting one
+  `.so` per name, and the directory walk picks up every one of them.
 - **What goes wrong.** A path that is not a readable directory, a `.so` that
   `dlopen` refuses, a missing symbol: each prints one `Error:` line on stderr
   and is skipped, and none of them changes the exit status. Modules stay loaded

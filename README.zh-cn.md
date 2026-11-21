@@ -157,22 +157,26 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 - **provider 要导出什么。** 四个 `extern "C"` 符号，声明在
   `include/dynamic_provider_header.hpp` 里：`tsubaki_provider_name()` 给出命令行上
   用的名字，`tsubaki_is_keyed()` 说明是否需要密钥，`tsubaki_check_key()` 接受或拒绝
-  一个密钥，`tsubaki_checksum_file()` 把摘要算进一个
-  `std::expected<std::string, std::error_code>`。这个头文件同时也是契约全文：编译
-  方式、`noexcept`、必须赋值的出参、摘要的最小长度、名字与输出的绑定关系都写在
-  里面，写 provider 时照它做即可。
+  一个密钥，`tsubaki_checksum_file()` 把摘要算进一个按值返回的
+  `tsubaki_checksum_result`：调用方拥有的摘要缓冲，加上一个 errno 风格的
+  `errcode`，成功失败都要填好。跨边界的只有纯数据——没有 `std::string`、没有
+  `std::filesystem::path`、没有 `std::expected`、没有 `std::error_code`——所以永远
+  不会出现一边分配、另一边释放。静态链接的 `tsubaki` 之所以还能加载模块，靠的就是
+  这一点。
 - **名字能用在哪。** 所有接受算法名的地方，包括 `verify` 的 `-u`。内建名字永远
   优先：模块自报的名字若是内建算法，加载时就被拒掉并打印出文件名，根本进不了表，
   所以 `.so` 抢不走 `sha256`。两个 provider 抢同一个名字时先加载的胜出——先是
   环境变量里的顺序，然后才是各目录内的遍历顺序。
 - **密钥。** 带密钥的 provider 索取密钥的方式与内建密钥算法一致（`needs a key`，
   退出码 64），合法性由 `tsubaki_check_key()` 判断，没有长度上限可声明。
-- **摘要长什么样。** 至少 32 个十六进制字符，也就是 MD5 的长度。`listscanner` 只从
-  这一长度起才认校验和，更短的值会被当成路径读回来，`verify` 会把那一行算作
-  unsure。何况比 MD5 还弱的算法本来就不该走这套 ABI。
-- **怎么编译。** 这条边界是 C++ 而不是 C：`std::string`、`std::filesystem::path`
-  和 `std::expected<std::string, std::error_code>` 都按引用跨界，所以 provider 必须
-  用和 `tsubaki` 相同的编译器与标准库，以 C++23 编成 `-fPIC` 动态库。一个工程里
+- **摘要长什么样。** 至少 32 个十六进制字符，也就是 MD5 的长度；小写，以 NUL 结尾，
+  且短于 `TSUBAKI_MAX_RESULT_LENGTH`。`listscanner` 只从这一长度起才认校验和，更短
+  的值会被当成路径读回来，`verify` 会把那一行算作 unsure。何况比 MD5 还弱的算法
+  本来就不该走这套 ABI。
+- **怎么编译。** 按 C++23 编成 `-fPIC` 动态库，架构与调用约定要和 `tsubaki` 一致。
+  边界上只走纯数据，所以两边不必再共用同一套标准库；但模块必须自包含：`tsubaki`
+  不向它导出符号，也不给它可借用的运行时，而静态链接的 `tsubaki` 仍然要通过系统
+  C 库加载模块，所以模块必须匹配 `tsubaki` 链接时所用的那一代 glibc。一个工程里
   可以放多个算法——推荐先这样组织，契约头文件和读取文件的循环都能共用——一个名字
   出一个 `.so`，目录遍历会把它们全部收进来。
 - **出错会怎样。** 路径不是可读目录、`dlopen` 拒绝某个 `.so`、少了符号：各打一行

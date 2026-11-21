@@ -4,7 +4,7 @@
 #ifndef LCPROJECTS_TSUBAKI_DPFRAMEWORK_HPP
 #define LCPROJECTS_TSUBAKI_DPFRAMEWORK_HPP
 
-#include <expected>
+#include "dynamic_provider_header.hpp"
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -35,9 +35,8 @@ struct provider
     void *handle = nullptr;
     const char *(*name)() = nullptr;
     bool (*is_keyed)() = nullptr;
-    bool (*check_key)(const std::string &) = nullptr;
-    void (*implement)(const std::filesystem::path &, const std::string &,
-                      std::expected<std::string, std::error_code> &) = nullptr;
+    bool (*check_key)(const char *) = nullptr;
+    tsubaki_checksum_result (*implement)(const char *, const char *) = nullptr;
 
     provider(const std::filesystem::path &path);
     provider() = default;

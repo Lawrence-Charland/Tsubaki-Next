@@ -34,7 +34,7 @@ class checksum_api
     provider pro = dpf.not_found;
 
   public:
-    checksum_api();
+    checksum_api() = default;
     checksum_api(const checksum_api &) = delete;
     checksum_api &operator=(const checksum_api &) = delete;
 
