@@ -220,8 +220,9 @@ provider 来说，`keyed()` 问 `tsubaki_is_keyed()`，`set_key()` 问
 `TSUBAKI_MAX_RESULT_LENGTH` 字节、归 `checksum_api` 所有的摘要缓冲，加上一个
 errno 风格的错误码，模块无论成败都必须填好。
 
-这条边界上走的是纯数据。`calc()` 把结果留在自己的栈上，交给模块的只有两个只能读的
-`const char *`；模块把摘要写进随结构体一起回来的缓冲，用 `int` 报错。模块分配的东西
+这条边界上走的是纯数据。`calc()` 把结果留在自己的栈上，交给模块的只有路径和密钥两个
+只能读的 `const char *`，密钥还带着自己的长度——它是字节串，不是 C 字符串；模块把摘要
+写进随结构体一起回来的缓冲，用 `int` 报错。模块分配的东西
 这里永远不释放，这里的东西模块也永远不释放，静态链接的 `tsubaki`（自带一份 glibc）
 才能加载一个把共享 glibc 带进来的模块而不发生跨分配器 free。返回的 `expected` 里那个
 `std::error_code` 由 `checksum_api` 用 `std::make_error_code()` 从那个 `int` 造出来，

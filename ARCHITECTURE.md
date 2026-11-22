@@ -257,9 +257,10 @@ which returns a `tsubaki_checksum_result` by value: a digest buffer of
 errno-style code the module must fill on every path.
 
 The boundary carries plain data only. `calc()` keeps the result on its own
-stack and hands the module two `const char *` it may only read; the module
-writes the digest into the buffer that came back with the struct and reports
-failure as an `int`. Nothing the module allocates is ever freed here, and
+stack and hands the module the path and the key as `const char *` it may only
+read, the key with its own length because it is a byte string, not a C string;
+the module writes the digest into the buffer that came back with the struct and
+reports failure as an `int`. Nothing the module allocates is ever freed here, and
 nothing here is freed there, which is what lets a statically linked `tsubaki` —
 one private copy of glibc — load a module that brings in the shared one without
 a cross-allocator free. The `std::error_code` in the returned `expected` is

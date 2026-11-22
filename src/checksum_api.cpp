@@ -77,7 +77,8 @@ bool checksum_api::set_key(std::string _key)
     }
     if (algo == algorithm::dynamic)
     {
-        if (pro.check_key == nullptr || !pro.check_key(_key.c_str()))
+        if (pro.check_key == nullptr ||
+            !pro.check_key(_key.data(), _key.size()))
         {
             err = checksum_error::invalid_key;
             return false;
@@ -107,7 +108,7 @@ checksum_api::calc(const std::filesystem::path &target) const
     if (pro.implement == nullptr)
         return std::unexpected(
             std::make_error_code(std::errc::operation_not_supported));
-    auto result = pro.implement(target.c_str(), key.c_str());
+    auto result = pro.implement(target.c_str(), key.data(), key.size());
     auto ec = std::make_error_code(static_cast<std::errc>(result.errcode));
     if (ec)
         return std::unexpected(ec);

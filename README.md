@@ -243,7 +243,9 @@ template for a provider of your own.
   walk order inside each directory.
 - **Keys.** A keyed provider is asked for a key like any built-in keyed
   algorithm (`needs a key`, exit status 64) and validates it through
-  `tsubaki_check_key()`; there is no length limit to declare.
+  `tsubaki_check_key()`. The key is a byte string whose length is passed
+  separately, so it may contain NUL bytes; there is no length limit to
+  declare.
 - **What the digest must look like.** At least 32 hexadecimal characters —
   MD5's length — lowercase, NUL terminated, and shorter than
   `TSUBAKI_MAX_RESULT_LENGTH`. `listscanner` only recognises a checksum from

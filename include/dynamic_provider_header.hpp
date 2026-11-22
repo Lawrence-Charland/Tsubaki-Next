@@ -4,6 +4,8 @@
 #ifndef LCPROJECTS_TSUBAKI_DYNAMIC_PROVIDER_HEADER_HPP
 #define LCPROJECTS_TSUBAKI_DYNAMIC_PROVIDER_HEADER_HPP
 
+#include <cstddef>
+
 // The contract between tsubaki and a provider module, in full: a provider is a
 // shared object exporting exactly these four symbols, and tsubaki reaches it
 // through nothing else.
@@ -23,7 +25,9 @@
 //     object.
 //   - Every function keeps its noexcept. Anything that can throw is caught
 //     inside the module; nothing may escape into tsubaki.
-//   - tsubaki_checksum_file() fills `result` on every path, success or failure,
+//   - tsubaki_checksum_file() takes the same byte string as `check_key()`, with
+//     its length in `key_len`; `key_len` is 0 for a provider that ignores the
+//     key. It fills `result` on every path, success or failure,
 //     and starts from a zeroed struct so that no field is ever read unset.
 //     `result.result` is tsubaki's buffer of TSUBAKI_MAX_RESULT_LENGTH bytes:
 //     the digest goes there and nowhere else, never past the end, and a digest
@@ -41,7 +45,21 @@
 //     new name, not a new version of the old one: a manifest records only the
 //     name, so keeping it means keeping the old output.
 //   - tsubaki_check_key() is asked only for a keyed provider, and only about a
-//     non-empty key; it decides whether the key is acceptable.
+//     non-empty key; it decides whether the key is acceptable. The key is a byte
+//     string, not a C string: it is not NUL terminated and may contain NUL
+//     bytes, and `length` is the only length there is.
+//   - tsubaki_algo_info() is optional. When the symbol is missing, tsubaki
+//     prints "No information provided." A module that exports it returns a
+//     short, static, human-readable description of the algorithm and the key
+//     it wants, in the same shape the built-in providers use:
+//       Digest:     32 bytes
+//       Key:        none
+//       Note:       BLAKE3 (RFC draft). ...
+//     The string is read-only and lives as long as the module, so it may be a
+//     literal. Nothing in it is parsed by tsubaki; it is printed verbatim.
+//     tsubaki prints a "Source:" line above these three -- "built-in" for its
+//     own algorithms, the module's path for anything loaded from disk. That
+//     line belongs to tsubaki, so a module must not return one of its own.
 //   - tsubaki_algo_info() is optional. When the symbol is missing, tsubaki
 //     prints "No information provided." A module that exports it returns a
 //     short, static, human-readable description of the algorithm and the key
@@ -78,7 +96,8 @@
 //     架构、同一调用约定、C++23，模块按位置无关的方式编成共享对象。
 //   - 每个函数都要守住 noexcept。任何可能抛异常的部分都在模块内部 catch 掉，什么
 //     都不能逃进 tsubaki。
-//   - tsubaki_checksum_file() 无论成功失败都要填好 `result`，并且从一个全零的结构
+//   - tsubaki_checksum_file() 收到的密钥与 check_key() 相同，长度在 `length` 里；
+//     忽略密钥的 provider 会拿到 0。它无论成功失败都要填好 `result`，并且从一个全零的结构
 //     体开始，免得有任何字段没赋值就被读到。`result.result` 是 tsubaki 的缓冲，大小
 //     为 TSUBAKI_MAX_RESULT_LENGTH：摘要只能写在这里，不许越过边界，装不下的摘要算
 //     错误，不做截断。
@@ -91,7 +110,18 @@
 //   - 名字就是契约。摘要的长度或含义变了，就要换新名字，而不是在旧名字下出新版本：
 //     清单只记录名字，留着名字就等于承诺输出不变。
 //   - tsubaki_check_key() 只在 provider 带密钥时被询问，而且只会收到非空密钥；由它
-//     判断该密钥是否可用。
+//     判断该密钥是否可用。密钥是字节串而不是 C 字符串：它不以 NUL 结尾，里面可以
+//     有 NUL 字节，长度只有 `length` 这一个来源。
+//   - tsubaki_algo_info() 是可选的。模块没有导出这个符号时，tsubaki 打印
+//     “No information provided.”。导出它的模块返回一段静态的、给人读的短说明，
+//     描述算法和它要求的密钥，形状与内建 provider 一致：
+//       Digest:     32 bytes
+//       Key:        none
+//       Note:       BLAKE3（RFC 草案）……
+//     这段字符串只读，生命周期与模块相同，可以直接用字面量。tsubaki 不解析其中
+//     的任何内容，原样打印。在这三行之上，tsubaki 会再打一行 “Source:”：内建
+//     算法是 “built-in”，从磁盘加载的是模块路径。这一行归 tsubaki 管，模块不要
+//     自己返回。
 //   - tsubaki_algo_info() 是可选的。模块没有导出这个符号时，tsubaki 打印
 //     “No information provided.”。导出它的模块返回一段静态的、给人读的短说明，
 //     描述算法和它要求的密钥，形状与内建 provider 一致：
@@ -132,10 +162,13 @@ extern "C"
 
     bool tsubaki_is_keyed() noexcept;
 
-    bool tsubaki_check_key(const char *key) noexcept;
+    // `key` is a byte string of `length` bytes, not a C string.
+    bool tsubaki_check_key(const char *key, std::size_t length) noexcept;
 
+    // `length` is 0 for a provider that ignores the key.
     tsubaki_checksum_result tsubaki_checksum_file(const char *path,
-                                                  const char *key) noexcept;
+                                                  const char *key,
+                                                  std::size_t length) noexcept;
 }
 } // namespace tsubaki
 #endif
