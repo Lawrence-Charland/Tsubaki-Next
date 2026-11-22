@@ -116,7 +116,7 @@ Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`。
   落到谁手里；`evaluate(group)` 只处理一个组。
 
 `include/cmdline.hpp` 里的条目可以同时属于多个组：`general` 放 `subcmd`、
-`--help`、`--version`、`--algorithm`；`key-file`、`key`、`strip-crlf`、
+`--help`、`--version`、`--algorithm`；`key-file`、`key`、`text`、
 `threads`、`verbose` 属于 `sum` 和 `verify`；`output` 属于 `sum`、`verify` 和
 `cmp`；`sum` 还有 excludes、lists、follow-symlinks、force-rescan、algorithm、files；`sum_int` 放
 内部的 `verify_sumint` 标志；`verify` 加 `to_verify` 和 `use_algo`；`cmp` 加

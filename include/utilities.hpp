@@ -25,7 +25,7 @@ std::vector<std::string> get_env_arr(const std::string &env_name,
 
 bool is_checksum(const std::string &target);
 
-std::optional<std::string> get_file_content(std::istream &is, bool strip_crlf);
+std::optional<std::string> get_file_content(std::istream &is, bool text);
 
 std::optional<std::string>
 get_comment_value(const std::filesystem::path &target, const std::string &key);

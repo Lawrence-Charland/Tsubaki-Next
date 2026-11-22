@@ -8,6 +8,7 @@
 #include <fstream>
 #include <ios>
 #include <istream>
+#include <iterator>
 #include <string>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -79,22 +80,14 @@ bool is_checksum(const std::string &target)
     return true;
 }
 
-std::optional<std::string> get_file_content(std::istream &is, bool strip_crlf)
+std::optional<std::string> get_file_content(std::istream &is, bool text)
 {
     std::string key;
-    std::string line;
-    bool first = true;
     try
     {
-        while (std::getline(is, line))
-        {
-            if (strip_crlf && !line.empty() && line.back() == '\r')
-                line.pop_back();
-            if (!first)
-                key.push_back('\n');
-            key += line;
-            first = false;
-        }
+        // Byte-for-byte by default: whatever is in the stream is the key.
+        key.assign(std::istreambuf_iterator<char>(is),
+                   std::istreambuf_iterator<char>());
     }
     catch (const std::ios_base::failure &)
     {
@@ -102,8 +95,24 @@ std::optional<std::string> get_file_content(std::istream &is, bool strip_crlf)
     }
     if (is.bad() || (is.fail() && !is.eof()))
         return {};
-    while (!key.empty() && (key.back() == '\n' || key.back() == '\r'))
-        key.pop_back();
+    if (text)
+    {
+        // Text mode means the same thing as $(cat key): CRLF counts as a line
+        // ending rather than as content, and so does whatever trails the last
+        // line. A lone CR stays, because it is not a CRLF.
+        std::string normalized;
+        normalized.reserve(key.size());
+        for (std::size_t i = 0; i < key.size(); ++i)
+        {
+            if (key[i] == '\r' && i + 1 < key.size() && key[i + 1] == '\n')
+                continue;
+            normalized.push_back(key[i]);
+        }
+        while (!normalized.empty() &&
+               (normalized.back() == '\n' || normalized.back() == '\r'))
+            normalized.pop_back();
+        key = std::move(normalized);
+    }
     if (key.empty())
         return {};
     return key;

@@ -132,7 +132,7 @@ and compiled in as a source file. Tsubaki-Next only uses `ap_instance`,
   `evaluate(group)` restricts this to one group.
 
 Entries in `include/cmdline.hpp` may join several groups: `general` holds
-`subcmd`, `--help`, `--version`, `--algorithm`; `key-file`, `key`, `strip-crlf`,
+`subcmd`, `--help`, `--version`, `--algorithm`; `key-file`, `key`, `text`,
 `threads` and `verbose` belong to `sum` and `verify`; `output` joins `sum`,
 `verify` and `cmp`; `sum` also has excludes, lists, follow-symlinks,
 force-rescan, algorithm

@@ -29,7 +29,7 @@ inline constexpr const char *list_alg = "list_alg";
 inline constexpr const char *help = "help";
 inline constexpr const char *key = "key";
 inline constexpr const char *key_file = "key_file";
-inline constexpr const char *strip_crlf = "strip_crlf";
+inline constexpr const char *text = "text";
 inline constexpr const char *threads = "threads";
 inline constexpr const char *output = "output";
 inline constexpr const char *verbose = "verbose";
@@ -133,13 +133,14 @@ static inline ap_instance def_args()
                 }
             ),
             ap_entry(
-                cmdline_entry::strip_crlf,
+                cmdline_entry::text,
                 ap_type::flag,
                 {
                     {ap_defkey::group, cmdline_group::sum},
                     {ap_defkey::group, cmdline_group::verify},
-                    {ap_defkey::explanations,"--strip-crlf"},
-                    {ap_defkey::long_name,"strip-crlf"},
+                    {ap_defkey::explanations,"-T or --text"},
+                    {ap_defkey::long_name,"text"},
+                    {ap_defkey::short_name,"T"},
                     {ap_defkey::max_repetition,"1"},
                 }
             ),

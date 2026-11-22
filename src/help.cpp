@@ -49,7 +49,7 @@ Options (sum, verify):
   -t<n>, --thread=<n>         worker threads
   -k<key>, --key=<key>        key for keyed algorithms
   -K<file>, --key-file=<file> key file, "-" for stdin
-      --strip-crlf            read a CRLF key file as if it used LF
+  -T, --text                  read a key file as text: CRLF to LF, trim endings
   -o<file>, --output=<file>   output file, "-" for stdout
 
 Options (sum only):

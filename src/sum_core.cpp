@@ -93,7 +93,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
             if (!api.keyed())
             {
                 if (!key_cont.empty() || !key_file_cont.empty() ||
-                    cmdline.entry(cmdline_entry::strip_crlf).repetition)
+                    cmdline.entry(cmdline_entry::text).repetition)
                 {
                     std::cerr << "Warning: \"" << api.name()
                               << "\" doesn't need key." << std::endl;
@@ -117,7 +117,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                     }
                     auto key_read = get_file_content(
                         *is_key, static_cast<bool>(
-                                     cmdline.entry(cmdline_entry::strip_crlf)
+                                     cmdline.entry(cmdline_entry::text)
                                          .repetition));
                     if (!key_read)
                     {

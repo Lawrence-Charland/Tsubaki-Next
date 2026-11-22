@@ -285,8 +285,8 @@ directories both hold a build of the same algorithm.
 | `-v`, `--verbose`              | live progress indicator on stderr; not shown for `none`              |
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
-| `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin); trailing CR/LF dropped; ignored by plain digests |
-| `--strip-crlf`                 | read the key file (or `-K -` stdin) with LF-only line endings, so a CRLF file yields the same key as an LF one |
+| `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin), byte for byte; ignored by plain digests |
+| `-T`, `--text`                  | read the key file (or `-K -` stdin) as text: CRLF folds to LF, the trailing line ending goes, a lone CR stays; ignored by plain digests |
 | `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp); `-` means stdout |
 | `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only) |
 | `-c`, `--canonical`            | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only) |
@@ -297,7 +297,7 @@ directories both hold a build of the same algorithm.
 
 `--threads`, `--excludes` and `--lists` are accepted as aliases.
 
-`verify` accepts `-v`, `-t`, `-k`, `-K`, `--strip-crlf` and `-o` with the same
+`verify` accepts `-v`, `-t`, `-k`, `-K`, `-T` (`--text`) and `-o` with the same
 meanings, plus `-u` to name the algorithm. It takes no algorithm or file
 positional, and rejects `-e`, `-l`, `-s` and `-f`: the paths, the algorithm when
 `-u` is absent and the unconditional rescan all come from the checksum file.
@@ -305,7 +305,7 @@ That file may be `-` for stdin, but the `Algorithm:` header cannot then be
 prefetched, so a `-` input requires `-u`.
 
 `cmp` accepts only `-o` and `-c`. It never hashes anything, so it takes no
-algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `--strip-crlf`,
+algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `-T`,
 `-e`, `-l`, `-s` and `-f` are rejected with exit status 64. Its two positionals
 are the result files to compare, not paths to hash.
 
@@ -350,16 +350,19 @@ A key comes from one of two places, never both:
   they are, with no hex or escape decoding, so `-k 00ff` is the four-byte key
   `0`, `0`, `f`, `f`.
 - `--key-file` reads it from a file, or from stdin when the path is `-`. The
-  whole stream is read and any run of trailing CR/LF is dropped, so
-  `echo secret > key` yields `secret`, while interior newlines, NUL bytes and
-  trailing spaces stay part of the key. A missing, unreadable or empty file
-  exits 66. Add `--strip-crlf` when the file may have been written on Windows:
-  it drops the CR of every CRLF line ending, so `a\r\nb\r\n` becomes `a\nb`
-  instead of `a\r\nb`. It never rewrites a `--key` literal.
+  whole stream is read and the bytes become the key as they are, so
+  `echo secret > key` yields `secret` plus one newline (seven bytes), not
+  `secret`. The key is exactly what the file holds; `xxd key | tail` tells you
+  what it is. A missing, unreadable or empty file exits 66. Add `-T` (`--text`)
+  when the file may have been written on Windows: it reads the file as text,
+  the way `$(cat key)` would, so every CRLF folds to LF and the CR/LF left at
+  the tail are dropped, while a lone CR stays as part of the key. That makes
+  `secret\r\n` give `secret` and `a\r\nb\r\n` give `a\nb`. It never rewrites a
+  `--key` literal.
 
 `-k` and `-K` together are rejected with exit status 64, and so is `-K -`
 together with a `-` input: stdin may be named only once. With a plain digest,
-`-k`, `-K` and `--strip-crlf` are ignored with a warning and the key file is
+`-k`, `-K` and `-T` are ignored with a warning and the key file is
 not even opened.
 
 One run uses one key for every file; to check the same tree under two keys, run
