@@ -120,15 +120,17 @@ above, linking the system's OpenSSL. A source build needs no static library.
 tsubaki sum [options] <algorithm> <file|dir>...
 tsubaki verify [options] <checksum-file|->   (- for stdin, needs -u)
 tsubaki cmp [options] <left-list> <right-list>
+tsubaki algo-info <algorithm>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
 ```
 
 A subcommand is required: `sum` calculates checksums, `verify` re-checks a
-file written by `sum`, and `cmp` compares two such files. `--help`, `--version`
-and `--algorithm` (or `-a`) are the only invocations that do not need one; any
-other word in the subcommand position is rejected as an unknown subcommand.
+file written by `sum`, `cmp` compares two such files, and `algo-info` explains
+one algorithm. `--help`, `--version` and `--algorithm` (or `-a`) are the only
+invocations that do not need one; any other word in the subcommand position is
+rejected as an unknown subcommand.
 Those three are checked before validation, so they also win over every argument
 error: running `tsubaki -a junk` prints the algorithm table and exits 0. When
 several of them are given, `--help` wins over `--version`, and both win over
@@ -137,7 +139,7 @@ several of them are given, `--help` wins over `--version`, and both win over
 Everything up to [Verifying](#verifying) describes `sum`; `verify` reuses the
 checksum-file format and the `-v`, `-t`, `-k`, `-K`, `-o` and `-u` options. `cmp`
 reuses the same format, but takes two files and only the `-o` and `-c`
-options.
+options. `algo-info` takes no options and no file, only an algorithm name.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
 a directory, a file, or `-` for stdin, and the kinds can be mixed in one
@@ -197,6 +199,12 @@ implementation instead of repeating the list above by hand.
 A second `ALGORITHM`, `KEYED`, `SOURCE` table follows when provider modules were
 loaded; see below.
 
+`tsubaki algo-info <algorithm>` prints the same facts for one name: a `Source:`
+line (`built-in`, or the path of the module that supplied it), the digest width,
+the key format, and a short note. It accepts provider names as well, and falls
+back to "No information provided." for a module that does not export the
+optional `tsubaki_algo_info()`.
+
 ### Dynamic algorithms
 
 An algorithm that is not built in can come from a shared object. List the
@@ -211,17 +219,22 @@ are ready to use. That repository's README lists what it currently contains.
 It is also the shortest way to see the contract compiled and is a fair
 template for a provider of your own.
 
-- **What a provider exports.** Four `extern "C"` symbols, declared for it in
-  `include/dynamic_provider_header.hpp`, which also states the contract in full:
-  `tsubaki_provider_name()` returns the name to use on the command line,
-  `tsubaki_is_keyed()` says whether a key is required, `tsubaki_check_key()`
-  accepts or rejects a key, and `tsubaki_checksum_file()` computes the digest
+- **What a provider exports.** Four required `extern "C"` symbols and an
+  optional `tsubaki_algo_info()`, declared for it in
+  `include/dynamic_provider_header.hpp`, which
+  also states the contract in full: `tsubaki_provider_name()` returns the name
+  to use on the command line, `tsubaki_is_keyed()` says whether a key is
+  required, `tsubaki_check_key()` accepts or rejects a key, and
+  `tsubaki_checksum_file()` computes the digest
   into a `tsubaki_checksum_result` returned by value: a caller-owned buffer for
   the digest plus an errno-style `errcode`, both filled on success and on
   failure. Only plain data crosses — no `std::string`, no
   `std::filesystem::path`, no `std::expected`, no `std::error_code` — so
   nothing is ever allocated on one side and freed on the other. That is what
-  lets a statically linked `tsubaki` load modules at all.
+  lets a statically linked `tsubaki` load modules at all. The optional
+  `tsubaki_algo_info()` returns three static lines (`Digest:`, `Key:`, `Note:`)
+  that `tsubaki algo-info` prints verbatim; the `Source:` line above them is
+  added by `tsubaki`, not by the module.
 - **Where the name works.** Everywhere an algorithm name is accepted, `verify`
   `-u` included. A built-in name always wins: a module that reports one is
   refused while it loads, with an error naming the file, and never reaches the
@@ -706,7 +719,7 @@ two independent attempts side by side: `old` is the author's own version,
 
 The project builds exactly one executable, `tsubaki`, and will keep doing so.
 Features are added as subcommands of that binary rather than as further targets;
-`sum`, `verify` and `cmp` are the three that exist today.
+`sum`, `verify`, `cmp` and `algo-info` are the four that exist today.
 
 `verify` streams: it compares one file at a time and never needs the whole
 listing in memory. `cmp` is the exception: it holds both listings and decides
@@ -717,7 +730,7 @@ once they are loaded.
 The hashing pipeline stays one-way: a path is hashed and written out, never
 collected. `cmp` is the opposite shape and is not built on that pipeline: it
 reads the two listings into memory and compares them only after both are
-loaded. Nothing beyond these three subcommands is designed.
+loaded. Nothing beyond these four subcommands is designed.
 
 ## Architecture
 

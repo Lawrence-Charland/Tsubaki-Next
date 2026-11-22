@@ -25,6 +25,13 @@ once both are loaded:
   argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> compare ──> out
 ```
 
+`algo-info` has no pipeline at all. It resolves one name and prints it:
+
+```
+  argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
+                                               └─> dpf_instance ──> provider::algo_info
+```
+
 ## Contents
 
 - [Startup and dispatch](#startup-and-dispatch)
@@ -48,8 +55,8 @@ once both are loaded:
 plus `--help`, `--version` and `--algorithm` — from `def_args()` in
 `include/cmdline.hpp`. The three flags are handled before validation, so they
 need no subcommand and win over argument errors. After `fine()` validates
-`general`, `subcmd` selects one of `sum_main()`, `verify_main()` or
-`cmp_main()`; anything else exits 64. The dispatch sits in a try/catch that maps
+`general`, `subcmd` selects one of `sum_main()`, `verify_main()`,
+`cmp_main()` or `algo_info_core()`; anything else exits 64. The dispatch sits in a try/catch that maps
 an escaped exception to 255.
 
 `sum_main(cmdline, internal)` evaluates the `sum` group (`sum_int` too when
@@ -224,10 +231,12 @@ the loading:
 - Every file whose extension is exactly `.so` becomes a `provider`: `dlopen()`
   with `RTLD_NOW | RTLD_LOCAL`, then `dlsym()` for `tsubaki_provider_name()`,
   whose answer is checked against `str_to_alg()`. A module reporting a built-in
-  name is refused at that point, before the other three symbols are looked up,
-  so a `.so` cannot shadow `sha256` even when it loads first. What survives gets
-  `dlsym()` for the remaining `tsubaki_*` symbols declared in
-  `include/dynamic_provider_header.hpp`. `provider_msg` records how far that
+  name is refused at that point, before the other symbols are looked up, so a
+  `.so` cannot shadow `sha256` even when it loads first. What survives gets
+  `dlsym()` for the remaining required `tsubaki_*` symbols declared in
+  `include/dynamic_provider_header.hpp`, plus the optional
+  `tsubaki_algo_info()`: if that lookup fails the pointer becomes
+  `no_algo_info()`, which is what `algo-info` prints instead. `provider_msg` records how far that
   got; anything but `success` is printed and dropped. The handle is never
   closed, so a module lives as long as the process.
 - `provider_mapper` is keyed by the name the module reports and filled with
@@ -414,6 +423,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `src/sum_core.cpp` | `sum` argument group checks, startup sequence, stream construction |
 | `src/verify_core.cpp` | `verify` argument group, `-u` override, header lookup, internal `sum` invocation |
 | `src/cmp_core.cpp` | `cmp` argument group, import of both listings, path and checksum matching, section output |
+| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` argument group, `get_info_builtin()` and the driver that prints a built-in or provider description |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
@@ -423,7 +433,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `src/checksum.cpp` | the OpenSSL side: `digest_for()`, `mac_for()`, `stream_file()`, `checksum_file()` and `checksum_file_key()` |
 | `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` and `checksum_api`: name resolution, key handling, `calc()` routing |
 | `include/dpframework.hpp`, `src/dpframework.cpp` | `provider_msg`, `provider` (one `dlopen`/`dlsym` load) and `dpf_instance` (the environment scan) |
-| `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: the four `extern "C"` symbols |
+| `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: four required `extern "C"` symbols plus an optional `tsubaki_algo_info()` |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |

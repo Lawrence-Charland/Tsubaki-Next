@@ -104,20 +104,22 @@ Linux 预设都用绝对路径固定了 GCC（`/usr/bin/g++`），如果本机�
 tsubaki sum [选项] <算法> <文件|目录>...
 tsubaki verify [选项] <校验和文件|->   （`-` 表示 stdin，需要 -u）
 tsubaki cmp [选项] <左清单> <右清单>
+tsubaki algo-info <算法>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
 ```
 
 子命令是必需的：`sum` 计算校验和，`verify` 复核 `sum` 写出的结果文件，`cmp` 比较
-两份这样的结果文件。只有 `--help`、`--version` 和 `--algorithm`（`-a`）不需要子命令；
+两份这样的结果文件，`algo-info` 说明单个算法。只有 `--help`、`--version` 和
+`--algorithm`（`-a`）不需要子命令；
 子命令位置上换成别的词会按未知子命令报错。这三个都在校验之前检查，所以也优先于其它
 参数错误：`tsubaki -a junk` 照样打印算法表并退出 0。同时给出多个时，`--help` 优先于
 `--version`，两者又都优先于 `--algorithm`。
 
 下文直到 [校验](#校验) 都在讲 `sum`；`verify` 复用同一份校验和文件格式以及
 `-v`、`-t`、`-k`、`-K`、`-o`、`-u` 这几个选项。`cmp` 复用同一份格式，但它要两份文件，
-而且只接受 `-o` 和 `-c`。
+而且只接受 `-o` 和 `-c`。`algo-info` 不要选项，也不要文件，只收一个算法名。
 
 `算法` 是位置参数，它后面的输入也是。输入可以是目录、文件，或者 `-`（标准输入），
 可以混着写。
@@ -166,6 +168,11 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 是把上面的列表再抄一遍。有 provider 模块被加载时，后面还会跟一张 `ALGORITHM`、
 `KEYED`、`SOURCE` 表，见下一节。
 
+`tsubaki algo-info <算法>` 把同一批事实按单个名字打出来：一行 `Source:`（内建是
+`built-in`，动态算法是提供它的模块路径），然后是摘要宽度、密钥格式，以及一小段
+说明。provider 的名字也能查；模块没导出可选的 `tsubaki_algo_info()` 时显示
+“No information provided.”。
+
 ### 动态算法
 
 不在内建清单里的算法可以由动态库（shared object）提供。把目录写进
@@ -178,15 +185,17 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 算法以那个仓库的 README 为准。想看清契约被编译成什么样，看它最快，自己写
 provider 也可以直接照抄。
 
-- **provider 要导出什么。** 四个 `extern "C"` 符号，声明在
-  `include/dynamic_provider_header.hpp` 里：`tsubaki_provider_name()` 给出命令行上
-  用的名字，`tsubaki_is_keyed()` 说明是否需要密钥，`tsubaki_check_key()` 接受或拒绝
-  一个密钥，`tsubaki_checksum_file()` 把摘要算进一个按值返回的
+- **provider 要导出什么。** 四个必需的 `extern "C"` 符号，外加一个可选的
+  `tsubaki_algo_info()`，都声明在 `include/dynamic_provider_header.hpp` 里：
+  `tsubaki_provider_name()` 给出命令行上用的名字，`tsubaki_is_keyed()` 说明是否需要
+  密钥，`tsubaki_check_key()` 接受或拒绝一个密钥，`tsubaki_checksum_file()` 把摘要
+  算进一个按值返回的
   `tsubaki_checksum_result`：调用方拥有的摘要缓冲，加上一个 errno 风格的
   `errcode`，成功失败都要填好。跨边界的只有纯数据——没有 `std::string`、没有
   `std::filesystem::path`、没有 `std::expected`、没有 `std::error_code`——所以永远
   不会出现一边分配、另一边释放。静态链接的 `tsubaki` 之所以还能加载模块，靠的就是
-  这一点。
+  这一点。可选的 `tsubaki_algo_info()` 返回一段静态的 `Digest:`/`Key:`/`Note:`
+  三行文本，`tsubaki algo-info` 会原样打印；`Source:` 那一行由 `tsubaki` 自己加。
 - **名字能用在哪。** 所有接受算法名的地方，包括 `verify` 的 `-u`。内建名字永远
   优先：模块自报的名字若是内建算法，加载时就被拒掉并打印出文件名，根本进不了表，
   所以 `.so` 抢不走 `sha256`。两个 provider 抢同一个名字时先加载的胜出——先是
@@ -589,7 +598,8 @@ Tsubaki-Next 是早先 Tsubaki 的精神续作。已归档的
 维护。
 
 本项目只构建一个可执行文件 `tsubaki`，而且会一直如此。新功能以**子命令**的形式加
-进这个二进制，而不是再开新目标：目前有 `sum`、`verify` 和 `cmp` 三个子命令。
+进这个二进制，而不是再开新目标：目前有 `sum`、`verify`、`cmp` 和 `algo-info`
+四个子命令。
 
 `sum` 和 `verify` 是流式的：一次只计算或比较一个文件，不需要把整份清单读进内存。`cmp` 则是例外：
 它把两份清单都读进内存，等两边都到齐了才开始下结论。
@@ -597,7 +607,7 @@ Tsubaki-Next 是早先 Tsubaki 的精神续作。已归档的
 ## 路线图
 
 计算流水线保持单向：一条路径算完就写出去，从不收集。`cmp` 是反过来的形状，也不建在
-那条流水线上：它把两份清单读进内存，两边都载入之后才比较。除了这三个子命令，暂时
+那条流水线上：它把两份清单读进内存，两边都载入之后才比较。除了这四个子命令，暂时
 没有别的设计。
 
 ## 架构

@@ -22,6 +22,13 @@
   argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> 比较 ──> 输出
 ```
 
+`algo-info` 没有流水线。它只解析一个名字然后打印：
+
+```
+  argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
+                                               └─> dpf_instance ──> provider::algo_info
+```
+
 ## 目录
 
 - [启动与分发](#启动与分发)
@@ -44,7 +51,8 @@
 `main()`（`src/main.cpp`）用 `include/cmdline.hpp` 里 `def_args()` 的定义解析
 `general` 组——`subcmd` 位置参数加上 `--help`、`--version`、`--algorithm`。三个标志
 在校验之前处理，所以不需要子命令，也优先于参数错误。`fine()` 校验完 `general` 后，
-`subcmd` 选择 `sum_main()`、`verify_main()` 或 `cmp_main()`；其它值退出 64。分发包在
+`subcmd` 选择 `sum_main()`、`verify_main()`、`cmp_main()` 或
+`algo_info_core()`；其它值退出 64。分发包在
 try/catch 里，逃出的异常映射成 255。
 
 `sum_main(cmdline, internal)` 评估 `sum` 组（`internal` 为真时再加上 `sum_int`，
@@ -190,9 +198,11 @@ std::vector<error_entry> take_errors();
   不是目录时 `dirscanner` 抛 `std::invalid_argument`，构造函数按路径接住、打印并继续。
 - 后缀恰好是 `.so` 的文件才会变成 `provider`：先 `dlopen()`（`RTLD_NOW |
   RTLD_LOCAL`），再 `dlsym()` 取 `tsubaki_provider_name()`，拿它自报的名字去问
-  `str_to_alg()`。自报的名字若是内建算法，就在这一步被拒掉，另外三个符号根本不会
-  去查，所以即使这个 `.so` 先被加载，也抢不走 `sha256`。活下来的模块继续为
-  `include/dynamic_provider_header.hpp` 里声明的其余 `tsubaki_*` 符号 `dlsym()`。
+  `str_to_alg()`。自报的名字若是内建算法，就在这一步被拒掉，其余符号根本不会去查，
+  所以即使这个 `.so` 先被加载，也抢不走 `sha256`。活下来的模块继续为
+  `include/dynamic_provider_header.hpp` 里声明的其余必需 `tsubaki_*` 符号
+  `dlsym()`，外加可选的 `tsubaki_algo_info()`：查不到时指针就指向
+  `no_algo_info()`，`algo-info` 打印的正是它。
   `provider_msg` 记下走到哪一步；只要不是 `success` 就打印出来并丢弃。句柄永不
   关闭，模块与进程同寿。
 - `provider_mapper` 以模块自报的名字为键，用 `emplace()` 填充，所以重名时保留先
@@ -356,6 +366,7 @@ tsubaki sum sha256 . -e build -l old.txt
 | `src/sum_core.cpp` | `sum` 参数组的检查、启动流程、流的组装 |
 | `src/verify_core.cpp` | `verify` 参数组、`-u` 覆盖、头部查找、内部 `sum` 调用 |
 | `src/cmp_core.cpp` | `cmp` 参数组、两份清单的导入、路径与校验和匹配、分节输出 |
+| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` 参数组、`get_info_builtin()`，以及打印内建或 provider 说明的驱动 |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | 基类流与它的 `pop()` 过滤 |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | 目录遍历 |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
@@ -365,7 +376,7 @@ tsubaki sum sha256 . -e build -l old.txt
 | `src/checksum.cpp` | OpenSSL 那一侧：`digest_for()`、`mac_for()`、`stream_file()`、`checksum_file()`、`checksum_file_key()` |
 | `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` 与 `checksum_api`：名字解析、密钥处理、`calc()` 分派 |
 | `include/dpframework.hpp`, `src/dpframework.cpp` | `provider_msg`、`provider`（一次 `dlopen`/`dlsym`）与 `dpf_instance`（环境变量扫描） |
-| `include/dynamic_provider_header.hpp` | provider 编译时对照的 ABI：四个 `extern "C"` 符号 |
+| `include/dynamic_provider_header.hpp` | provider 编译时对照的 ABI：四个必需的 `extern "C"` 符号，外加一个可选的 `tsubaki_algo_info()` |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、注释查找、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |
