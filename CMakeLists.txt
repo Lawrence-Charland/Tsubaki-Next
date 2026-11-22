@@ -7,7 +7,44 @@ project(Tsubaki-Next VERSION 2.1.1 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
-find_package(OpenSSL REQUIRED)
+# The sources rely on POSIX headers: dlfcn.h (dynamic providers), unistd.h and
+# fcntl.h (file reads), pthread.h (worker threads), sys/ioctl.h (terminal
+# width). Linux, macOS, the BSDs, illumos, Solaris and Cygwin all provide
+# those; native Windows does not, and is not supported.
+if(WIN32 AND NOT CYGWIN)
+    message(FATAL_ERROR
+        "Tsubaki-Next targets POSIX systems only (dlfcn.h, unistd.h, "
+        "pthread.h, sys/ioctl.h). Native Windows is not supported; build "
+        "under Cygwin or WSL instead.")
+endif()
+
+# Homebrew keeps OpenSSL outside the default search path on macOS.
+if(APPLE AND NOT DEFINED OPENSSL_ROOT_DIR)
+    foreach(_keg "/opt/homebrew/opt/openssl@3" "/usr/local/opt/openssl@3")
+        if(EXISTS "${_keg}/include/openssl/evp.h")
+            set(OPENSSL_ROOT_DIR "${_keg}")
+            break()
+        endif()
+    endforeach()
+endif()
+
+# <openssl/core_names.h> and EVP_MAC are used unconditionally, so headers and
+# library must both be 3.0 or newer.
+find_package(OpenSSL 3.0 REQUIRED)
+
+# FindOpenSSL reports LibreSSL's own version number, which also starts with 3,
+# but LibreSSL has no EVP_MAC and no core_names.h.
+if(OPENSSL_VERSION MATCHES "LibreSSL")
+    message(FATAL_ERROR
+        "LibreSSL (${OPENSSL_VERSION}) provides no EVP_MAC; install OpenSSL "
+        "3.0 or newer and point OPENSSL_ROOT_DIR at it.")
+endif()
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+message(STATUS "Tsubaki-Next: building for ${CMAKE_SYSTEM_NAME} "
+               "(${CMAKE_SYSTEM_PROCESSOR}, ${CMAKE_CXX_COMPILER_ID})")
 
 # The LC-ArgParser is a separate project, fetched at configure time. SOURCE_SUBDIR
 # names a directory that does not exist, so the library is populated but not
@@ -80,4 +117,11 @@ target_include_directories(tsubaki PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 target_include_directories(tsubaki PRIVATE ${lc-argparser_SOURCE_DIR}/include)
 
-target_link_libraries(tsubaki PRIVATE OpenSSL::Crypto)
+# ${CMAKE_DL_LIBS} is empty where dlopen lives in libc (macOS, the BSDs) and
+# resolves to dl where it is a separate library (glibc, illumos, Cygwin).
+target_link_libraries(tsubaki PRIVATE
+    OpenSSL::Crypto
+    Threads::Threads
+    ${CMAKE_DL_LIBS})
+
+install(TARGETS tsubaki RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

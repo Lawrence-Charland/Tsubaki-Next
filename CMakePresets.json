@@ -12,6 +12,7 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
+
     {
       "name": "linux-gcc-debug",
       "displayName": "Linux GCC Debug",
@@ -46,7 +47,8 @@
     },
     {
       "name": "linux-clang-debug",
-      "displayName": "Linux Clang Debug",
+      "displayName": "Linux Clang Debug (second opinion)",
+      "description": "The one non-GCC preset: build this when you want a second compiler to look at warnings.",
       "inherits": "base",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": {
@@ -54,26 +56,103 @@
         "CMAKE_CXX_COMPILER": "/usr/bin/clang++"
       }
     },
+
     {
-      "name": "linux-clang-release",
-      "displayName": "Linux Clang Release",
+      "name": "macos-debug",
+      "displayName": "macOS Debug",
+      "description": "Uses the default Apple toolchain: GCC cannot target Darwin.",
       "inherits": "base",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "/usr/bin/clang++"
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
-      "name": "linux-clang-dist-static",
-      "displayName": "Linux Clang Static Dist",
-      "inherits": "linux-clang-release",
+      "name": "macos-release",
+      "displayName": "macOS Release",
+      "description": "Uses the default Apple toolchain: GCC cannot target Darwin.",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-dist-static",
+      "displayName": "macOS Static-libcrypto Dist",
+      "inherits": "macos-release",
+      "cacheVariables": {
+        "OPENSSL_USE_STATIC_LIBS": "ON",
+        "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki",
+        "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "ON",
+        "CMAKE_EXE_LINKER_FLAGS": "-Wl,-dead_strip",
+        "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
+      }
+    },
+
+    {
+      "name": "freebsd-debug",
+      "displayName": "FreeBSD Debug",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "freebsd-release",
+      "displayName": "FreeBSD Release",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "freebsd-dist-static",
+      "displayName": "FreeBSD Static Dist",
+      "inherits": "freebsd-release",
       "cacheVariables": {
         "OPENSSL_USE_STATIC_LIBS": "ON",
         "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki",
         "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "ON",
         "CMAKE_EXE_LINKER_FLAGS": "-static -Wl,--gc-sections",
         "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
+      }
+    },
+
+    {
+      "name": "posix-debug",
+      "displayName": "Other POSIX Debug",
+      "description": "NetBSD, OpenBSD, DragonFly, illumos, Solaris, Cygwin. Uses the default c++ in PATH; pass -DCMAKE_CXX_COMPILER to override.",
+      "inherits": "base",
+      "condition": {
+        "type": "not",
+        "condition": {
+          "type": "inList",
+          "string": "${hostSystemName}",
+          "list": ["Linux", "Windows", "Darwin", "FreeBSD"]
+        }
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "posix-release",
+      "displayName": "Other POSIX Release",
+      "description": "NetBSD, OpenBSD, DragonFly, illumos, Solaris, Cygwin. Uses the default c++ in PATH; pass -DCMAKE_CXX_COMPILER to override.",
+      "inherits": "base",
+      "condition": {
+        "type": "not",
+        "condition": {
+          "type": "inList",
+          "string": "${hostSystemName}",
+          "list": ["Linux", "Windows", "Darwin", "FreeBSD"]
+        }
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
       }
     }
   ],
@@ -99,14 +178,58 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
     {
-      "name": "linux-clang-release",
-      "configurePreset": "linux-clang-release",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+      "name": "macos-debug",
+      "configurePreset": "macos-debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
     },
     {
-      "name": "linux-clang-dist-static",
-      "configurePreset": "linux-clang-dist-static",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+      "name": "macos-release",
+      "configurePreset": "macos-release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "macos-dist-static",
+      "configurePreset": "macos-dist-static",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "freebsd-debug",
+      "configurePreset": "freebsd-debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" }
+    },
+    {
+      "name": "freebsd-release",
+      "configurePreset": "freebsd-release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" }
+    },
+    {
+      "name": "freebsd-dist-static",
+      "configurePreset": "freebsd-dist-static",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" }
+    },
+    {
+      "name": "posix-debug",
+      "configurePreset": "posix-debug",
+      "condition": {
+        "type": "not",
+        "condition": {
+          "type": "inList",
+          "string": "${hostSystemName}",
+          "list": ["Linux", "Windows", "Darwin", "FreeBSD"]
+        }
+      }
+    },
+    {
+      "name": "posix-release",
+      "configurePreset": "posix-release",
+      "condition": {
+        "type": "not",
+        "condition": {
+          "type": "inList",
+          "string": "${hostSystemName}",
+          "list": ["Linux", "Windows", "Darwin", "FreeBSD"]
+        }
+      }
     }
   ]
 }

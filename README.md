@@ -53,9 +53,9 @@ turns it into a fine-grained comparison against the old one.
 ## Build
 
 Requirements: CMake 3.28+ (that is what `CMakePresets.json` asks for;
-`CMakeLists.txt` itself accepts 3.10), a C++23 compiler, OpenSSL (only
-`libcrypto` is linked; the keyed algorithms need OpenSSL 3.0 or newer for
-`EVP_MAC`), Ninja for the bundled presets.
+`CMakeLists.txt` itself accepts 3.10), a C++23 compiler, OpenSSL 3.0 or newer
+(only `libcrypto` is linked; `EVP_MAC` and `<openssl/core_names.h>` set the
+floor), Ninja for the bundled presets.
 
 ```sh
 cmake --preset linux-gcc-release
@@ -74,20 +74,57 @@ cmake --preset linux-gcc-release \
 ```
 
 The binary lands in `build/linux-gcc-release/tsubaki`. A `linux-gcc-debug`
-preset exists with the same layout.
+preset exists with the same layout. `cmake --install build/linux-gcc-release`
+copies it to `CMAKE_INSTALL_PREFIX/bin` (`/usr/local` by default).
 
-Every GCC preset has a Clang counterpart that differs only in the compiler
-(`/usr/bin/clang++`): `linux-clang-debug`, `linux-clang-release` and
-`linux-clang-dist-static`. Substitute the name, for example
-`cmake --preset linux-clang-release`. Both families pin the compiler by
-absolute path (`/usr/bin/g++` or `/usr/bin/clang++`), so pass
+### Supported platforms
+
+Tsubaki-Next is a POSIX program: dynamic providers need `dlfcn.h`, file reads
+use `unistd.h` and `fcntl.h`, the worker pool uses `pthread.h`, and the
+progress line asks `sys/ioctl.h` for the terminal width. Everything that
+provides those builds without source changes:
+
+| System | Presets | Notes |
+| --- | --- | --- |
+| Linux, glibc or musl | `linux-gcc-debug`, `linux-gcc-release`, `linux-gcc-dist-static` | GCC is the default toolchain. x86_64, aarch64, armv7, riscv64, loongarch64 and ppc64le are all supported. |
+| macOS 12+ | `macos-debug`, `macos-release`, `macos-dist-static` | Xcode 16+ (libc++ needs it for `std::expected`). Apple toolchain only — GCC cannot target Darwin. Homebrew's `openssl@3` is found automatically. |
+| FreeBSD 13+ | `freebsd-debug`, `freebsd-release`, `freebsd-dist-static` | Base clang; `pkg install openssl3`. |
+| NetBSD, OpenBSD, DragonFly, illumos, Solaris, Cygwin | `posix-debug`, `posix-release` | Need OpenSSL 3.0+ from ports or pkgsrc: LibreSSL has no `EVP_MAC`, and CMake stops with an explicit message instead of failing at the first include. On Cygwin the providers must end in `.so`; the providers project sets that suffix. |
+| **Native Windows (MSVC, MinGW)** | — | **Not supported and not planned.** The sources use `dlfcn.h`, `unistd.h`, `pthread.h`, `sys/ioctl.h`, `::open`/`::read` and `O_CLOEXEC`, none of which native Windows has. Use WSL or Cygwin. |
+
+`linux-clang-debug` is the single non-GCC preset, kept as a second opinion on
+compiler warnings. Every Linux preset pins its compiler by absolute path
+(`/usr/bin/g++`, or `/usr/bin/clang++` for that one), so pass
 `-DCMAKE_CXX_COMPILER=/path/to/c++` on the configure line if yours lives
-elsewhere.
+elsewhere; the macOS, FreeBSD and other-POSIX presets leave the compiler to
+the platform default.
 
-`linux-gcc-dist-static` and `linux-clang-dist-static` are maintainer-only
-presets for building the redistributable binary; both link the same static
-`libcrypto` from `res/openssl-static-for-tsubaki`. End users should build
-`linux-gcc-release` instead.
+`linux-gcc-dist-static`, `freebsd-dist-static` and `macos-dist-static` are
+maintainer presets: they link the static `libcrypto` from
+`res/openssl-static-for-tsubaki`. End users should build the plain release
+preset instead.
+
+### Distributions
+
+`scripts/build-release-dist-all.sh` builds the statically linked binary for
+every supported target and packs it into
+`res/distributions/tsubaki-<version>-<target>.tar.gz` (the binary plus
+`COPYING`). It uses one compiler, GCC, and cross-compiles wherever a GCC cross
+toolchain exists:
+
+```sh
+scripts/build-release-dist-all.sh --list            # matrix, and what is missing
+scripts/build-release-dist-all.sh                   # everything this host can build
+scripts/build-release-dist-all.sh linux-aarch64     # just the named targets
+```
+
+Every target needs its GCC (`<arch>-linux-gnu-g++`, or the FreeBSD
+equivalents) and a static `libcrypto` built for that target in
+`res/openssl-static-for-tsubaki-<target>/`; `scripts/build-static-openssl.sh`
+builds one natively. Targets whose toolchain is missing are skipped and listed
+in the summary, and the script exits non-zero only when a target it started
+fails. macOS targets build on macOS alone, and `posix-native` covers the
+remaining systems when the script runs there.
 
 ## Usage
 

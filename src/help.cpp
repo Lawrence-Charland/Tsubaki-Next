@@ -196,9 +196,7 @@ void show_version(std::ostream &os)
 #endif
 
     std::string platform;
-#if defined(_WIN32)
-    platform = "Windows";
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
     platform = "macOS";
 #elif defined(__linux__)
     platform = "Linux";

@@ -44,8 +44,8 @@ Tsubaki 校验和工具的重写版，核心是校验和计算本身：覆盖大
 ## 构建
 
 需要 CMake 3.28+（这是 `CMakePresets.json` 的要求；`CMakeLists.txt` 本身只要求
-3.10）、支持 C++23 的编译器、OpenSSL（只链接 `libcrypto`；密钥哈希需要 3.0 起的
-`EVP_MAC`），预设里用的是 Ninja。
+3.10）、支持 C++23 的编译器、OpenSSL 3.0 及以上（只链接 `libcrypto`；`EVP_MAC` 与
+`<openssl/core_names.h>` 决定了这个下限），预设里用的是 Ninja。
 
 ```sh
 cmake --preset linux-gcc-release
@@ -63,17 +63,50 @@ cmake --preset linux-gcc-release \
 ```
 
 可执行文件在 `build/linux-gcc-release/tsubaki`。另有布局相同的
-`linux-gcc-debug` 预设。
+`linux-gcc-debug` 预设。`cmake --install build/linux-gcc-release` 会把它装到
+`CMAKE_INSTALL_PREFIX/bin`（默认 `/usr/local`）。
 
-每个 GCC 预设都有一个对应的 Clang 预设，只有编译器不同（`/usr/bin/clang++`）：
-`linux-clang-debug`、`linux-clang-release`、`linux-clang-dist-static`。把预设名
-替换掉即可，例如 `cmake --preset linux-clang-release`。两套预设都用绝对路径固定了
-编译器（`/usr/bin/g++` 或 `/usr/bin/clang++`），如果本机装在其它的位置，配置时加
-`-DCMAKE_CXX_COMPILER=/path/to/c++`。
+### 支持的系统
 
-`linux-gcc-dist-static` 与 `linux-clang-dist-static` 是维护者构建分发二进制用的
-预设，两者链接的是同一份 `res/openssl-static-for-tsubaki` 里的静态 `libcrypto`。
-用户请改用 `linux-gcc-release`。
+Tsubaki-Next 是 POSIX 程序：动态 provider 需要 `dlfcn.h`，读文件用 `unistd.h` 和
+`fcntl.h`，工作线程用 `pthread.h`，进度行靠 `sys/ioctl.h` 取终端宽度。能提供这些的
+系统都不需要改源码就能编译：
+
+| 系统 | 预设 | 说明 |
+| --- | --- | --- |
+| Linux（glibc 或 musl） | `linux-gcc-debug`、`linux-gcc-release`、`linux-gcc-dist-static` | 默认用 GCC。x86_64、aarch64、armv7、riscv64、loongarch64、ppc64le 都支持。 |
+| macOS 12+ | `macos-debug`、`macos-release`、`macos-dist-static` | 需要 Xcode 16+（libc++ 的 `std::expected` 要求）。只能用 Apple 工具链，GCC 不能生成 Darwin 二进制。Homebrew 的 `openssl@3` 会被自动找到。 |
+| FreeBSD 13+ | `freebsd-debug`、`freebsd-release`、`freebsd-dist-static` | 用 base 里的 clang；`pkg install openssl3`。 |
+| NetBSD、OpenBSD、DragonFly、illumos、Solaris、Cygwin | `posix-debug`、`posix-release` | 需要 ports/pkgsrc 里的 OpenSSL 3.0+：LibreSSL 没有 `EVP_MAC`，CMake 会直接给出明确报错，而不是拖到第一个 include 才失败。Cygwin 下 provider 必须是 `.so`，providers 项目已经设置了这个后缀。 |
+| **原生 Windows（MSVC、MinGW）** | — | **不支持，也不打算支持。** 源码用到 `dlfcn.h`、`unistd.h`、`pthread.h`、`sys/ioctl.h`、`::open`/`::read` 和 `O_CLOEXEC`，原生 Windows 一个都没有。请改用 WSL 或 Cygwin。 |
+
+`linux-clang-debug` 是唯一一个非 GCC 预设，留着用来交叉核对编译告警；其余预设一律
+用 GCC。Linux 预设都用绝对路径固定了编译器（`/usr/bin/g++`，这一个用
+`/usr/bin/clang++`），如果本机装在其它的位置，配置时加
+`-DCMAKE_CXX_COMPILER=/path/to/c++`；macOS、FreeBSD 和其它 POSIX 的预设则交给系统
+默认编译器。
+
+`linux-gcc-dist-static`、`freebsd-dist-static` 和 `macos-dist-static` 是维护者预设：
+它们链接 `res/openssl-static-for-tsubaki` 里的静态 `libcrypto`。用户请改用普通的
+release 预设。
+
+### 分发
+
+`scripts/build-release-dist-all.sh` 会把所有支持目标的静态链接版本各构建一份，打包到
+`res/distributions/tsubaki-<版本>-<目标>.tar.gz`（二进制加 `COPYING`）。脚本只用一种
+编译器——GCC，有交叉 GCC 的地方就交叉编译：
+
+```sh
+scripts/build-release-dist-all.sh --list            # 目标矩阵，以及缺什么
+scripts/build-release-dist-all.sh                   # 本机能构建的全部目标
+scripts/build-release-dist-all.sh linux-aarch64     # 只构建指定目标
+```
+
+每个目标都要有对应的 GCC（`<arch>-linux-gnu-g++`，FreeBSD 用相应前缀）和一份为该目标
+编译的静态 `libcrypto`，放在 `res/openssl-static-for-tsubaki-<目标>/`；
+`scripts/build-static-openssl.sh` 负责在本机构建一份。缺工具链的目标会被跳过并在汇总里
+列出；只有已经开始构建却失败的目标才会让脚本返回非零。macOS 目标只能在 macOS 上构建，
+`posix-native` 则在其余系统上运行时兜底。
 
 ## 用法
 
