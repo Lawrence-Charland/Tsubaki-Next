@@ -174,8 +174,9 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 
 现成的 provider 在
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
-里，一个 CMake 工程全包，具体有哪些算法以那个仓库的 README 为准；想看清契约被
-编译成什么样，看它最快，自己写 provider 也可以直接照抄。
+里，一个 CMake 工程全包：直接拉取、编译，里面的动态算法就能拿来用，具体有哪些
+算法以那个仓库的 README 为准。想看清契约被编译成什么样，看它最快，自己写
+provider 也可以直接照抄。
 
 - **provider 要导出什么。** 四个 `extern "C"` 符号，声明在
   `include/dynamic_provider_header.hpp` 里：`tsubaki_provider_name()` 给出命令行上

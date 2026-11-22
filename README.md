@@ -206,9 +206,10 @@ walked recursively and every file whose extension is exactly `.so` is loaded
 
 Ready-made providers live in
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
-as one CMake project; that repository's README lists what it currently ships.
-It is the shortest way to see the contract compiled and is a fair template for
-a provider of your own.
+as one CMake project: clone it, build it, and the dynamic algorithms it ships
+are ready to use. That repository's README lists what it currently contains.
+It is also the shortest way to see the contract compiled and is a fair
+template for a provider of your own.
 
 - **What a provider exports.** Four `extern "C"` symbols, declared for it in
   `include/dynamic_provider_header.hpp`, which also states the contract in full:
