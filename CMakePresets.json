@@ -34,18 +34,6 @@
       }
     },
     {
-      "name": "linux-gcc-dist-static",
-      "displayName": "Linux GCC Static Dist",
-      "inherits": "linux-gcc-release",
-      "cacheVariables": {
-        "OPENSSL_USE_STATIC_LIBS": "ON",
-        "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki",
-        "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "ON",
-        "CMAKE_EXE_LINKER_FLAGS": "-static -Wl,--gc-sections",
-        "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
-      }
-    },
-    {
       "name": "linux-clang-debug",
       "displayName": "Linux Clang Debug (second opinion)",
       "description": "The one non-GCC preset: build this when you want a second compiler to look at warnings.",
@@ -78,19 +66,6 @@
       }
     },
     {
-      "name": "macos-dist-static",
-      "displayName": "macOS Static-libcrypto Dist",
-      "inherits": "macos-release",
-      "cacheVariables": {
-        "OPENSSL_USE_STATIC_LIBS": "ON",
-        "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki",
-        "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "ON",
-        "CMAKE_EXE_LINKER_FLAGS": "-Wl,-dead_strip",
-        "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
-      }
-    },
-
-    {
       "name": "freebsd-debug",
       "displayName": "FreeBSD Debug",
       "inherits": "base",
@@ -108,19 +83,6 @@
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
-    {
-      "name": "freebsd-dist-static",
-      "displayName": "FreeBSD Static Dist",
-      "inherits": "freebsd-release",
-      "cacheVariables": {
-        "OPENSSL_USE_STATIC_LIBS": "ON",
-        "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki",
-        "CMAKE_DISABLE_FIND_PACKAGE_PkgConfig": "ON",
-        "CMAKE_EXE_LINKER_FLAGS": "-static -Wl,--gc-sections",
-        "CMAKE_CXX_FLAGS": "-ffunction-sections -fdata-sections"
-      }
-    },
-
     {
       "name": "posix-debug",
       "displayName": "Other POSIX Debug",
@@ -168,11 +130,6 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
     {
-      "name": "linux-gcc-dist-static",
-      "configurePreset": "linux-gcc-dist-static",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
-    },
-    {
       "name": "linux-clang-debug",
       "configurePreset": "linux-clang-debug",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
@@ -188,11 +145,6 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
     },
     {
-      "name": "macos-dist-static",
-      "configurePreset": "macos-dist-static",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
-    },
-    {
       "name": "freebsd-debug",
       "configurePreset": "freebsd-debug",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" }
@@ -200,11 +152,6 @@
     {
       "name": "freebsd-release",
       "configurePreset": "freebsd-release",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" }
-    },
-    {
-      "name": "freebsd-dist-static",
-      "configurePreset": "freebsd-dist-static",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "FreeBSD" }
     },
     {

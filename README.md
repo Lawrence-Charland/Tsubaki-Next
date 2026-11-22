@@ -52,10 +52,17 @@ turns it into a fine-grained comparison against the old one.
 
 ## Build
 
+Just want the tool? Take the binary from the
+[releases page](https://github.com/Lawrence-Charland/Tsubaki-Next/releases) —
+only Linux is published so far, and OpenSSL is linked in statically, so your
+system does not need to have it at all. Other platforms build from source as
+described below.
+
 Requirements: CMake 3.28+ (that is what `CMakePresets.json` asks for;
 `CMakeLists.txt` itself accepts 3.10), a C++23 compiler, OpenSSL 3.0 or newer
 (only `libcrypto` is linked; `EVP_MAC` and `<openssl/core_names.h>` set the
-floor), Ninja for the bundled presets.
+floor), Ninja for the bundled presets. The system's shared OpenSSL is enough —
+a source build needs no static library at all.
 
 ```sh
 cmake --preset linux-gcc-release
@@ -86,60 +93,26 @@ provides those builds without source changes:
 
 | System | Presets | Notes |
 | --- | --- | --- |
-| Linux, glibc or musl | `linux-gcc-debug`, `linux-gcc-release`, `linux-gcc-dist-static` | GCC is the default toolchain. x86_64, aarch64, armv7, riscv64, loongarch64 and ppc64le are all supported. |
-| macOS 12+ | `macos-debug`, `macos-release`, `macos-dist-static` | Xcode 16+ (libc++ needs it for `std::expected`). Apple toolchain only — GCC cannot target Darwin. Homebrew's `openssl@3` is found automatically. |
-| FreeBSD 13+ | `freebsd-debug`, `freebsd-release`, `freebsd-dist-static` | Base clang; `pkg install openssl3`. |
+| Linux, glibc or musl | `linux-gcc-debug`, `linux-gcc-release` | GCC is the default toolchain. x86_64, aarch64, armv7, riscv64, loongarch64 and ppc64le are all supported. |
+| macOS 12+ | `macos-debug`, `macos-release` | Xcode 16+ (libc++ needs it for `std::expected`). Apple toolchain only — GCC cannot target Darwin. Homebrew's `openssl@3` is found automatically. |
+| FreeBSD 13+ | `freebsd-debug`, `freebsd-release` | Base clang; `pkg install openssl3`. |
 | NetBSD, OpenBSD, DragonFly, illumos, Solaris, Cygwin | `posix-debug`, `posix-release` | Need OpenSSL 3.0+ from ports or pkgsrc: LibreSSL has no `EVP_MAC`, and CMake stops with an explicit message instead of failing at the first include. On Cygwin the providers must end in `.so`; the providers project sets that suffix. |
 | **Native Windows (MSVC, MinGW)** | — | **Not supported and not planned.** The sources use `dlfcn.h`, `unistd.h`, `pthread.h`, `sys/ioctl.h`, `::open`/`::read` and `O_CLOEXEC`, none of which native Windows has. Use WSL or Cygwin. |
 
-`linux-clang-debug` is the single non-GCC preset, kept as a second opinion on
-compiler warnings. Every Linux preset pins its compiler by absolute path
-(`/usr/bin/g++`, or `/usr/bin/clang++` for that one), so pass
-`-DCMAKE_CXX_COMPILER=/path/to/c++` on the configure line if yours lives
-elsewhere; the macOS, FreeBSD and other-POSIX presets leave the compiler to
-the platform default.
+`linux-clang-debug` is the single non-GCC Linux preset, kept as a second opinion
+on compiler warnings. The other Linux presets pin GCC by absolute path
+(`/usr/bin/g++`), so pass `-DCMAKE_CXX_COMPILER=/path/to/c++` on the configure
+line if yours lives elsewhere; the macOS, FreeBSD and other-POSIX presets leave
+the compiler to the platform default.
 
-`linux-gcc-dist-static`, `freebsd-dist-static` and `macos-dist-static` are
-maintainer presets: they link the static `libcrypto` from
-`res/openssl-static-for-tsubaki`. End users should build the plain release
-preset instead.
+### Prebuilt binaries
 
-### Distributions
-
-`scripts/build-release-dist-all.sh` builds the statically linked binary for
-every supported target and packs it into
-`res/distributions/tsubaki-<version>-<target>.tar.gz` (the binary plus
-`COPYING`). It uses one compiler, GCC, and cross-compiles wherever a GCC cross
-toolchain exists:
-
-```sh
-scripts/build-release-dist-all.sh --list            # matrix, and what is missing
-scripts/build-release-dist-all.sh                   # everything this host can build
-scripts/build-release-dist-all.sh linux-aarch64     # just the named targets
-```
-
-Every target needs its GCC (`<arch>-linux-gnu-g++`, or the FreeBSD
-equivalents) and a static `libcrypto` built for that target in
-`res/openssl-static-for-tsubaki-<target>/`. That is what
-`scripts/build-static-openssl.sh` does — it takes the same target names and
-cross-compiles OpenSSL with `<prefix>gcc`:
-
-```sh
-scripts/build-static-openssl.sh --list              # OpenSSL target per platform
-scripts/build-static-openssl.sh 3.5.9               # native libcrypto only
-scripts/build-static-openssl.sh 3.5.9 --all         # every target with a toolchain
-scripts/build-static-openssl.sh 3.5.9 linux-aarch64 # just the named targets
-```
-
-Native output stays in `res/openssl-static-for-tsubaki` (what the presets point
-at); a cross target goes to `res/openssl-static-for-tsubaki-<target>`, which is
-where the distribution script looks for it. Full build logs land in
-`build/openssl-logs/<target>.log`.
-
-Targets whose toolchain is missing are skipped and listed in the summary, and
-the script exits non-zero only when a target it started fails. macOS targets
-build on macOS alone, and `posix-native` covers the remaining systems when the
-script runs there.
+The [releases page](https://github.com/Lawrence-Charland/Tsubaki-Next/releases)
+carries Linux archives only (x86_64, aarch64, armv7l, riscv64, loongarch64):
+statically linked, with OpenSSL compiled in, so no system `libcrypto` is needed
+— unpack and run. macOS, FreeBSD and the other POSIX systems have no prebuilt
+binaries for now; build from source with the release preset from the table
+above, linking the system's OpenSSL. A source build needs no static library.
 
 ## Usage
 
