@@ -164,7 +164,7 @@ std::string get_compiler_info()
 void show_version(std::ostream &os)
 {
     // First line stays machine-parseable: "<name> <version>".
-    os << "tsubaki " << version << '\n';
+    os << "Tsubaki " << version << '\n';
 
 #if defined(TSUBAKI_GIT_COMMIT)
     const std::string commit = TSUBAKI_GIT_COMMIT;
