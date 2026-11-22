@@ -118,7 +118,7 @@ void list_algorithm(std::ostream &os)
     for (const auto &it : mapper)
         if (it != "none")
             os << std::left << std::setw(w) << it
-               << (is_keyed(str_to_alg(it)) ? "Yes" : "No") << '\n';
+               << (is_keyed(str_to_alg(it)) ? "YES" : "NO") << '\n';
     os << "(" << mapper.size() - 1 << " built-in algorithms in total)"
        << std::endl;
     dpf_instance dpf;
