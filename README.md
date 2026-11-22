@@ -120,11 +120,26 @@ scripts/build-release-dist-all.sh linux-aarch64     # just the named targets
 
 Every target needs its GCC (`<arch>-linux-gnu-g++`, or the FreeBSD
 equivalents) and a static `libcrypto` built for that target in
-`res/openssl-static-for-tsubaki-<target>/`; `scripts/build-static-openssl.sh`
-builds one natively. Targets whose toolchain is missing are skipped and listed
-in the summary, and the script exits non-zero only when a target it started
-fails. macOS targets build on macOS alone, and `posix-native` covers the
-remaining systems when the script runs there.
+`res/openssl-static-for-tsubaki-<target>/`. That is what
+`scripts/build-static-openssl.sh` does — it takes the same target names and
+cross-compiles OpenSSL with `<prefix>gcc`:
+
+```sh
+scripts/build-static-openssl.sh --list              # OpenSSL target per platform
+scripts/build-static-openssl.sh 3.5.9               # native libcrypto only
+scripts/build-static-openssl.sh 3.5.9 --all         # every target with a toolchain
+scripts/build-static-openssl.sh 3.5.9 linux-aarch64 # just the named targets
+```
+
+Native output stays in `res/openssl-static-for-tsubaki` (what the presets point
+at); a cross target goes to `res/openssl-static-for-tsubaki-<target>`, which is
+where the distribution script looks for it. Full build logs land in
+`build/openssl-logs/<target>.log`.
+
+Targets whose toolchain is missing are skipped and listed in the summary, and
+the script exits non-zero only when a target it started fails. macOS targets
+build on macOS alone, and `posix-native` covers the remaining systems when the
+script runs there.
 
 ## Usage
 

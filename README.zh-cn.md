@@ -103,10 +103,23 @@ scripts/build-release-dist-all.sh linux-aarch64     # 只构建指定目标
 ```
 
 每个目标都要有对应的 GCC（`<arch>-linux-gnu-g++`，FreeBSD 用相应前缀）和一份为该目标
-编译的静态 `libcrypto`，放在 `res/openssl-static-for-tsubaki-<目标>/`；
-`scripts/build-static-openssl.sh` 负责在本机构建一份。缺工具链的目标会被跳过并在汇总里
-列出；只有已经开始构建却失败的目标才会让脚本返回非零。macOS 目标只能在 macOS 上构建，
-`posix-native` 则在其余系统上运行时兜底。
+编译的静态 `libcrypto`，放在 `res/openssl-static-for-tsubaki-<目标>/`。后者由
+`scripts/build-static-openssl.sh` 负责：它接受同一套目标名，并用 `<前缀>gcc` 交叉
+编译 OpenSSL：
+
+```sh
+scripts/build-static-openssl.sh --list              # 每个平台对应的 OpenSSL 目标
+scripts/build-static-openssl.sh 3.5.9               # 只构建本机 libcrypto
+scripts/build-static-openssl.sh 3.5.9 --all         # 所有工具链齐全的目标
+scripts/build-static-openssl.sh 3.5.9 linux-aarch64 # 只构建指定目标
+```
+
+本机产物仍放在 `res/openssl-static-for-tsubaki`（预设指向这里）；交叉目标的产物放在
+`res/openssl-static-for-tsubaki-<目标>`，正好是分发脚本查找的位置。完整构建日志在
+`build/openssl-logs/<目标>.log`。
+
+缺工具链的目标会被跳过并在汇总里列出；只有已经开始构建却失败的目标才会让脚本返回非零。
+macOS 目标只能在 macOS 上构建，`posix-native` 则在其余系统上运行时兜底。
 
 ## 用法
 
