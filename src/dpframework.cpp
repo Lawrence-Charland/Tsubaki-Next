@@ -17,6 +17,11 @@
 
 namespace tsubaki
 {
+const char *no_algo_info() noexcept
+{
+    return "No information provided.";
+}
+
 provider::provider(const std::filesystem::path &path) : display_path(path)
 {
     handle = dlopen(display_path.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -37,6 +42,10 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
         error = provider_msg::refused;
         return;
     }
+    algo_info = reinterpret_cast<decltype(algo_info)>(
+        dlsym(handle, TSUBAKI_SYMBOL_ALGO_INFO));
+    if (const char *err = dlerror())
+        algo_info = no_algo_info;
     is_keyed = reinterpret_cast<decltype(is_keyed)>(
         dlsym(handle, TSUBAKI_SYMBOL_IS_KEYED));
     if (const char *err = dlerror())

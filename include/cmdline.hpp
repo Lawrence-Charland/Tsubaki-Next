@@ -18,6 +18,7 @@ inline constexpr const char *sum = "sum";
 inline constexpr const char *sum_int = "sum_int";
 inline constexpr const char *verify = "verify";
 inline constexpr const char *cmp = "cmp";
+inline constexpr const char *algo_info = "algo_info";
 } // namespace cmdline_group
 
 namespace cmdline_entry
@@ -43,6 +44,7 @@ inline constexpr const char *to_verify = "to_verify";
 inline constexpr const char *use_algo = "use_algo";
 inline constexpr const char *to_compare = "to_compare";
 inline constexpr const char *canonical = "canonical";
+inline constexpr const char *algo_to_info = "algo_to_info";
 } // namespace cmdline_entry
 
 namespace subcommands
@@ -50,6 +52,7 @@ namespace subcommands
 inline constexpr const char *sum = "sum";
 inline constexpr const char *verify = "verify";
 inline constexpr const char *cmp = "cmp";
+inline constexpr const char *algo_info = "algo-info";
 } // namespace subcommands
 
 using namespace argparser;
@@ -299,6 +302,16 @@ static inline ap_instance def_args()
                     {ap_defkey::explanations,"the two file lists to compare"},
                     {ap_defkey::min_positional_count,"2"},
                     {ap_defkey::max_positional_count,"2"},
+                }
+            ),
+            ap_entry( // Handled in src/algo_info_core.cpp
+                cmdline_entry::algo_to_info,
+                ap_type::positional,
+                {
+                    {ap_defkey::group, cmdline_group::algo_info},
+                    {ap_defkey::explanations,"the algorithm to inquire"},
+                    {ap_defkey::min_positional_count,"1"},
+                    {ap_defkey::max_positional_count,"1"},
                 }
             )
         }

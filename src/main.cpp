@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Lawrence Charland
 
+#include "algo_info_core.hpp"
 #include "argparser.hpp"
 #include "cmdline.hpp"
 #include "core_functions.hpp"
@@ -65,6 +66,8 @@ int main(int argc, char **argv)
             return verify_main(cmdline);
         else if (subcommand == subcommands::cmp)
             return cmp_main(cmdline);
+        else if (subcommand == subcommands::algo_info)
+            return algo_info_core(cmdline);
         else
         {
             std::cerr << "Error: unknown subcommand \"" << subcommand << "\""

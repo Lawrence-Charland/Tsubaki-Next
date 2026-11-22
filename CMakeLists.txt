@@ -75,7 +75,8 @@ add_executable(tsubaki
     ${lc-argparser_SOURCE_DIR}/src/argparser.cpp
     src/verify_core.cpp
     src/cmp_core.cpp
-    src/dpframework.cpp)
+    src/dpframework.cpp
+    src/algo_info_core.cpp)
 
     # ---- build provenance for `tsubaki -V` ----
 set(TSUBAKI_GIT_COMMIT "unknown")

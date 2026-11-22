@@ -42,6 +42,18 @@
 //     name, so keeping it means keeping the old output.
 //   - tsubaki_check_key() is asked only for a keyed provider, and only about a
 //     non-empty key; it decides whether the key is acceptable.
+//   - tsubaki_algo_info() is optional. When the symbol is missing, tsubaki
+//     prints "No information provided." A module that exports it returns a
+//     short, static, human-readable description of the algorithm and the key
+//     it wants, in the same shape the built-in providers use:
+//       Digest:     32 bytes
+//       Key:        none
+//       Note:       BLAKE3 (RFC draft). ...
+//     The string is read-only and lives as long as the module, so it may be a
+//     literal. Nothing in it is parsed by tsubaki; it is printed verbatim.
+//     tsubaki prints a "Source:" line above these three -- "built-in" for its
+//     own algorithms, the module's path for anything loaded from disk. That
+//     line belongs to tsubaki, so a module must not return one of its own.
 //   - tsubaki_provider_name() returns a non-null, stable string, and it must
 //     not be a built-in name: while loading, tsubaki compares it against its own
 //     list and refuses the module there, before resolving the other symbols.
@@ -53,7 +65,8 @@
 //     same glibc generation that tsubaki was linked with.
 //
 // tsubaki 与 provider 模块之间的契约，全文如下：provider 是一个共享对象（`.so`），
-// 只导出下面这四个符号，tsubaki 也只通过它们访问 provider。
+// 导出下面四个必需符号，外加一个可选的 tsubaki_algo_info()；tsubaki 也只通过它们
+// 访问 provider。
 //
 //   - 跨边界的只有纯数据。`char *` 参数是 tsubaki 的内存：只读，且只在本次调用
 //     期间有效，所以模块不能保留这两个指针。返回值是按值传回的平凡聚合体，它里面
@@ -79,6 +92,16 @@
 //     清单只记录名字，留着名字就等于承诺输出不变。
 //   - tsubaki_check_key() 只在 provider 带密钥时被询问，而且只会收到非空密钥；由它
 //     判断该密钥是否可用。
+//   - tsubaki_algo_info() 是可选的。模块没有导出这个符号时，tsubaki 打印
+//     “No information provided.”。导出它的模块返回一段静态的、给人读的短说明，
+//     描述算法和它要求的密钥，形状与内建 provider 一致：
+//       Digest:     32 bytes
+//       Key:        none
+//       Note:       BLAKE3（RFC 草案）……
+//     这段字符串只读，生命周期与模块相同，可以直接用字面量。tsubaki 不解析其中
+//     的任何内容，原样打印。在这三行之上，tsubaki 会再打一行 “Source:”：内建
+//     算法是 “built-in”，从磁盘加载的是模块路径。这一行归 tsubaki 管，模块不要
+//     自己返回。
 //   - tsubaki_provider_name() 返回非空且稳定的字符串，而且不能是内建算法名字：加载
 //     时 tsubaki 会拿它去比对自己的内建清单，命中就在那里拒掉这个模块，其余符号
 //     根本不会被解析。
@@ -103,6 +126,9 @@ extern "C"
     };
 
     const char *tsubaki_provider_name() noexcept;
+
+    // Optional: a module may omit this symbol entirely.
+    const char *tsubaki_algo_info() noexcept;
 
     bool tsubaki_is_keyed() noexcept;
 

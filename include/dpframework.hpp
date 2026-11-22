@@ -13,12 +13,15 @@
 #define TSUBAKI_PROVIDERS_ENV_NAME "TSUBAKI_DYNAMIC_PROVIDER_PATHS"
 
 #define TSUBAKI_SYMBOL_NAME "tsubaki_provider_name"
+#define TSUBAKI_SYMBOL_ALGO_INFO "tsubaki_algo_info"
 #define TSUBAKI_SYMBOL_IS_KEYED "tsubaki_is_keyed"
 #define TSUBAKI_SYMBOL_CHECK_KEY "tsubaki_check_key"
 #define TSUBAKI_SYMBOL_IMPLEMENT "tsubaki_checksum_file"
 
 namespace tsubaki
 {
+const char *no_algo_info() noexcept;
+
 enum class provider_msg
 {
     unknown,
@@ -34,6 +37,7 @@ struct provider
     std::filesystem::path display_path;
     void *handle = nullptr;
     const char *(*name)() = nullptr;
+    const char *(*algo_info)() = nullptr;
     bool (*is_keyed)() = nullptr;
     bool (*check_key)(const char *) = nullptr;
     tsubaki_checksum_result (*implement)(const char *, const char *) = nullptr;
