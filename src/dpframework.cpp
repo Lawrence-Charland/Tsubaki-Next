@@ -75,7 +75,10 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
     need_args = reinterpret_cast<decltype(need_args)>(
         dlsym(handle, TSUBAKI_SYMBOL_NEED_ARGS));
     if (const char *err = dlerror())
+        goto no_args;
+    if (need_args() == false)
     {
+    no_args:
         error = provider_msg::success;
         need_args = dont_need_args;
         return;

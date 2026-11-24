@@ -113,8 +113,10 @@ try/catch 里，逃出的异常映射成 255。
 解析交给 `LC-ArgParser`：一个独立的 C++17 库，由 CMake 拉取并作为源文件编入。
 Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`。
 
-- `pre_parse()` 给 token 打风格标记。`--` 之后、以及匹配不到任何条目的 `-x`/
-  `--foo` 都保持 simple，所以拼错的选项会落到位置参数上，而不是报成选项错误。
+- `pre_parse()` 给 token 打风格标记。匹配不到任何条目的 `-x`/`--foo` 是
+  `simple`，`reparse()` 时还会被重新切分；`--` 之后的词是 `forced_simple`，
+  重新切分时原样跳过，所以它永远只是位置参数。拼错的选项因此落到位置参数上，
+  而不是报成选项错误，`--` 后面的内容也不会在 provider 注册后被重新认作选项。
 - 长选项是 `--name=value`，短选项是 `-ovalue`；分离式取值一直收集到下一个开关或
   条目的取值上限，所以只取一个值的选项都显式声明 `max_value_count = 1`。
 - `evaluate()` 按声明顺序处理条目并删掉各自消费的参数，这个顺序决定了分离式取值
@@ -129,7 +131,14 @@ Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`。
 
 由此带来的几点：`subcmd` 拿走第一个普通参数，所以 `tsubaki sha256 .` 是未知
 子命令；`-e`/`-l` 先于 `files` 取值，所以分离式取值后面不能再跟文件参数；
-`--help` 优先于校验；短名只比较第一个字符。
+`--help` 优先于校验；短名只比较第一个字符；`-` 既能当 `files` 的输入源，也能当
+`-l` 的值，两条路最后都变成读 stdin 的 `listscanner`，所以 `-` 和 `-l -` 等价。
+
+`excludes` 和 `lists` 有意不设 `max_value_count`：排除项和清单常成串出现，
+`-e a b c` 比 `-e a -e b -e c` 省事，代价是分离式写法会一直吞到下一个开关为止。
+喜欢 getopt 那种一次一个值的人，可以给这两条加上 `no_variadic` 重新编译；
+`-e a b c` 会变成 `-e a` 加两个路径参数，不报错，语义却变了，README 里“只有两处
+不合惯例”也就只剩一处。
 
 ## 任务流层
 
@@ -216,12 +225,13 @@ std::vector<error_entry> take_errors();
   `tsubaki_need_more_args()`：没有这个符号就表示不接受额外参数，另两个也不会去
   查；导出它则必须同时导出 `tsubaki_arg_definition()` 与 `tsubaki_take_args()`，
   少一个就像缺任何必需符号一样加载失败。`checksum_api::check_args()` 用
-  `argparser::parse_script()` 解析参数表（这门脚本语言的说明在
-  https://github.com/Lawrence-Charland/LC-ArgParser），把每个条目以
-  `<名字>@dynamic` 注册进 `#dynamic` 组——后缀既避免和 tsubaki 自己的条目撞名，
-  也让报错能看出这是内部要求还是外部要求——再调 `reparse()` 让命令行认得这些新
-  名字，然后求值该组，把值按脚本顺序逐个条目打包成 `tsubaki_pass_content` 交给
-  `tsubaki_take_args()`。调用前它会先查 `fine()`，所以违反声明数量的命令行会像
+  `argparser::parse_script()` 解析参数表（说明在 LC-ArgParser 的 `docs/USAGE.md`
+  的“Script language”；`CMakeLists.txt` 的 `GIT_TAG` 指着哪个提交，就以哪份
+  为准），把每个条目以 `<名字>@dynamic` 注册进 `#dynamic` 组——后缀既避免和
+  tsubaki 自己的条目撞名，也让报错能看出这是内部要求还是外部要求——再调
+  `reparse()` 让命令行认得这些新名字，然后求值该组，把值按脚本顺序逐个条目
+  打包成 `tsubaki_pass_content` 交给 `tsubaki_take_args()`。调用前它会先查
+  `fine()`，所以违反声明数量的命令行会像
   内建选项那样报错（标签用 provider 的 `explanations`），`tsubaki_take_args()`
   根本不会被调用。
 - `algo_info_core()` 也把脚本写出来：`tsubaki_need_more_args()` 返回真时它去取
@@ -232,8 +242,8 @@ std::vector<error_entry> take_errors();
   `--exclude`、`--list` 和文件列表。这个顺序正是 provider 选项不会被当成文件名的
   原因：名字必须先注册，位置参数才会开始收词，而 `pre_parse()` 留下的词只有
   `reparse()` 才会重新检查。代价是 provider 的名字会盖过 tsubaki 自己的，
-  provider 契约里对此有警告。`verify` 把看不懂的参数放在 `--` 之后转交给内部的
-  `sum`，所以 `verify -u alg 名字 -L 128` 也能到达 provider。
+  provider 契约里对此有警告。`verify` 把不认识的位置参数原样追加到内部 `sum`
+  命令行的末尾，所以 `verify -u alg 名字 -L 128` 也能到达 provider。
 
 `checksum_api` 把 `dpf_instance` 存成 `inline static`，所以整个进程只扫一次——第一
 个 `checksum_api` 构造时扫，之后每个都复用那张表：`sum` 与 `verify` 共用一次扫描，
@@ -255,8 +265,10 @@ errno 风格的错误码，模块无论成败都必须填好。
 `std::error_code` 由 `checksum_api` 用 `std::make_error_code()` 从那个 `int` 造出来，
 category 和它产生的消息都留在 tsubaki 自己那份标准库里；模块内部造出来的
 `error_code` 会带着模块那份库的 category，它的消息也会在那边分配、在这边释放。模块
-仍然必须自包含，不能保留那两个指针，并且要匹配 tsubaki 链接时所用的那一代 glibc。
-它算出的摘要宽度不限：清单行总是以校验和开头，不需要猜它在哪结束。
+仍然必须自包含，不能保留那两个指针，并且要和 tsubaki 用同一个 glibc。
+摘要写进那块缓冲，所以最多 256 个字符——`TSUBAKI_MAX_RESULT_LENGTH` 是 257，
+末字节留给 NUL；装不下算错误，不做截断。下限没有：清单行总是以校验和开头，
+不需要猜它在哪结束。
 
 ## 工作线程、进度与报告
 
@@ -316,7 +328,7 @@ hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Uns
 | `TSUBAKI_HASH_ERROR` | 1 | 记录过错误条目；对 `cmp` 来说是没有校验和的清单行、`-c` 无法规范化的路径，或清单读取失败 |
 | `TSUBAKI_INVALID_OPERATION` | 64 | 命令行被拒；`verify` 对不可用的 `Algorithm:` 头、没配 `-u` 的 `-` 输入或输出指向输入也返回它；`cmp` 在两份清单都是 stdin、输出指向其中一份清单、或同一路径重复且校验和不同时也返回它（`EX_USAGE`） |
 | `TSUBAKI_FILE_READ_FAILED` | 66 | `--key-file` 读不了、密钥文件为空、`verify` 的输入不存在或是个目录、`cmp` 的清单读不了（`EX_NOINPUT`） |
-| `TSUBAKI_FATAL` | 70 | `argc` 为 0（`EX_SOFTWARE`） |
+| `TSUBAKI_FATAL` | 70 | `argc` 为 0；provider 需要参数却没给脚本，或脚本解析失败（`EX_SOFTWARE`） |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | `--output` 文件打不开，或结果流写失败（`EX_CANTCREAT`） |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |
 | `TSUBAKI_TERMINATED` | 250 | 第五次 `Ctrl-C` 直接 `_exit()`，报告没写出来 |
@@ -357,7 +369,8 @@ tsubaki sum sha256 . -e build -l old.txt
   provider 动态库，把 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 指向它。名字随后经
   `dpf_instance` 解析，`--algorithm` 会连 `SOURCE` 和是否接受额外参数一起列出，
   `verify -u` 也认。
-  自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要宽度不限。
+  自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要最多 256 个
+  字符。
 
 ## 源码映射
 

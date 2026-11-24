@@ -126,9 +126,11 @@ Parsing is done by `LC-ArgParser`, a standalone C++17 library fetched by CMake
 and compiled in as a source file. Tsubaki-Next only uses `ap_instance`,
 `ap_entry` and `ap_defkey`.
 
-- `pre_parse()` tags tokens. `--` and any unmatched `-x`/`--foo` stay simple,
-  so a misspelled option reaches a positional instead of becoming an option
-  error.
+- `pre_parse()` tags tokens. An unmatched `-x`/`--foo` is `simple` and is
+  re-tokenized by `reparse()`; a word after `--` is `forced_simple` and is
+  skipped there as it stands, so it stays a positional for good. A misspelled
+  option therefore reaches a positional instead of becoming an option error,
+  and nothing after `--` is re-read as an option once a provider registers.
 - Long options take `--name=value`, short ones take `-ovalue`; a separated value
   is collected up to the next switch or the entry's value limit, so
   single-value options declare `max_value_count = 1` explicitly.
@@ -148,7 +150,17 @@ driver evaluates only its own group.
 Consequences worth knowing: `subcmd` takes the first plain argument, so
 `tsubaki sha256 .` is an unknown subcommand; `-e`/`-l` consume values before
 `files`, so a separated value must not be followed by file arguments; `--help`
-wins over validation; and a short name only compares its first character.
+wins over validation; and a short name only compares its first character. `-`
+can be an input source in `files` or a value of `-l`, and both end up as a
+`listscanner` reading stdin, so `-` and `-l -` are equivalent.
+
+`excludes` and `lists` deliberately leave `max_value_count` unset: excludes and
+listings tend to come in runs, and `-e a b c` is less typing than
+`-e a -e b -e c`. The price is that a separated value keeps consuming until the
+next switch. Anyone who prefers getopt's one-value-per-option can add
+`no_variadic` to those two entries and rebuild; `-e a b c` then becomes `-e a`
+plus two path arguments, with no error and a silently different meaning, and the
+README's "only two things break with convention" loses one of them.
 
 ## Task streams
 
@@ -253,7 +265,9 @@ the loading:
   well, so a half-declared trio fails the load like any missing symbol.
   `checksum_api::check_args()` parses the definition with
   `argparser::parse_script()`, whose script language is documented in
-  https://github.com/Lawrence-Charland/LC-ArgParser, registers every entry in
+  LC-ArgParser's `docs/USAGE.md` under "Script language" (`CMakeLists.txt` pins
+  the library to one commit, so that copy is the authority), registers
+  every entry in
   the `#dynamic` group under `<name>@dynamic` — the suffix keeps a provider from
   colliding with, or being confused for, one of tsubaki's own entries — calls
   `reparse()` so the command line recognises the new names, evaluates that
@@ -272,8 +286,8 @@ the loading:
   before the positional collects tokens, and a word left over from
   `pre_parse()` is only re-examined by `reparse()`. The price is that a provider
   name wins over tsubaki's own, which the contract warns about. `verify`
-  passes what it does not understand into the internal `sum` run behind a `--`,
-  so `verify -u alg name -L 128` reaches the provider.
+  appends the positionals it does not understand to the internal `sum` command
+  line as they are, so `verify -u alg name -L 128` reaches the provider.
 
 `checksum_api` holds its `dpf_instance` as `inline static`, so the process scans
 once, when the first `checksum_api` is constructed, and every later one reuses
@@ -301,9 +315,12 @@ built by `checksum_api` from that `int` with `std::make_error_code()`, so its
 category and the message it produces stay in tsubaki's own standard library; an
 `error_code` made inside a module would carry a category from the module's
 library and its message would be allocated there and freed here. A module is
-still self-contained, must not keep either pointer, and has to match the glibc
-generation tsubaki was linked with. Its digest may be any width: a listing
-line always starts with the checksum, so nothing has to guess where it ends.
+still self-contained, must not keep either pointer, and has to use the same
+glibc as tsubaki. The digest goes into that buffer, so it holds at most 256
+characters — `TSUBAKI_MAX_RESULT_LENGTH` is 257 and the last byte is the NUL;
+one that does not fit is an error, not a truncation. There is no lower bound: a
+listing line always starts with the checksum, so nothing has to guess where it
+ends.
 
 
 ## Workers, progress and report
@@ -373,7 +390,7 @@ The codes live in `include/exit_codes.hpp` and are shared by `main()`,
 | `TSUBAKI_HASH_ERROR` | 1 | an error entry was recorded; for `cmp`, a list line without a checksum, a path `-c` could not canonicalize, or a list read error |
 | `TSUBAKI_INVALID_OPERATION` | 64 | a rejected command line; `verify` also for an unusable `Algorithm:` header, a `-` input with no `-u`, or an output equal to the input; `cmp` also when both lists are stdin, when the output names one of the lists, or one path repeats with different checksums (`EX_USAGE`) |
 | `TSUBAKI_FILE_READ_FAILED` | 66 | an unreadable `--key-file`, an empty key file, a missing or directory `verify` input, or an unreadable `cmp` list (`EX_NOINPUT`) |
-| `TSUBAKI_FATAL` | 70 | `argc` is 0 (`EX_SOFTWARE`) |
+| `TSUBAKI_FATAL` | 70 | `argc` is 0; a provider needs arguments but has no script, or the script fails to parse (`EX_SOFTWARE`) |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | the `--output` file cannot be opened, or the result stream fails (`EX_CANTCREAT`) |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
 | `TSUBAKI_TERMINATED` | 250 | the fifth `Ctrl-C` called `_exit()`, so no report was written |
@@ -418,7 +435,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
   `TSUBAKI_DYNAMIC_PROVIDER_PATHS` at it. The name then resolves through
   `dpf_instance`, `--algorithm` lists it with its `SOURCE` and whether it takes
   extra arguments, and `verify -u` accepts it. A module that reports a built-in name is refused at load, so it
-  cannot shadow one, and its digest may be any width.
+  cannot shadow one, and its digest holds at most 256 characters.
 
 ## Source map
 

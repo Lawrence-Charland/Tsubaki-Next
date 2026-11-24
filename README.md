@@ -2,33 +2,37 @@
 
 [中文](README.zh-cn.md)
 
-A reimplementation of the Tsubaki checksum tool, with checksum computation at
-its core. It covers most plain digests and keyed hashes, and hashes a single
-file, a whole directory tree, or every entry of an existing listing — pulling
-from all of them at once and hashing in parallel. A directory scan takes its
-own exclude list. Algorithms outside the built-in list can come from shared
-objects named by an environment variable; see
-[Dynamic algorithms](#dynamic-algorithms).
+Tsubaki computes checksums. Input can be a file, a directory tree, an existing
+manifest or standard input, combined freely in one run and hashed in parallel.
+The built-in algorithms cover the common digests and keyed hashes (HMAC, keyed
+BLAKE2); `tsubaki -a` prints the full list. It is the spiritual successor of the
+original [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki), but not a
+feature superset: what exists there and not here is listed under
+[Relationship to the original Tsubaki](#relationship-to-the-original-tsubaki).
 
-The result is a *manifest* — the checksum file `sum` writes: `<checksum>
-<path>` lines plus a `#` report block. Because a manifest is a plain file, the
-same tool can do two further things with it:
+The result is a manifest: one `<checksum> <path>` line per file, followed by a
+`#` report block naming the algorithm, counts, duration and errors. Manifest
+lines interoperate with GNU coreutils hash tool output. `sum` does the hashing;
+the other three subcommands work on the manifests it produces. `verify`
+re-hashes the paths a manifest names, reports what changed and what it could not
+decide, and writes a refreshed manifest; `cmp` touches no files, comparing two
+manifests to report modified, moved or renamed, added or deleted, and matched
+entries; `algo-info` describes a single algorithm. `verify` answers "did
+anything change since the record?", `cmp` answers "what exactly changed between
+two runs?", and they chain: refresh with `verify`, then compare the result with
+the old manifest using `cmp`.
 
-- `verify` re-hashes the paths a manifest names and reports `changed` and
-  `unsure`. It is the convenient answer to "did anything change?", and its
-  output is itself a refreshed manifest, so a verification can be archived or
-  run again. Its granularity is coarse: one verdict per path, and `unsure`
-  covers both "the manifest carried no checksum" and "the file could not be
-  hashed".
-- `cmp` compares two manifests without touching the files at all. It is the
-  detailed answer to "what changed?": `[!]` modified, `[D]` moved, copied,
-  merged or renamed (grouped by checksum), `[U]` deleted or added, and `[=]`
-  matched. The extra detail costs convenience — you need two manifests to start
-  with, and it cannot tell you how the current files differ from either of
-  them.
-
-The two compose naturally: `verify` produces an up-to-date manifest, and `cmp`
-turns it into a fine-grained comparison against the old one.
+Algorithms are not limited to the built-in list. The DPF (Dynamic Provider
+Framework) loads extensions: put a provider's directory in
+`TSUBAKI_DYNAMIC_PROVIDER_PATHS` and its `.so` files are loaded, listed in the
+`-a` table, queryable with `algo-info`, and usable as an algorithm name for
+`sum` or `verify -u`. A provider can also declare its own command-line
+parameters through the same parser, so they are not mistaken for paths. Only
+plain data crosses the ABI — no `std::string`, `std::filesystem` or
+`std::expected` — so a provider may be written with another compiler, another
+C++ standard library, or even another language, as long as it exports those
+symbols with the C ABI; a statically linked `tsubaki` still loads it, with no
+rebuild per algorithm.
 
 ## Contents
 
@@ -45,9 +49,8 @@ turns it into a fine-grained comparison against the old one.
 - [Output](#output)
 - [Exit status](#exit-status)
 - [Interrupt](#interrupt)
-- [Origins and scope](#origins-and-scope)
-- [Roadmap](#roadmap)
 - [Architecture](#architecture)
+- [Relationship to the original Tsubaki](#relationship-to-the-original-tsubaki)
 - [License](#license)
 
 ## Build
@@ -249,9 +252,11 @@ template for a provider of your own.
   separately, so it may contain NUL bytes; there is no length limit to
   declare.
 - **What the digest must look like.** Hexadecimal, lowercase, NUL terminated,
-  and shorter than `TSUBAKI_MAX_RESULT_LENGTH`. Any width is fine: a listing
-  line always starts with the checksum, so a short one is never mistaken for a
-  path.
+  written into a buffer of `TSUBAKI_MAX_RESULT_LENGTH` bytes, so at most 256
+  characters (the last byte is the NUL). A digest that does not fit is an error,
+  never a truncation; no real digest comes close, but the limit is hard. There
+  is no lower bound: a listing line always starts with the checksum, so a short
+  one is never mistaken for a path.
 - **How it must be built.** A C++23 `-fPIC` shared object for the same
   architecture and calling convention as `tsubaki`. The boundary carries plain
   data only, so the two sides no longer have to share one standard library, but
@@ -268,10 +273,16 @@ template for a provider of your own.
   reaches the module through `tsubaki_take_args()` instead of being turned into
   a path. The table is one `{ entry_name = ...; entry_type = ...; }` block per
   argument, in the script language documented in
-  [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser); entries
-  appear in errors as `<name>@dynamic`; a command line that breaks the declared
-  `min_value_count`, `max_value_count` or `max_repetition` is refused by
-  `tsubaki` itself, `tsubaki_take_args()` is not called, and the exit status is
+  [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser)'s
+  `docs/USAGE.md` under "Script language". `CMakeLists.txt` pins the library to
+  one commit, so check that commit's documentation rather than the repository's
+  latest. Writing a provider with parameters means following that syntax; export
+  none of the three symbols and the provider takes no arguments. The quickest
+  way in is to copy an existing module's `tsubaki_arg_definition()` — `tsubaki
+  algo-info` prints them verbatim.
+  Entries appear in errors as `<name>@dynamic`; a command line that breaks the
+  declared `min_value_count`, `max_value_count` or `max_repetition` is refused
+  by `tsubaki` itself, `tsubaki_take_args()` is not called, and the exit status
   64 — a non-empty return from `tsubaki_take_args()` is printed as an error
   with the same status. The switches go after the algorithm name — a word in
   front of it is still read as the algorithm — and `tsubaki algo-info` prints
@@ -280,6 +291,12 @@ template for a provider of your own.
   null table is fatal, with status 70. `verify` forwards whatever it does not
   recognise, so `verify -u shake128 file.sum -L 128` works too. Provider
   switches are matched first, so they must not reuse `tsubaki`'s own letters.
+  A manifest records the algorithm name but not these parameters: `-L 128`
+  never appears in it, and `verify` cannot infer it. Rechecking means writing
+  the same parameters again on the `verify` command line; leaving them out or
+  changing them makes the module hash with other settings, and every entry
+  then reads as changed. Nothing else remembers them, so they are the user's
+  to keep.
 - **What goes wrong.** A path that is not a readable directory, a `.so` that
   `dlopen` refuses, a missing symbol: each prints one `Error:` line on stderr
   and is skipped, and none of them changes the exit status. Modules stay loaded
@@ -342,31 +359,25 @@ line.
 
 ### Option values
 
-A long option takes its value with `=` and a short option takes it sticky:
+Values are written the usual way: `=` for long options, and a short option may
+carry its value sticky or be stacked. An option that takes no value consumes the
+one argument after it.
 
 ```sh
-tsubaki sum sha256 . --exclude=build --list=old.txt
-tsubaki sum sha256 . -ebuild -lold.txt
+tsubaki sum sha256 . --exclude=build -lold.txt
 tsubaki sum hmac_sha256 . --key=secret
+tsubaki sum sha256 . -svo./sum.txt     # -s -v -o ./sum.txt
 ```
 
-A separated value is the run of plain arguments right after the switch. How many
-of them are taken depends on the option: `-t`, `-k`, `-K`, `-o` and `-u` take
-exactly one, `-e` and `-l` take as many as you give, up to the next switch that
-is still in the queue.
+Only two things break with convention:
 
-```sh
-tsubaki sum sha256 . -e a b c -l list1 list2   # three excludes, two lists
-tsubaki sum hmac_sha256 . -k secret            # one key, then no more values
-```
-
-`-e` stops at `-l` here, because `lists` is evaluated after `excludes`; each
-entry takes its own run of values.
-
-A switch that matches no entry is not rejected as an option: it stays a plain
-argument, so a positional collects it and it is reported as a missing file. A
-typo such as `--exlude=build` therefore shows up in the error block, not as an
-option error.
+- `-e` and `-l` are greedy: they keep taking plain arguments until the next
+  switch. `tsubaki sum sha256 . -e a b c -l list1 list2` is three excludes and
+  two lists. `-e` stops before `-l` because `excludes` is evaluated before
+  `lists`.
+- A switch that matches no entry is not an option error. It stays a plain
+  argument and is reported as a missing file, so `--exlude=build` shows up in
+  the error block.
 
 ### Keyed hashes
 
@@ -461,10 +472,13 @@ did not change in between; paths left as `<NONE>` in it come back as unsure.
 above. The key must be supplied again for a keyed algorithm, because a checksum
 file records the algorithm name but never the key. A different key produces
 different checksums, so a wrong key reads as every file changed, not as an
-error. A listing written with `none` is rejected (exit 64), because it holds no
-checksums to compare; `-u` with any other algorithm proceeds, while `-u none`
-runs and leaves every path unsure. `-o` must not name the input file (exit 64),
-because the input would be truncated before it is read.
+error. A dynamic algorithm with extra parameters is the same story: the listing
+does not record them, `-u` names only the algorithm, and they have to be written
+out again on the `verify` command line. A listing written with `none` is
+rejected (exit 64), because it holds no checksums to compare; `-u` with any
+other algorithm proceeds, while `-u none` runs and leaves every path unsure.
+`-o` must not name the input file (exit 64), because the input would be
+truncated before it is read.
 
 ### Comparing
 
@@ -554,9 +568,10 @@ kills the process.
 
 Files and directories on the command line are scanned directly. A list file
 (`-l`, or stdin via `-`) is read line by line, and every line is a
-`<checksum> <path>` pair: there is one format, not two. Each line is trimmed
-before it is looked at, so leading and trailing whitespace never becomes part of
-a path.
+`<checksum> <path>` pair: there is one format, not two. A lone `-` and
+`-l -` are the same thing: one treats it as an input source, the other as the
+file name for `-l`, and both read stdin. Each line is trimmed before it is
+looked at, so leading and trailing whitespace never becomes part of a path.
 
 - an empty line or a line starting with `#` is ignored;
 - a line starting with `<NONE> ` (the marker and one space) names the path after
@@ -713,7 +728,7 @@ closed it, the write raises `SIGPIPE` and the default action kills the process
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error |
 | `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header when `-u` is absent, a `-` input with no `-u`, a header written with `none`, an unknown `-u` name, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
 | `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is a directory, or a `cmp` list cannot be read |
-| `70` | fatal start-up failure: `argc` is 0, so the process refuses to run |
+| `70` | fatal start-up failure: `argc` is 0; a provider that needs arguments without an ArgParser script, or a script that fails to parse |
 | `73` | the `--output` file cannot be opened for writing, or the output stream fails |
 | `130` | the run was interrupted with `Ctrl-C` |
 | `250` | `Ctrl-C` was pressed five times; the process aborted immediately, so the output can end without its report block |
@@ -749,29 +764,40 @@ lines are hashed again. The report block starts with `#`, so it is ignored and
 the file can be used as it is. An interrupted run exits `130` even when nothing
 actually failed, so a `1` still means a real error.
 
-## Origins and scope
+## Relationship to the original Tsubaki
 
-Tsubaki-Next is the spiritual successor of an earlier Tsubaki. The archived
-repository
-[Lawrence-Charland/Tsubaki](https://github.com/Lawrence-Charland/Tsubaki) holds
-two independent attempts side by side: `old` is the author's own version,
-`main` is GDJT-DSR's. That repository is archived;
-[GDJT-DSR/Tsubaki](https://github.com/GDJT-DSR/Tsubaki) is still maintained.
+Tsubaki-Next is a rewrite of
+[Tsubaki](https://github.com/Lawrence-Charland/Tsubaki), which was written in
+C++17 against OpenSSL and packed three modes into one binary — computing
+checksums, finding duplicates, and comparing two result files. That repository
+is now archived.
 
-The project builds exactly one executable, `tsubaki`, and will keep doing so.
-Features are added as subcommands of that binary rather than as further targets;
-`sum`, `verify`, `cmp` and `algo-info` are the four that exist today.
+The shape changed more than the feature list: modes became subcommands, the
+manifest became an intermediate that can be fed back, and algorithms moved
+from a compile-time list to loadable `.so` modules. `sum` and `verify` share
+one streaming pipeline; `cmp` does not — it loads both manifests into memory
+before comparing. `verify`'s resume path and the DPF both rest on those
+changes.
 
-`verify` streams: it compares one file at a time and never needs the whole
-listing in memory. `cmp` is the exception: it holds both listings and decides
-once they are loaded.
+Some things were dropped. There is no separate deduplication mode —
+duplicates surface through `cmp`'s `[D]` groups; size filtering, `--test` dry
+runs and `--balance` are gone; a plain path list must be written as
+`<NONE> <path>` or passed with `-l`. The manifest now has exactly one input
+shape, filtering belongs to the scanner, and concurrency defaults to hardware
+threads.
 
-## Roadmap
+Most old `sum` command lines still work: the order of `sum <algorithm> <paths>`
+is unchanged, and `--exclude`, `-v` and `--force-rescan` keep their names.
+`--allow-symlinks` became `--follow-symlinks`, `--thd-amount` became
+`--thread`, and the `stdin` positional became `-`. The manifests are readable
+by either version; only the report fields were renamed.
 
-The hashing pipeline stays one-way: a path is hashed and written out, never
-collected. `cmp` is the opposite shape and is not built on that pipeline: it
-reads the two listings into memory and compares them only after both are
-loaded. Nothing beyond these four subcommands is designed.
+`cmp` has a different shape from the pipeline and could live in a separate
+binary; it stays in the same target only to avoid a second thing to maintain.
+
+The name predates this rewrite: it comes from Tsubaki Sawabe in *Your Lie
+in April* — purely personal preference — and has nothing to do with
+checksumming.
 
 ## Architecture
 

@@ -99,11 +99,11 @@
 //     file list included, so a name in the script overrides tsubaki's: do not
 //     reuse -e, -l, -o, -t, -k, -K, -T, -v, -u, -a, -h or -V, and keep every
 //     positional bounded, or it takes the file names. Registering the script
-//     also reads the command line again, so `--` does not protect a word that
-//     looks like one of the provider's options. The switches belong after the
-//     algorithm name -- a word in front of it is still read as the algorithm --
-//     though after the file list works too, since that second read sees the
-//     whole command line.
+//     also reads the command line again, but `--` still holds: everything after
+//     it stays a positional, so a provider switch written there is never
+//     recognised. The switches belong after the algorithm name -- a word in
+//     front of it is still read as the algorithm -- and may follow the file list
+//     too, since that second read sees the whole command line.
 //   - tsubaki_provider_name() returns a non-null, stable string, and it must
 //     not be a built-in name: while loading, tsubaki compares it against its
 //     own list and refuses the module there, before resolving the other
@@ -194,9 +194,9 @@
 //   - provider 的条目先于 tsubaki 自己的贪婪参数（包括文件列表）解析，所以脚本里
 //     的名字会盖过 tsubaki 的：不要复用 -e、-l、-o、-t、-k、-K、-T、-v、-u、-a、
 //     -h、-V，位置参数要有上限，否则文件列表会被吃光。注册脚本时命令行会被重新
-//     读取一遍，所以 `--` 也保护不了看起来像 provider 选项的词。开关要写在算法名
-//     之后——写在它前面的词仍会被当成算法名——写在文件列表之后也可以，因为那次
-//     重读看到的是整条命令行。
+//     读取一遍，但 `--` 仍然有效：它后面的一切都留作位置参数，写在那里的
+//     provider 开关不会被认出。开关要写在算法名之后——写在它前面的词仍会被当成
+//     算法名——写在文件列表之后也可以，因为那次重读看到的是整条命令行。
 //   - tsubaki_provider_name()
 //   返回非空且稳定的字符串，而且不能是内建算法名字：加载
 //     时 tsubaki 会拿它去比对自己的内建清单，命中就在那里拒掉这个模块，其余符号
