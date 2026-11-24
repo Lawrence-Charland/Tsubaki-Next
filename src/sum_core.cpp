@@ -84,8 +84,9 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                 {
                     std::cerr << chk_args.value() << std::endl;
                     std::cerr << "The argument requirement belongs to \""
-                              << api.name() << "\". You can try " << program
-                              << " algo-info " << api.name() << std::endl;
+                              << api.name() << "\". You can try \"" << program
+                              << " algo-info " << api.name() << "\"."
+                              << std::endl;
                     return TSUBAKI_INVALID_OPERATION;
                 }
             }
