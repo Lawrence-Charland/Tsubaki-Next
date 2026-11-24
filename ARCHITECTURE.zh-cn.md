@@ -356,7 +356,8 @@ tsubaki sum sha256 . -e build -l old.txt
   行走；是否密钥算法、密钥上限是对同一枚举的 switch。
 - **不重新编译本项目就加算法**：照 `include/dynamic_provider_header.hpp` 写一个
   provider 动态库，把 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 指向它。名字随后经
-  `dpf_instance` 解析，`--algorithm` 会连 `SOURCE` 一起列出，`verify -u` 也认。
+  `dpf_instance` 解析，`--algorithm` 会连 `SOURCE` 和是否接受额外参数一起列出，
+  `verify -u` 也认。
   自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要至少要有 8 个
   十六进制字符，否则清单读不回来。
 

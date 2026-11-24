@@ -418,8 +418,8 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 - **New algorithm without rebuilding this tree**: write a provider `.so` against
   `include/dynamic_provider_header.hpp` and point
   `TSUBAKI_DYNAMIC_PROVIDER_PATHS` at it. The name then resolves through
-  `dpf_instance`, `--algorithm` lists it with its `SOURCE`, and `verify -u`
-  accepts it. A module that reports a built-in name is refused at load, so it
+  `dpf_instance`, `--algorithm` lists it with its `SOURCE` and whether it takes
+  extra arguments, and `verify -u` accepts it. A module that reports a built-in name is refused at load, so it
   cannot shadow one, and the digest must be at least 8 hex characters or a
   manifest cannot be read back.
 

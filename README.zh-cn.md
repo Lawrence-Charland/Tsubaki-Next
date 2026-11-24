@@ -166,7 +166,7 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 `tsubaki -a`（`--algorithm`）把同一批名字打成两列表格（`ALGORITHM`、`KEYED`）：名字
 逐个取自解析器自己用的那张字面量表，`KEYED` 取自密钥策略，所以表格跟着实现走，而不
 是把上面的列表再抄一遍。有 provider 模块被加载时，后面还会跟一张 `ALGORITHM`、
-`KEYED`、`SOURCE` 表，见下一节。
+`KEYED`、`EXTRA ARGS`、`SOURCE` 表，见下一节。
 
 `tsubaki algo-info <算法>` 把同一批事实按单个名字打出来：一行 `Source:`（内建是
 `built-in`，动态算法是提供它的模块路径），然后是摘要宽度、密钥格式，以及一小段
@@ -238,11 +238,15 @@ provider 也可以直接照抄。
 
 ```
 ---------- Dynamic providers ----------
-ALGORITHM  KEYED  SOURCE
-blake3     No     /home/user/lib/tsubaki/blake3.so
+ALGORITHM          KEYED  EXTRA ARGS  SOURCE
+blake3             NO     NO          /home/user/lib/tsubaki/blake3.so
+cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 ```
 
 `SOURCE` 是模块路径，所以同一个算法的两份旧构建分处两个目录时，一眼就能看出重复。
+`EXTRA ARGS` 为 `YES` 表示模块导出了 `tsubaki_need_more_args()`，有自己的命令行
+参数；具体接受哪些，用 `tsubaki algo-info <名字>` 打印的那份脚本看。行的顺序先按
+这一列，再按 `KEYED`，最后按名字，所以不需要额外参数的模块排在前面。
 
 ### 选项
 
@@ -250,7 +254,7 @@ blake3     No     /home/user/lib/tsubaki/blake3.so
 | ------------------------------- | ------------------------------------------------------------------ |
 | `-h`, `--help`                  | 打印帮助后退出                                                     |
 | `-V`, `--version`               | 打印版本后退出                                                     |
-| `-a`, `--algorithm`             | 打印算法列表、每个是否带密钥，provider 还给出它来自哪个模块，然后退出 |
+| `-a`, `--algorithm`             | 打印算法列表、每个是否带密钥、provider 是否接受额外参数，以及它来自哪个模块，然后退出 |
 | `-v`, `--verbose`               | 在 stderr 上显示实时进度（`none` 时不显示）                        |
 | `-t<n>`, `--thread=<n>`         | 工作线程数，正整数，默认为硬件并发数（取不到时用 1）               |
 | `-k<key>`, `--key=<key>`        | 密钥算法的密钥；普通算法会警告并忽略                               |

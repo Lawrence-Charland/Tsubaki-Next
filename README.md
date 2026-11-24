@@ -196,8 +196,8 @@ lowercase hexadecimal, and its length is set by the algorithm.
 (`ALGORITHM`, `KEYED`): the names are walked from the literal list the parser
 itself uses and `KEYED` comes from the key policy, so the table tracks the
 implementation instead of repeating the list above by hand.
-A second `ALGORITHM`, `KEYED`, `SOURCE` table follows when provider modules were
-loaded; see below.
+A second `ALGORITHM`, `KEYED`, `EXTRA ARGS`, `SOURCE` table follows when provider
+modules were loaded; see below.
 
 `tsubaki algo-info <algorithm>` prints the same facts for one name: a `Source:`
 line (`built-in`, or the path of the module that supplied it), the digest width,
@@ -290,12 +290,17 @@ template for a provider of your own.
 
 ```
 ---------- Dynamic providers ----------
-ALGORITHM  KEYED  SOURCE
-blake3     No     /home/user/lib/tsubaki/blake3.so
+ALGORITHM          KEYED  EXTRA ARGS  SOURCE
+blake3             NO     NO          /home/user/lib/tsubaki/blake3.so
+cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 ```
 
 `SOURCE` is the module path, which makes a stale duplicate easy to spot when two
-directories both hold a build of the same algorithm.
+directories both hold a build of the same algorithm. `EXTRA ARGS` is `YES` for a
+module that exports `tsubaki_need_more_args()`, so it takes command-line
+arguments of its own; `tsubaki algo-info <name>` prints the script that names
+them. Rows are ordered by that column first, then by `KEYED`, then by name, so
+the modules that take no arguments come first.
 
 ### Options
 
@@ -303,7 +308,7 @@ directories both hold a build of the same algorithm.
 | ------------------------------ | -------------------------------------------------------------------- |
 | `-h`, `--help`                 | print help and exit                                                  |
 | `-V`, `--version`              | print the version and exit                                           |
-| `-a`, `--algorithm`            | print the algorithms, whether each one is keyed and, for a provider, the module it came from, then exit; needs no subcommand |
+| `-a`, `--algorithm`            | print the algorithms, whether each one is keyed, whether a provider takes extra arguments, and for a provider the module it came from, then exit; needs no subcommand |
 | `-v`, `--verbose`              | live progress indicator on stderr; not shown for `none`              |
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |

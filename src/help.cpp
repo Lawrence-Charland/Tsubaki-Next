@@ -130,12 +130,15 @@ void list_algorithm(std::ostream &os)
     os << std::endl << "---------- Dynamic providers ----------" << std::endl;
     std::size_t sw = std::string("ALGORITHM").length();
     std::size_t kw = std::string("KEYED").length() + 2;
+    std::size_t mw = std::string("EXTRA ARGS").length() + 2;
     std::vector<std::pair<std::string, provider>> pros(providers.begin(),
                                                        providers.end());
     std::sort(pros.begin(), pros.end(),
               [](const std::pair<std::string, provider> &l,
                  const std::pair<std::string, provider> &r) -> bool
               {
+                  if (l.second.need_args() != r.second.need_args())
+                      return l.second.need_args() < r.second.need_args();
                   if (l.second.is_keyed() != r.second.is_keyed())
                       return l.second.is_keyed() < r.second.is_keyed();
                   return l.first < r.first;
@@ -143,11 +146,12 @@ void list_algorithm(std::ostream &os)
     for (auto &it : pros)
         sw = std::max(sw, it.first.length());
     sw += 2;
-    os << std::setw(sw) << "ALGORITHM" << std::setw(kw) << "KEYED" << "SOURCE"
-       << std::endl;
+    os << std::setw(sw) << "ALGORITHM" << std::setw(kw) << "KEYED"
+       << std::setw(mw) << "EXTRA ARGS" << "SOURCE" << std::endl;
     for (auto &it : pros)
         os << std::setw(sw) << it.first << std::setw(kw)
-           << (it.second.is_keyed() ? "YES" : "NO")
+           << (it.second.is_keyed() ? "YES" : "NO") << std::setw(mw)
+           << (it.second.need_args() ? "YES" : "NO")
            << it.second.display_path.string() << std::endl;
     os << "(" << pros.size() << " dynamic algorithms loaded)" << std::endl;
 }
