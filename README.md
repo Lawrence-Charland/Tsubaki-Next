@@ -248,12 +248,11 @@ template for a provider of your own.
   `tsubaki_check_key()`. The key is a byte string whose length is passed
   separately, so it may contain NUL bytes; there is no length limit to
   declare.
-- **What the digest must look like.** At least 32 hexadecimal characters —
-  MD5's length — lowercase, NUL terminated, and shorter than
+- **What the digest must look like.** At least 8 hexadecimal characters —
+  four bytes, CRC32's width — lowercase, NUL terminated, and shorter than
   `TSUBAKI_MAX_RESULT_LENGTH`. `listscanner` only recognises a checksum from
   that length up, so a shorter digest is read back as a path and `verify`
-  reports the line as unsure. Anything weaker than MD5 has no business behind
-  this ABI anyway.
+  reports the line as unsure.
 - **How it must be built.** A C++23 `-fPIC` shared object for the same
   architecture and calling convention as `tsubaki`. The boundary carries plain
   data only, so the two sides no longer have to share one standard library, but
@@ -570,7 +569,7 @@ beginning with `#` is a comment even if it was meant as a path, so a file named
 `#name` has to be written as `./#name` or by an absolute path.
 
 A line without a checksum is taken whole, spaces included, so a path may
-contain spaces. But a line whose first space-separated field is at least 32
+contain spaces. But a line whose first space-separated field is at least 8
 characters of pure hexadecimal — a field that therefore cannot contain a `/` —
 cannot be told apart from `<checksum> <path>`, and is always read that way.
 That is the price of accepting two formats in one file, so write such a path

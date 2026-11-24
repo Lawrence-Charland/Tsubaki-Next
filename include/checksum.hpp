@@ -14,7 +14,7 @@
 #include <system_error>
 #include <vector>
 
-#define MIN_HASH_HEXLENGTH 32 // Only record the min length to avoid complexity
+#define MIN_HASH_HEXLENGTH 8 // Only record the min length to avoid complexity
 
 namespace tsubaki
 {

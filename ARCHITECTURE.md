@@ -302,8 +302,8 @@ category and the message it produces stay in tsubaki's own standard library; an
 `error_code` made inside a module would carry a category from the module's
 library and its message would be allocated there and freed here. A module is
 still self-contained, must not keep either pointer, and has to match the glibc
-generation tsubaki was linked with. Its digest must be at least 32 hex
-characters — MD5's length — because `listscanner` only recognises a checksum
+generation tsubaki was linked with. Its digest must be at least 8 hex
+characters — four bytes — because `listscanner` only recognises a checksum
 from that length up; a shorter one is read back as a path, and `verify` calls
 the line unsure.
 
@@ -420,7 +420,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
   `TSUBAKI_DYNAMIC_PROVIDER_PATHS` at it. The name then resolves through
   `dpf_instance`, `--algorithm` lists it with its `SOURCE`, and `verify -u`
   accepts it. A module that reports a built-in name is refused at load, so it
-  cannot shadow one, and the digest must be at least 32 hex characters or a
+  cannot shadow one, and the digest must be at least 8 hex characters or a
   manifest cannot be read back.
 
 ## Source map

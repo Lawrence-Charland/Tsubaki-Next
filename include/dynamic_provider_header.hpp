@@ -38,8 +38,8 @@
 //     the only way to report a failure. Do not build a std::error_code in the
 //     module: its category lives in the module's own standard library, so the
 //     message it produces would be allocated there and freed by tsubaki.
-//   - A successful digest is hexadecimal, at least 32 characters long, MD5's
-//     width. listscanner recognises a checksum from that length up, so a
+//   - A successful digest is hexadecimal, at least 8 characters long, four
+//     bytes' worth. listscanner recognises a checksum from that length up, so a
 //     shorter value is read back as a path and a manifest holding it verifies
 //     as unsure. Write lowercase, like the built-in algorithms, and NUL
 //     terminate it inside the buffer.
@@ -147,11 +147,9 @@
 //     模块里构造 std::error_code：它的 category
 //     住在模块自己那份标准库里，由它产生 的错误消息会在那边分配、由 tsubaki
 //     释放。
-//   - 成功的摘要是十六进制，长度至少 32 个字符，也就是 MD5 的宽度。listscanner
-//   只
-//     把这一长度及以上的串当成校验和，所以更短的值会被当成路径读回来，含这种值的
-//     清单在 verify 时算 unsure。写小写，和内置算法一致，并在缓冲内用 NUL
-//     结尾。
+//   - 成功的摘要是十六进制，长度至少 8 个字符，也就是 4 字节。listscanner 只把这一
+//     长度及以上的串当成校验和，所以更短的值会被当成路径读回来，含这种值的清单在
+//     verify 时算 unsure。写小写，和内置算法一致，并在缓冲内用 NUL 结尾。
 //   -
 //   名字就是契约。摘要的长度或含义变了，就要换新名字，而不是在旧名字下出新版本：
 //     清单只记录名字，留着名字就等于承诺输出不变。

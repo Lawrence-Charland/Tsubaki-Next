@@ -256,8 +256,8 @@ errno 风格的错误码，模块无论成败都必须填好。
 category 和它产生的消息都留在 tsubaki 自己那份标准库里；模块内部造出来的
 `error_code` 会带着模块那份库的 category，它的消息也会在那边分配、在这边释放。模块
 仍然必须自包含，不能保留那两个指针，并且要匹配 tsubaki 链接时所用的那一代 glibc。
-它算出的摘要至少要有 32 个十六进制字符（也就是 MD5 的长度），因为 `listscanner` 只从
-这一长度起才认校验和；更短的值会被当成路径读回来，`verify` 会把那一行算作 unsure。
+它算出的摘要至少要有 8 个十六进制字符（4 字节），因为 `listscanner` 只从这一长度起
+才认校验和；更短的值会被当成路径读回来，`verify` 会把那一行算作 unsure。
 
 ## 工作线程、进度与报告
 
@@ -357,7 +357,7 @@ tsubaki sum sha256 . -e build -l old.txt
 - **不重新编译本项目就加算法**：照 `include/dynamic_provider_header.hpp` 写一个
   provider 动态库，把 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 指向它。名字随后经
   `dpf_instance` 解析，`--algorithm` 会连 `SOURCE` 一起列出，`verify -u` 也认。
-  自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要至少要有 32 个
+  自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要至少要有 8 个
   十六进制字符，否则清单读不回来。
 
 ## 源码映射
