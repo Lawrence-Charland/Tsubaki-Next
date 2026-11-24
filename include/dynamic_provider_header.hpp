@@ -38,11 +38,10 @@
 //     the only way to report a failure. Do not build a std::error_code in the
 //     module: its category lives in the module's own standard library, so the
 //     message it produces would be allocated there and freed by tsubaki.
-//   - A successful digest is hexadecimal, at least 8 characters long, four
-//     bytes' worth. listscanner recognises a checksum from that length up, so a
-//     shorter value is read back as a path and a manifest holding it verifies
-//     as unsure. Write lowercase, like the built-in algorithms, and NUL
-//     terminate it inside the buffer.
+//   - A successful digest is hexadecimal, lowercase, and NUL terminated inside
+//     the buffer. Any width is fine: a listing line always starts with the
+//     checksum, so it is never mistaken for a path, and there is no minimum to
+//     keep above.
 //   - The name is the contract. A digest that changes length or meaning needs a
 //     new name, not a new version of the old one: a manifest records only the
 //     name, so keeping it means keeping the old output.
@@ -147,9 +146,8 @@
 //     模块里构造 std::error_code：它的 category
 //     住在模块自己那份标准库里，由它产生 的错误消息会在那边分配、由 tsubaki
 //     释放。
-//   - 成功的摘要是十六进制，长度至少 8 个字符，也就是 4 字节。listscanner 只把这一
-//     长度及以上的串当成校验和，所以更短的值会被当成路径读回来，含这种值的清单在
-//     verify 时算 unsure。写小写，和内置算法一致，并在缓冲内用 NUL 结尾。
+//   - 成功的摘要是十六进制、小写，并在缓冲内用 NUL 结尾。宽度不限：清单行总是以校验
+//     和开头，不会被当成路径，也就没有下限要守。
 //   -
 //   名字就是契约。摘要的长度或含义变了，就要换新名字，而不是在旧名字下出新版本：
 //     清单只记录名字，留着名字就等于承诺输出不变。

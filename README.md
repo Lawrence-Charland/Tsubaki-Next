@@ -4,7 +4,7 @@
 
 A reimplementation of the Tsubaki checksum tool, with checksum computation at
 its core. It covers most plain digests and keyed hashes, and hashes a single
-file, a whole directory tree, or every path named in an existing list — pulling
+file, a whole directory tree, or every entry of an existing listing — pulling
 from all of them at once and hashing in parallel. A directory scan takes its
 own exclude list. Algorithms outside the built-in list can come from shared
 objects named by an environment variable; see
@@ -248,11 +248,10 @@ template for a provider of your own.
   `tsubaki_check_key()`. The key is a byte string whose length is passed
   separately, so it may contain NUL bytes; there is no length limit to
   declare.
-- **What the digest must look like.** At least 8 hexadecimal characters —
-  four bytes, CRC32's width — lowercase, NUL terminated, and shorter than
-  `TSUBAKI_MAX_RESULT_LENGTH`. `listscanner` only recognises a checksum from
-  that length up, so a shorter digest is read back as a path and `verify`
-  reports the line as unsure.
+- **What the digest must look like.** Hexadecimal, lowercase, NUL terminated,
+  and shorter than `TSUBAKI_MAX_RESULT_LENGTH`. Any width is fine: a listing
+  line always starts with the checksum, so a short one is never mistaken for a
+  path.
 - **How it must be built.** A C++23 `-fPIC` shared object for the same
   architecture and calling convention as `tsubaki`. The boundary carries plain
   data only, so the two sides no longer have to share one standard library, but
@@ -318,7 +317,7 @@ the modules that take no arguments come first.
 | `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only) |
 | `-c`, `--canonical`            | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only) |
 | `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
-| `-l<file>`, `--list=<file>`    | read paths from `<file>`; repeatable                                 |
+| `-l<file>`, `--list=<file>`    | read a `"<checksum> <path>"` listing from `<file>`; repeatable        |
 | `-s`, `--follow-symlinks`      | follow symbolic links to directories                                 |
 | `-f`, `--force-rescan`         | recompute checksums already listed in the input                      |
 
@@ -449,7 +448,7 @@ every processed file, then the report block. The report gains two fields:
 
 A *changed* file is one whose stored checksum differs from the recomputed one.
 An *unsure* file is one the run could not decide about: the listing gave no
-checksum for it (a bare path, or `<NONE> <path>`), or it could not be hashed at
+checksum for it (`<NONE> <path>`), or it could not be hashed at
 all — the run was interrupted, or the hash failed, or the algorithm was `none`.
 The affected paths are listed below each count in the result stream; the copy of
 the report on stderr omits them. A changed or unsure file does not change the
@@ -480,8 +479,9 @@ tsubaki cmp old.txt new.txt -o diff.cmp   # writes diff.cmp
 Both inputs use the checksum-file format: `#` lines, including a whole report
 block, are ignored, and every other line must be a `<checksum> <path>` pair.
 The separator is either two spaces or a space and the `*` binary marker, which
-is not part of the path. A bare path or `<NONE> <path>` is recorded as an
-error and left out, because there is no checksum to compare. One of the two
+is not part of the path. A line that is not a `<checksum> <path>` pair —
+including a bare path — and a `<NONE> <path>` line are recorded as errors and
+left out, because there is no checksum to compare. One of the two
 files may be `-` for stdin, but not both. Checksums are compared as lowercase
 hexadecimal, so an uppercase spelling is not a change. Only the checksum
 strings are compared: two listings written with different algorithms, or with
@@ -553,8 +553,10 @@ kills the process.
 ## Inputs
 
 Files and directories on the command line are scanned directly. A list file
-(`-l`, or stdin via `-`) is read line by line. Every line is trimmed before it
-is looked at, so leading and trailing whitespace never becomes part of a path.
+(`-l`, or stdin via `-`) is read line by line, and every line is a
+`<checksum> <path>` pair: there is one format, not two. Each line is trimmed
+before it is looked at, so leading and trailing whitespace never becomes part of
+a path.
 
 - an empty line or a line starting with `#` is ignored;
 - a line starting with `<NONE> ` (the marker and one space) names the path after
@@ -562,7 +564,7 @@ is looked at, so leading and trailing whitespace never becomes part of a path.
 - a line in `<checksum> <path>` form keeps the checksum as it is, writes
   `# Kept: <path>` and the (trimmed) original line to the output, and only
   rescans the path when `--force-rescan` is given;
-- any other line is a path, spaces included.
+- anything else is not a listing line: it is reported as an error and skipped.
 
 A kept line is decoupled from the hashing run: it is not hashed and does not
 show up in the report counts. It is written to the result stream while the list
@@ -573,18 +575,27 @@ not expanded; only directory arguments on the command line are walked. A line
 beginning with `#` is a comment even if it was meant as a path, so a file named
 `#name` has to be written as `./#name` or by an absolute path.
 
-A line without a checksum is taken whole, spaces included, so a path may
-contain spaces. But a line whose first space-separated field is at least 8
-characters of pure hexadecimal — a field that therefore cannot contain a `/` —
-cannot be told apart from `<checksum> <path>`, and is always read that way.
-That is the price of accepting two formats in one file, so write such a path
-as `./name` or as an absolute path. A shorter hex field, or a hex-only name
-with no space in it, is unaffected.
+The checksum may be any width, down to a single hexadecimal digit: every line
+has the same two-field shape, so a checksum can never be mistaken for a path and
+no minimum has to be guessed. The path is everything after the first space, so
+it may contain spaces.
+
+A file of bare paths is therefore not a listing, and is reported as an error
+rather than guessed at. To hash one, give the paths a `<NONE> ` prefix or pass
+them on the command line:
+
+```sh
+sed 's/^/<NONE> /' paths.txt | tsubaki sum sha256 -
+xargs -d '\n' tsubaki sum sha256 < paths.txt   # GNU xargs; keeps spaces
+```
+
+`$(cat paths.txt)` also works, but only while no path contains a space: the
+shell splits the result on whitespace before tsubaki sees it.
 
 coreutils separates a checksum from its path with two spaces, or with a space
 and a `*` for a binary read (`sha256sum --binary`); the `*` is dropped and is
 never part of the path, so a listing written either way reads the same. Because
-the output of `sum` uses a single space, a bare path that really starts with
+the output of `sum` uses a single space, a path that really starts with
 `*` would read back as that marker: write it as `./*name` or as an absolute
 path.
 

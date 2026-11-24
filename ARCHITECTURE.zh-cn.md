@@ -150,7 +150,7 @@ std::vector<error_entry> take_errors();
 | 类 | 职责 |
 | --- | --- |
 | `dirscanner` | 递归遍历目录，处理排除项与软链接；只交出普通文件，遍历中遇到的特殊文件和被排除的子目录静默跳过 |
-| `listscanner` | 读列表文件或 stdin；输出 `# Kept:` 行，或者在重扫模式下填 `sum` |
+| `listscanner` | 读列表文件或 stdin，每行一条 `<校验和> <路径>`；输出 `# Kept:` 行，或者在重扫模式下填 `sum` |
 | `cached_taskstream` | 按命令行顺序回放普通文件参数 |
 | `fanin_taskstream` | 把多个子流合成一条，子流枯竭时用原子游标推进 |
 
@@ -256,8 +256,7 @@ errno 风格的错误码，模块无论成败都必须填好。
 category 和它产生的消息都留在 tsubaki 自己那份标准库里；模块内部造出来的
 `error_code` 会带着模块那份库的 category，它的消息也会在那边分配、在这边释放。模块
 仍然必须自包含，不能保留那两个指针，并且要匹配 tsubaki 链接时所用的那一代 glibc。
-它算出的摘要至少要有 8 个十六进制字符（4 字节），因为 `listscanner` 只从这一长度起
-才认校验和；更短的值会被当成路径读回来，`verify` 会把那一行算作 unsure。
+它算出的摘要宽度不限：清单行总是以校验和开头，不需要猜它在哪结束。
 
 ## 工作线程、进度与报告
 
@@ -358,8 +357,7 @@ tsubaki sum sha256 . -e build -l old.txt
   provider 动态库，把 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 指向它。名字随后经
   `dpf_instance` 解析，`--algorithm` 会连 `SOURCE` 和是否接受额外参数一起列出，
   `verify -u` 也认。
-  自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要至少要有 8 个
-  十六进制字符，否则清单读不回来。
+  自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要宽度不限。
 
 ## 源码映射
 

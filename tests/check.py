@@ -242,7 +242,7 @@ def test_error_paths(h: Harness, root: Path) -> None:
     d = fx / "d"
     write(d / "f.txt", b"x\n")
     dir_list = root / "dir.list"
-    dir_list.write_text(f"{d}\n", encoding="utf-8")
+    dir_list.write_text(f"<NONE> {d}\n", encoding="utf-8")
 
     name = "a directory in a list: no output line, Errors always 1, exit 1 (20 runs)"
     broken = 0
@@ -544,16 +544,17 @@ def test_verify(h: Harness, root: Path) -> None:
         h.bad("23", name, f"rc={r.rc} changed={field(report, 'Changed')} "
                           f"on_second_run={field(r_again.out, 'Changed')}")
 
-    name = "bare paths and <NONE> lines count as unsure and still get hashed"
+    name = ("<NONE> lines count as unsure and still get hashed; a line without "
+            "a checksum is an error")
     unsure_manifest = root / "unsure.txt"
     unsure_manifest.write_text(
-        SHA256_HEADER + f"{a}\n<NONE> {b}\n", encoding="utf-8")
+        SHA256_HEADER + f"<NONE> {b}\n{a}\n", encoding="utf-8")
     r = h.verify(unsure_manifest, "-o", "-")
-    if (r.rc == 0 and field(r.out, "Changed") == "0"
-            and field(r.out, "Unsure") == "2"
-            and count_results(r.out) == 2
-            and f"{digest(a)} {a}" in r.out
-            and f"{digest(b)} {b}" in r.out):
+    if (r.rc == 1 and field(r.out, "Changed") == "0"
+            and field(r.out, "Unsure") == "1"
+            and count_results(r.out) == 1
+            and f"{digest(b)} {b}" in r.out
+            and 'not a "<checksum> <path>" line' in r.out):
         h.ok("24", name)
     else:
         h.bad("24", name, f"rc={r.rc} unsure={field(r.out, 'Unsure')} "

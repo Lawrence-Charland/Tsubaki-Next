@@ -22,6 +22,8 @@ class listscanner : public basic_taskstream
     bool rescan;
     bool trust;
     bool ended = false;
+    // The "what to do instead" note is worth one line, not one per bad line.
+    bool explained_bare_path = false;
 
   public:
     listscanner(const std::string &_name, std::istream &_is, std::ostream &_os,
@@ -31,6 +33,8 @@ class listscanner : public basic_taskstream
     }
 
     std::optional<task_token> pop() override;
+
+    std::string format_error(const std::string &line);
 
   protected:
     std::optional<task_token> pop_raw() override;

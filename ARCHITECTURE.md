@@ -170,7 +170,7 @@ the worker as a stream.
 | Class | Responsibility |
 | --- | --- |
 | `dirscanner` | recursive walk with excludes and symlink control; yields regular files only, silently skipping special files and subdirectories that match an exclude |
-| `listscanner` | reads a list file or stdin; writes `# Kept:` lines, or fills `sum` in rescan mode |
+| `listscanner` | reads a list file or stdin, one `<checksum> <path>` per line; writes `# Kept:` lines, or fills `sum` in rescan mode |
 | `cached_taskstream` | replays the plain file arguments in command-line order |
 | `fanin_taskstream` | merges children behind one stream, advancing an atomic cursor when a child is exhausted |
 
@@ -302,10 +302,8 @@ category and the message it produces stay in tsubaki's own standard library; an
 `error_code` made inside a module would carry a category from the module's
 library and its message would be allocated there and freed here. A module is
 still self-contained, must not keep either pointer, and has to match the glibc
-generation tsubaki was linked with. Its digest must be at least 8 hex
-characters — four bytes — because `listscanner` only recognises a checksum
-from that length up; a shorter one is read back as a path, and `verify` calls
-the line unsure.
+generation tsubaki was linked with. Its digest may be any width: a listing
+line always starts with the checksum, so nothing has to guess where it ends.
 
 
 ## Workers, progress and report
@@ -420,8 +418,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
   `TSUBAKI_DYNAMIC_PROVIDER_PATHS` at it. The name then resolves through
   `dpf_instance`, `--algorithm` lists it with its `SOURCE` and whether it takes
   extra arguments, and `verify -u` accepts it. A module that reports a built-in name is refused at load, so it
-  cannot shadow one, and the digest must be at least 8 hex characters or a
-  manifest cannot be read back.
+  cannot shadow one, and its digest may be any width.
 
 ## Source map
 
@@ -431,7 +428,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | --- | --- | --- | --- |
 | `tsubaki::basic_taskstream` | class | — | virtual base of every task stream: `pop()` filters the candidate, `pop_raw()` is the hook each subclass implements, `errors` + `report_error()` + `take_errors()` carry failures |
 | `tsubaki::dirscanner` | class | `basic_taskstream` | recursive directory walk with excludes and symlink control |
-| `tsubaki::listscanner` | class | `basic_taskstream` | parses a list file or stdin and writes `# Kept: <path>` lines, or fills `task_token::sum` in rescan mode |
+| `tsubaki::listscanner` | class | `basic_taskstream` | parses a list file or stdin, one `<checksum> <path>` per line, writing `# Kept: <path>` lines or filling `task_token::sum` in rescan mode |
 | `tsubaki::cached_taskstream` | class | `basic_taskstream` | replays a fixed queue of paths, in the order given |
 | `tsubaki::fanin_taskstream` | class | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
 | `tsubaki::work_manager` | class | — | worker pool, progress line, interrupt flag, and the `changed`/`unsure` vectors of a verify run |

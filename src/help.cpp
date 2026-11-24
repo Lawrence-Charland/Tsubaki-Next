@@ -54,7 +54,7 @@ Options (sum, verify):
 
 Options (sum only):
   -e<path>, --exclude=<path>  exclude a path (repeatable)
-  -l<file>, --list=<file>     read paths from a file (repeatable)
+  -l<file>, --list=<file>     read a "<checksum> <path>" listing (repeatable)
   -s, --follow-symlinks       follow directory symlinks
   -f, --force-rescan          recompute listed checksums
 

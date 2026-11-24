@@ -13,6 +13,23 @@
 
 namespace tsubaki
 {
+std::string listscanner::format_error(const std::string &line)
+{
+    std::string message =
+        "not a \"<checksum> <path>\" line in " + pretty_name + ": " + line;
+    if (!explained_bare_path)
+    {
+        // One hint per file, attached to the first bad line: it is the shape
+        // change users are most likely to run into.
+        message +=
+            "; a bare path list is no longer a listing: pass the paths on the "
+            "command line, or prefix each line with \"<NONE> \" "
+            "(sed 's/^/<NONE> /' list.txt | tsubaki sum <algorithm> -)";
+        explained_bare_path = true;
+    }
+    return message;
+}
+
 std::optional<task_token> listscanner::pop_raw()
 {
     if (ended)
@@ -26,12 +43,21 @@ std::optional<task_token> listscanner::pop_raw()
             continue;
         parsed_line = get_equation(line, ' ', true);
         if (parsed_line.second.empty())
-            return task_token(line);
+        {
+            errors.emplace_back(
+                std::make_error_code(std::errc::invalid_argument),
+                format_error(line));
+            continue;
+        }
+        if (parsed_line.first == none_checksum)
+            return task_token(parsed_line.second);
         if (!is_checksum(parsed_line.first))
-            return task_token(
-                parsed_line.first == none_checksum ? parsed_line.second : line);
-        // coreutils separates checksum and path with "  " (text) or " *"
-        // (binary); only the marked form drops its '*'.
+        {
+            errors.emplace_back(
+                std::make_error_code(std::errc::invalid_argument),
+                format_error(line));
+            continue;
+        }
         const std::size_t sep = parsed_line.first.size();
         if (line.size() > sep + 1 && line.at(sep) == ' ' &&
             line.at(sep + 1) == '*')

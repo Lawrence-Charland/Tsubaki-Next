@@ -67,7 +67,9 @@ std::vector<std::string> get_env_arr(const std::string &env_name,
 
 bool is_checksum(const std::string &target)
 {
-    if (target.length() < MIN_HASH_HEXLENGTH)
+    // No width floor: a list line always starts with the checksum, so there is
+    // nothing to tell it apart from a path.
+    if (target.empty())
         return false;
 
     for (char c : target)
