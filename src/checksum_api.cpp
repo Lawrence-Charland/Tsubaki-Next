@@ -2,14 +2,20 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "checksum_api.hpp"
+#include "ap_script.hpp"
+#include "argparser.hpp"
 #include "checksum.hpp"
+#include "cmdline.hpp"
 #include "dpframework.hpp"
 #include "dynamic_provider_header.hpp"
 
 #include <expected>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace tsubaki
 {
@@ -93,6 +99,49 @@ bool checksum_api::set_key(std::string _key)
     return true;
 }
 
+// Might throw!
+std::optional<std::string>
+checksum_api::check_args(argparser::ap_instance &cmdline)
+{
+    if (algo != algorithm::dynamic)
+        return {};
+    if (!pro.need_args()) // need_args()==true <=> arg_def!=nullptr
+        return {};
+    auto get_argdef = argparser::parse_script(std::string(pro.arg_def()));
+    std::vector<std::string> names;
+    for (auto &entry : get_argdef)
+        entry.name += "@dynamic", entry.group.insert("#dynamic"),
+            cmdline.add_entry(entry), names.push_back(entry.name);
+    cmdline.reparse();
+    std::vector<std::vector<const char *>> argv_storage;
+    std::vector<tsubaki_pass_content> pass;
+    argv_storage.reserve(get_argdef.size());
+    pass.reserve(get_argdef.size());
+    cmdline.evaluate("#dynamic");
+    for (auto &name : names)
+    {
+        const auto &entry = cmdline.entry(name);
+        auto &argv = argv_storage.emplace_back();
+        argv.reserve(entry.content.size());
+        for (auto &it : entry.content)
+            argv.push_back(it.c_str());
+        pass.emplace_back(tsubaki_pass_content{.contentc = argv.size(),
+                                               .contentv = argv.data()});
+    }
+    // Check for the provider
+    if (!cmdline.fine())
+    {
+        std::stringstream ss;
+        error_prompt(ss, cmdline, false);
+        return ss.str();
+    }
+    // entry.content holds the strings and stays alive until this returns.
+    std::string check(pro.take_args(pass.data(), pass.size()));
+    if (check.empty())
+        return {};
+    return check;
+}
+
 std::expected<std::string, std::error_code>
 checksum_api::calc(const std::filesystem::path &target) const
 {
@@ -108,7 +157,7 @@ checksum_api::calc(const std::filesystem::path &target) const
     if (pro.implement == nullptr)
         return std::unexpected(
             std::make_error_code(std::errc::operation_not_supported));
-    auto result = pro.implement(target.c_str(), key.data(), key.size());
+    auto result = pro.implement(target.c_str(), key.c_str(), key.size());
     auto ec = std::make_error_code(static_cast<std::errc>(result.errcode));
     if (ec)
         return std::unexpected(ec);

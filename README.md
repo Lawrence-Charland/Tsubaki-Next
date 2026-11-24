@@ -203,7 +203,9 @@ loaded; see below.
 line (`built-in`, or the path of the module that supplied it), the digest width,
 the key format, and a short note. It accepts provider names as well, and falls
 back to "No information provided." for a module that does not export the
-optional `tsubaki_algo_info()`.
+optional `tsubaki_algo_info()`. A provider that declares its own arguments
+(below) also gets its ArgParser script printed verbatim, under an `ArgParser
+script:` line, so the switches it accepts can be read off the module itself.
 
 ### Dynamic algorithms
 
@@ -219,9 +221,9 @@ are ready to use. That repository's README lists what it currently contains.
 It is also the shortest way to see the contract compiled and is a fair
 template for a provider of your own.
 
-- **What a provider exports.** Four required `extern "C"` symbols and an
-  optional `tsubaki_algo_info()`, declared for it in
-  `include/dynamic_provider_header.hpp`, which
+- **What a provider exports.** Four required `extern "C"` symbols, an optional
+  `tsubaki_algo_info()`, and an optional trio that declares extra command-line
+  arguments — declared for it in `include/dynamic_provider_header.hpp`, which
   also states the contract in full: `tsubaki_provider_name()` returns the name
   to use on the command line, `tsubaki_is_keyed()` says whether a key is
   required, `tsubaki_check_key()` accepts or rejects a key, and
@@ -261,6 +263,25 @@ template for a provider of your own.
   `tsubaki` was linked with. One project may build several algorithms — try
   this first: they share the contract header and the file loop — emitting one
   `.so` per name, and the directory walk picks up every one of them.
+- **Extra command-line arguments.** An algorithm that needs more than a file
+  name can declare its own switches: export `tsubaki_need_more_args()`,
+  `tsubaki_arg_definition()` and `tsubaki_take_args()` and `tsubaki` parses that
+  table before it reads the file list, so `tsubaki sum shake128 -L 128 file`
+  reaches the module through `tsubaki_take_args()` instead of being turned into
+  a path. The table is one `{ entry_name = ...; entry_type = ...; }` block per
+  argument, in the script language documented in
+  [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser); entries
+  appear in errors as `<name>@dynamic`; a command line that breaks the declared
+  `min_value_count`, `max_value_count` or `max_repetition` is refused by
+  `tsubaki` itself, `tsubaki_take_args()` is not called, and the exit status is
+  64 — a non-empty return from `tsubaki_take_args()` is printed as an error
+  with the same status. The switches go after the algorithm name — a word in
+  front of it is still read as the algorithm — and `tsubaki algo-info` prints
+  the table verbatim, so a user
+  can look the syntax up; a module that says it needs arguments but returns a
+  null table is fatal, with status 70. `verify` forwards whatever it does not
+  recognise, so `verify -u shake128 file.sum -L 128` works too. Provider
+  switches are matched first, so they must not reuse `tsubaki`'s own letters.
 - **What goes wrong.** A path that is not a readable directory, a `.so` that
   `dlopen` refuses, a missing symbol: each prints one `Error:` line on stderr
   and is skipped, and none of them changes the exit status. Modules stay loaded

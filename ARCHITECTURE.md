@@ -30,7 +30,12 @@ once both are loaded:
 ```
   argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
                                                └─> dpf_instance ──> provider::algo_info
+                                                                    └─> provider::arg_def
 ```
+
+`provider::algo_info` is the module's `tsubaki_algo_info()`; `provider::arg_def`
+is its `tsubaki_arg_definition()`, printed verbatim under an `ArgParser script:`
+line, and only asked for when `tsubaki_need_more_args()` says yes.
 
 ## Contents
 
@@ -241,6 +246,34 @@ the loading:
   closed, so a module lives as long as the process.
 - `provider_mapper` is keyed by the name the module reports and filled with
   `emplace()`, so a duplicate keeps whichever module claimed the name first.
+- A provider may also declare the command-line arguments its algorithm needs.
+  `tsubaki_need_more_args()` is the switch: without the symbol the provider
+  takes nothing and the other two are never looked up, but exporting it obliges
+  the module to export `tsubaki_arg_definition()` and `tsubaki_take_args()` as
+  well, so a half-declared trio fails the load like any missing symbol.
+  `checksum_api::check_args()` parses the definition with
+  `argparser::parse_script()`, whose script language is documented in
+  https://github.com/Lawrence-Charland/LC-ArgParser, registers every entry in
+  the `#dynamic` group under `<name>@dynamic` — the suffix keeps a provider from
+  colliding with, or being confused for, one of tsubaki's own entries — calls
+  `reparse()` so the command line recognises the new names, evaluates that
+  group, and hands the values to `tsubaki_take_args()` as one
+  `tsubaki_pass_content` per entry. It calls `fine()` first, so a command line
+  that breaks the declared counts is reported exactly like a built-in option,
+  with the provider's `explanations` line as the label, and
+  `tsubaki_take_args()` is not called at all.
+- `algo_info_core()` writes the script out too: when `tsubaki_need_more_args()`
+  returns true it asks for `tsubaki_arg_definition()` and prints it untouched
+  under `ArgParser script:`, so it never parses the script and a malformed one
+  is only reported later, by `check_args()`. A null return is fatal, status 70.
+- `sum_main()` evaluates the `sum` group, then `check_args()`, and only then
+  `sum_greedy` — `--exclude`, `--list` and the file list. That order is what
+  keeps a provider option out of the file list: the name has to be registered
+  before the positional collects tokens, and a word left over from
+  `pre_parse()` is only re-examined by `reparse()`. The price is that a provider
+  name wins over tsubaki's own, which the contract warns about. `verify`
+  passes what it does not understand into the internal `sum` run behind a `--`,
+  so `verify -u alg name -L 128` reaches the provider.
 
 `checksum_api` holds its `dpf_instance` as `inline static`, so the process scans
 once, when the first `checksum_api` is constructed, and every later one reuses
@@ -403,7 +436,7 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `tsubaki::fanin_taskstream` | class | `basic_taskstream` | merges child streams; owns them through `unique_ptr` |
 | `tsubaki::work_manager` | class | — | worker pool, progress line, interrupt flag, and the `changed`/`unsure` vectors of a verify run |
 | `tsubaki::work_result` | class | — | value snapshot returned by `run()`, with `print()`; it holds no reference to the manager |
-| `tsubaki::checksum_api` | class | — | resolves a literal algorithm name, holds the key, answers `hashing()` / `keyed()` / `name()`, and routes `calc()` to the digest path, the MAC path or a provider |
+| `tsubaki::checksum_api` | class | — | resolves a literal algorithm name, holds the key, answers `hashing()` / `keyed()` / `name()`, declares a provider's extra arguments through `check_args()`, and routes `calc()` to the digest path, the MAC path or a provider |
 | `tsubaki::checksum_error` | enum class | — | why a `checksum_api` is unusable: `none`, `unknown_algorithm`, `missing_key`, `invalid_key` |
 | `tsubaki::dpf_instance` | class | — | scans `TSUBAKI_DYNAMIC_PROVIDER_PATHS` once at construction and maps provider names to loaded modules |
 | `tsubaki::provider` | struct | — | one `dlopen`ed module: its handle, the symbols resolved so far, and the `provider_msg` of the step that stopped it |
@@ -421,10 +454,10 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `src/main.cpp` | subcommand dispatch, `general` argument group, last-resort exception handler |
 | `include/core_functions.hpp` | `sum_main()`, `verify_main()` and `cmp_main()` declarations |
 | `include/exit_codes.hpp` | the exit-code macros shared by the four drivers |
-| `src/sum_core.cpp` | `sum` argument group checks, startup sequence, stream construction |
+| `src/sum_core.cpp` | `sum` argument group checks, provider argument declaration, the greedy stage that follows it, startup sequence, stream construction |
 | `src/verify_core.cpp` | `verify` argument group, `-u` override, header lookup, internal `sum` invocation |
 | `src/cmp_core.cpp` | `cmp` argument group, import of both listings, path and checksum matching, section output |
-| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` argument group, `get_info_builtin()` and the driver that prints a built-in or provider description |
+| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` argument group, `get_info_builtin()` and the driver that prints a built-in or provider description, plus a provider's argument script |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
@@ -432,9 +465,9 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | multi-source merge |
 | `include/checksum.hpp` | `ALGORITHM_LIST`, the `algorithm` enum, `mapper`, `str_to_alg()` / `alg_to_str()`, the key policy, and the `checksum_file()` / `checksum_file_key()` declarations |
 | `src/checksum.cpp` | the OpenSSL side: `digest_for()`, `mac_for()`, `stream_file()`, `checksum_file()` and `checksum_file_key()` |
-| `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` and `checksum_api`: name resolution, key handling, `calc()` routing |
+| `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` and `checksum_api`: name resolution, key handling, provider argument declaration through `check_args()`, `calc()` routing |
 | `include/dpframework.hpp`, `src/dpframework.cpp` | `provider_msg`, `provider` (one `dlopen`/`dlsym` load) and `dpf_instance` (the environment scan) |
-| `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: four required `extern "C"` symbols plus an optional `tsubaki_algo_info()` |
+| `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: four required `extern "C"` symbols, an optional `tsubaki_algo_info()`, and an optional trio that declares extra command-line arguments |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |

@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.10...3.28)
 
-project(Tsubaki-Next VERSION 2.1.2 LANGUAGES CXX)
+project(Tsubaki-Next VERSION 2.1.3 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
@@ -53,7 +53,7 @@ include(FetchContent)
 FetchContent_Declare(
     LC-ArgParser
     GIT_REPOSITORY https://github.com/Lawrence-Charland/LC-ArgParser.git
-    GIT_TAG 7f9bb7ef37893e301c71080988e9ec75b212397d
+    GIT_TAG 947fea714d6de5aa68ce451b591f741368029a66
     SOURCE_SUBDIR _build-from-source)
 FetchContent_MakeAvailable(LC-ArgParser)
 
@@ -73,6 +73,7 @@ add_executable(tsubaki
     src/cached_taskstream.cpp
     src/sum_core.cpp
     ${lc-argparser_SOURCE_DIR}/src/argparser.cpp
+    ${lc-argparser_SOURCE_DIR}/src/ap_script.cpp
     src/verify_core.cpp
     src/cmp_core.cpp
     src/dpframework.cpp

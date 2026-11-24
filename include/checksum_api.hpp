@@ -4,11 +4,13 @@
 #ifndef LCPROJECTS_TSUBAKI_CHECKSUM_API_HPP
 #define LCPROJECTS_TSUBAKI_CHECKSUM_API_HPP
 
+#include "argparser.hpp"
 #include "checksum.hpp"
 #include "dpframework.hpp"
 
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <system_error>
 
@@ -45,6 +47,7 @@ class checksum_api
     const std::string &name() const;
     bool set_algo(const std::string &name);
     bool set_key(std::string _key);
+    std::optional<std::string> check_args(argparser::ap_instance &cmdline);
 
     std::expected<std::string, std::error_code>
     calc(const std::filesystem::path &target) const;

@@ -148,6 +148,10 @@ int verify_main(argparser::ap_instance &cmdline)
         sum_cmd.push_back("--text");
     sum_cmd.push_back("--force-rescan");
     sum_cmd.push_back("--verify");
+    {
+        auto &content = cmdline.entry(cmdline_entry::extra_args).content;
+        sum_cmd.insert(sum_cmd.end(), content.begin(), content.end());
+    }
 
     ap_instance sum_cmd_ap = def_args();
     sum_cmd_ap.pre_parse(sum_cmd);

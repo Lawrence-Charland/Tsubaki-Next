@@ -209,6 +209,20 @@ int algo_info_core(argparser::ap_instance &cmdline)
     }
     std::cout << "Source:     " << find_pro.display_path.string() << std::endl;
     std::cout << find_pro.algo_info() << std::endl;
+    if (!find_pro.need_args())
+        return TSUBAKI_SUCCESS;
+    const char *defined = find_pro.arg_def();
+    if (defined == nullptr)
+    {
+        std::cerr << "Fatal: the provider needs more args but didn't define "
+                     "the ArgParser script."
+                  << std::endl;
+        return TSUBAKI_FATAL;
+    }
+    std::string argdef(defined);
+    std::cout << "ArgParser script:" << std::endl << argdef;
+    if (argdef.empty() || argdef.back() != '\n')
+        std::cout << std::endl;
     return TSUBAKI_SUCCESS;
 }
 } // namespace tsubaki

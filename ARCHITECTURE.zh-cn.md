@@ -27,7 +27,12 @@
 ```
   argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
                                                └─> dpf_instance ──> provider::algo_info
+                                                                    └─> provider::arg_def
 ```
+
+`provider::algo_info` 对应模块的 `tsubaki_algo_info()`；`provider::arg_def` 对应
+`tsubaki_arg_definition()`，原样打印在 “ArgParser script:” 之下，且只有
+`tsubaki_need_more_args()` 说是时才会去要。
 
 ## 目录
 
@@ -207,6 +212,28 @@ std::vector<error_entry> take_errors();
   关闭，模块与进程同寿。
 - `provider_mapper` 以模块自报的名字为键，用 `emplace()` 填充，所以重名时保留先
   认领那个名字的模块。
+- provider 也可以声明自己的算法需要哪些命令行参数。开关是
+  `tsubaki_need_more_args()`：没有这个符号就表示不接受额外参数，另两个也不会去
+  查；导出它则必须同时导出 `tsubaki_arg_definition()` 与 `tsubaki_take_args()`，
+  少一个就像缺任何必需符号一样加载失败。`checksum_api::check_args()` 用
+  `argparser::parse_script()` 解析参数表（这门脚本语言的说明在
+  https://github.com/Lawrence-Charland/LC-ArgParser），把每个条目以
+  `<名字>@dynamic` 注册进 `#dynamic` 组——后缀既避免和 tsubaki 自己的条目撞名，
+  也让报错能看出这是内部要求还是外部要求——再调 `reparse()` 让命令行认得这些新
+  名字，然后求值该组，把值按脚本顺序逐个条目打包成 `tsubaki_pass_content` 交给
+  `tsubaki_take_args()`。调用前它会先查 `fine()`，所以违反声明数量的命令行会像
+  内建选项那样报错（标签用 provider 的 `explanations`），`tsubaki_take_args()`
+  根本不会被调用。
+- `algo_info_core()` 也把脚本写出来：`tsubaki_need_more_args()` 返回真时它去取
+  `tsubaki_arg_definition()`，原封不动印在 “ArgParser script:” 之下，自己并不解析
+  脚本，所以脚本写错只会在后面由 `check_args()` 报出来；返回空指针则当场就是致命
+  错误，状态码 70。
+- `sum_main()` 先求值 `sum` 组，再调 `check_args()`，最后才求值 `sum_greedy`——
+  `--exclude`、`--list` 和文件列表。这个顺序正是 provider 选项不会被当成文件名的
+  原因：名字必须先注册，位置参数才会开始收词，而 `pre_parse()` 留下的词只有
+  `reparse()` 才会重新检查。代价是 provider 的名字会盖过 tsubaki 自己的，
+  provider 契约里对此有警告。`verify` 把看不懂的参数放在 `--` 之后转交给内部的
+  `sum`，所以 `verify -u alg 名字 -L 128` 也能到达 provider。
 
 `checksum_api` 把 `dpf_instance` 存成 `inline static`，所以整个进程只扫一次——第一
 个 `checksum_api` 构造时扫，之后每个都复用那张表：`sum` 与 `verify` 共用一次扫描，
@@ -364,10 +391,10 @@ tsubaki sum sha256 . -e build -l old.txt
 | `src/main.cpp` | 子命令分发、`general` 参数组、最后的异常兜底 |
 | `include/core_functions.hpp` | `sum_main()`、`verify_main()` 与 `cmp_main()` 的声明 |
 | `include/exit_codes.hpp` | 四个驱动共用的退出码宏 |
-| `src/sum_core.cpp` | `sum` 参数组的检查、启动流程、流的组装 |
+| `src/sum_core.cpp` | `sum` 参数组的检查、provider 参数声明及其后的贪婪阶段、启动流程、流的组装 |
 | `src/verify_core.cpp` | `verify` 参数组、`-u` 覆盖、头部查找、内部 `sum` 调用 |
 | `src/cmp_core.cpp` | `cmp` 参数组、两份清单的导入、路径与校验和匹配、分节输出 |
-| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` 参数组、`get_info_builtin()`，以及打印内建或 provider 说明的驱动 |
+| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` 参数组、`get_info_builtin()`，以及打印内建或 provider 说明、外加 provider 参数脚本的驱动 |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | 基类流与它的 `pop()` 过滤 |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | 目录遍历 |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |
@@ -375,7 +402,7 @@ tsubaki sum sha256 . -e build -l old.txt
 | `include/fanin_taskstream.hpp`, `src/fanin_taskstream.cpp` | 多源汇流 |
 | `include/checksum.hpp` | `ALGORITHM_LIST`、`algorithm` 枚举、`mapper`、`str_to_alg()` / `alg_to_str()`、密钥策略，以及 `checksum_file()` / `checksum_file_key()` 的声明 |
 | `src/checksum.cpp` | OpenSSL 那一侧：`digest_for()`、`mac_for()`、`stream_file()`、`checksum_file()`、`checksum_file_key()` |
-| `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` 与 `checksum_api`：名字解析、密钥处理、`calc()` 分派 |
+| `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` 与 `checksum_api`：名字解析、密钥处理、经 `check_args()` 声明 provider 参数、`calc()` 分派 |
 | `include/dpframework.hpp`, `src/dpframework.cpp` | `provider_msg`、`provider`（一次 `dlopen`/`dlsym`）与 `dpf_instance`（环境变量扫描） |
 | `include/dynamic_provider_header.hpp` | provider 编译时对照的 ABI：四个必需的 `extern "C"` 符号，外加一个可选的 `tsubaki_algo_info()` |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |

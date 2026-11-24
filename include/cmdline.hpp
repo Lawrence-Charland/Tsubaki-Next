@@ -16,6 +16,7 @@ namespace cmdline_group
 inline constexpr const char *general = "general";
 inline constexpr const char *sum = "sum";
 inline constexpr const char *sum_int = "sum_int";
+inline constexpr const char *sum_greedy = "sum_greedy";
 inline constexpr const char *verify = "verify";
 inline constexpr const char *cmp = "cmp";
 inline constexpr const char *algo_info = "algo_info";
@@ -41,6 +42,7 @@ inline constexpr const char *lists = "lists";
 inline constexpr const char *files = "files";
 inline constexpr const char *verify_sumint = "verify_sumint";
 inline constexpr const char *to_verify = "to_verify";
+inline constexpr const char *extra_args = "extra_args";
 inline constexpr const char *use_algo = "use_algo";
 inline constexpr const char *to_compare = "to_compare";
 inline constexpr const char *canonical = "canonical";
@@ -57,19 +59,27 @@ inline constexpr const char *algo_info = "algo-info";
 
 using namespace argparser;
 
-static inline void error_prompt(std::ostream &os, ap_instance &cmdline)
+static inline void error_prompt(std::ostream &os, ap_instance &cmdline,
+                                bool hint = true)
 {
-    const std::string program =
-        std::filesystem::path(cmdline.argv_zero()).filename().string();
     for (auto &err : cmdline.errors())
     {
         if (err.second == argparser::ap_result::invalid_arguments)
             os << "Error: invalid argument: " << err.first << std::endl;
         else
             os << "Error: " << argparser::describe(err.second) << ": "
-               << cmdline.entry(err.first).explanations.at(0) << std::endl;
+               << [&cmdline, &err]()
+            {
+                auto &entry = cmdline.entry(err.first);
+                if (entry.explanations.empty())
+                    return entry.name;
+                return entry.explanations.at(0);
+            }() << std::endl;
     }
-    os << "Try '" << program << " --help' for more information." << std::endl;
+    if (hint)
+        os << "Try '"
+           << std::filesystem::path(cmdline.argv_zero()).filename().string()
+           << " --help' for more information." << std::endl;
 }
 
 static inline ap_instance def_args()
@@ -197,7 +207,7 @@ static inline ap_instance def_args()
                 cmdline_entry::excludes,
                 ap_type::option,
                 {
-                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::sum_greedy},
                     {ap_defkey::explanations,"-e or --exclude(s)"},
                     {ap_defkey::long_name,"exclude,excludes"},
                     {ap_defkey::short_name,"e"},
@@ -207,7 +217,7 @@ static inline ap_instance def_args()
                 cmdline_entry::lists,
                 ap_type::option,
                 {
-                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::sum_greedy},
                     {ap_defkey::explanations,"-l or --list(s)"},
                     {ap_defkey::long_name,"list,lists"},
                     {ap_defkey::short_name,"l"},
@@ -249,7 +259,7 @@ static inline ap_instance def_args()
                 cmdline_entry::files,
                 ap_type::positional,
                 {
-                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::group, cmdline_group::sum_greedy},
                     {ap_defkey::explanations,"files or directories"},
                 }
             ),
@@ -282,6 +292,14 @@ static inline ap_instance def_args()
                     {ap_defkey::explanations,"checksum result to verify"},
                     {ap_defkey::min_positional_count,"1"},
                     {ap_defkey::max_positional_count,"1"},
+                }
+            ),
+            ap_entry(
+                cmdline_entry::extra_args,
+                ap_type::positional,
+                {
+                    {ap_defkey::group, cmdline_group::verify},
+                    {ap_defkey::explanations,"more arguments for checksum"},
                 }
             ),
             ap_entry( // Handled in src/cmp_core.cpp

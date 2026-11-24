@@ -22,6 +22,11 @@ const char *no_algo_info() noexcept
     return "No information provided.";
 }
 
+bool dont_need_args() noexcept
+{
+    return false;
+}
+
 provider::provider(const std::filesystem::path &path) : display_path(path)
 {
     handle = dlopen(display_path.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -62,6 +67,28 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
     }
     implement = reinterpret_cast<decltype(implement)>(
         dlsym(handle, TSUBAKI_SYMBOL_IMPLEMENT));
+    if (const char *err = dlerror())
+    {
+        error = provider_msg::dlsym_fail;
+        return;
+    }
+    need_args = reinterpret_cast<decltype(need_args)>(
+        dlsym(handle, TSUBAKI_SYMBOL_NEED_ARGS));
+    if (const char *err = dlerror())
+    {
+        error = provider_msg::success;
+        need_args = dont_need_args;
+        return;
+    }
+    arg_def = reinterpret_cast<decltype(arg_def)>(
+        dlsym(handle, TSUBAKI_SYMBOL_ARGDEF));
+    if (const char *err = dlerror())
+    {
+        error = provider_msg::dlsym_fail;
+        return;
+    }
+    take_args = reinterpret_cast<decltype(take_args)>(
+        dlsym(handle, TSUBAKI_SYMBOL_TAKE_ARGS));
     if (const char *err = dlerror())
     {
         error = provider_msg::dlsym_fail;

@@ -171,7 +171,9 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 `tsubaki algo-info <算法>` 把同一批事实按单个名字打出来：一行 `Source:`（内建是
 `built-in`，动态算法是提供它的模块路径），然后是摘要宽度、密钥格式，以及一小段
 说明。provider 的名字也能查；模块没导出可选的 `tsubaki_algo_info()` 时显示
-“No information provided.”。
+“No information provided.”。自己声明了参数的 provider（见下文）还会把它的
+ArgParser 脚本原样打印在 “ArgParser script:” 之下，模块接受哪些开关，直接从模块
+本身就能看出来。
 
 ### 动态算法
 
@@ -185,8 +187,9 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 算法以那个仓库的 README 为准。想看清契约被编译成什么样，看它最快，自己写
 provider 也可以直接照抄。
 
-- **provider 要导出什么。** 四个必需的 `extern "C"` 符号，外加一个可选的
-  `tsubaki_algo_info()`，都声明在 `include/dynamic_provider_header.hpp` 里：
+- **provider 要导出什么。** 四个必需的 `extern "C"` 符号、一个可选的
+  `tsubaki_algo_info()`，以及一组可选的、用来声明额外命令行参数的三个符号，都声明
+  在 `include/dynamic_provider_header.hpp` 里：
   `tsubaki_provider_name()` 给出命令行上用的名字，`tsubaki_is_keyed()` 说明是否需要
   密钥，`tsubaki_check_key()` 接受或拒绝一个密钥，`tsubaki_checksum_file()` 把摘要
   算进一个按值返回的
@@ -213,6 +216,21 @@ provider 也可以直接照抄。
   C 库加载模块，所以模块必须匹配 `tsubaki` 链接时所用的那一代 glibc。一个工程里
   可以放多个算法——推荐先这样组织，契约头文件和读取文件的循环都能共用——一个名字
   出一个 `.so`，目录遍历会把它们全部收进来。
+- **额外的命令行参数。** 需要文件之外参数的算法可以自己声明开关：导出
+  `tsubaki_need_more_args()`、`tsubaki_arg_definition()` 和 `tsubaki_take_args()`，
+  `tsubaki` 就会在读文件列表之前解析这张参数表，于是
+  `tsubaki sum shake128 -L 128 file` 会经 `tsubaki_take_args()` 送到模块手里，而不是
+  被当成路径。参数表每个参数写一个 `{ entry_name = ...; entry_type = ...; }` 块，
+  用的是 [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser) 文档里
+  的脚本语言。条目在报错里写作 `<名字>@dynamic`；命令行违反脚本声明的数量
+  （`min_value_count`、`max_value_count`、`max_repetition`）时，由 `tsubaki`
+  自己拒绝，`tsubaki_take_args()` 不会被调用，退出码 64；`tsubaki_take_args()`
+  返回非空串同样算错误，退出码也是 64。
+  开关写在算法名之后——写在它前面的词仍会被当成算法名——`tsubaki algo-info`
+  会把这张表原样打印出来，用户能直接查到语法；模块声明自己需要参数却返回空指针，
+  算致命错误，退出码 70。`verify` 会把不认识的参数转发下去，所以
+  `verify -u shake128 file.sum -L 128` 同样可用。provider 的开关先于 `tsubaki`
+  自己的选项匹配，因此不能复用后者的字母。
 - **出错会怎样。** 路径不是可读目录、`dlopen` 拒绝某个 `.so`、少了符号：各打一行
   `Error:` 到 stderr 然后跳过，都不改变退出码。模块与进程同寿，没有任何地方会卸载
   它们。

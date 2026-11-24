@@ -5,6 +5,7 @@
 #define LCPROJECTS_TSUBAKI_DPFRAMEWORK_HPP
 
 #include "dynamic_provider_header.hpp"
+
 #include <cstddef>
 #include <filesystem>
 #include <string>
@@ -18,10 +19,15 @@
 #define TSUBAKI_SYMBOL_IS_KEYED "tsubaki_is_keyed"
 #define TSUBAKI_SYMBOL_CHECK_KEY "tsubaki_check_key"
 #define TSUBAKI_SYMBOL_IMPLEMENT "tsubaki_checksum_file"
+#define TSUBAKI_SYMBOL_NEED_ARGS "tsubaki_need_more_args"
+#define TSUBAKI_SYMBOL_ARGDEF "tsubaki_arg_definition"
+#define TSUBAKI_SYMBOL_TAKE_ARGS "tsubaki_take_args"
 
 namespace tsubaki
 {
 const char *no_algo_info() noexcept;
+
+bool dont_need_args() noexcept;
 
 enum class provider_msg
 {
@@ -42,7 +48,10 @@ struct provider
     bool (*is_keyed)() = nullptr;
     bool (*check_key)(const char *, std::size_t) = nullptr;
     tsubaki_checksum_result (*implement)(const char *, const char *,
-                                        std::size_t) = nullptr;
+                                         std::size_t) = nullptr;
+    bool (*need_args)() = nullptr;
+    const char *(*arg_def)() = nullptr;
+    const char *(*take_args)(tsubaki_pass_content *, std::size_t) = nullptr;
 
     provider(const std::filesystem::path &path);
     provider() = default;

@@ -40,7 +40,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
     const std::string program = path(cmdline.argv_zero()).filename().string();
 
     // Check errors (early stage)
-    if (!cmdline.fine(false))
+    if (!cmdline.fine())
     {
         error_prompt(std::cerr, cmdline);
         return TSUBAKI_INVALID_OPERATION;
@@ -76,6 +76,25 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                 std::cerr << "Error: unknown algorithm: \"" << content.at(0)
                           << "\"." << std::endl;
                 return TSUBAKI_INVALID_OPERATION;
+            }
+            try
+            {
+                auto chk_args = api.check_args(cmdline);
+                if (chk_args)
+                {
+                    std::cerr << chk_args.value() << std::endl;
+                    std::cerr << "The argument requirement belongs to \""
+                              << api.name() << "\". You can try " << program
+                              << " algo-info " << api.name() << std::endl;
+                    return TSUBAKI_INVALID_OPERATION;
+                }
+            }
+            catch (const std::exception &e)
+            {
+                std::cerr << "Error: failed to check the arguments required by "
+                             "the dynamic provider.\n what():\n"
+                          << e.what() << std::endl;
+                return TSUBAKI_FATAL;
             }
         }
         // Decide the key
@@ -116,9 +135,9 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                         is_key = &ifs_key_file;
                     }
                     auto key_read = get_file_content(
-                        *is_key, static_cast<bool>(
-                                     cmdline.entry(cmdline_entry::text)
-                                         .repetition));
+                        *is_key,
+                        static_cast<bool>(
+                            cmdline.entry(cmdline_entry::text).repetition));
                     if (!key_read)
                     {
                         std::cerr
@@ -200,6 +219,13 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                 }
                 out = &fout;
             }
+        }
+        // Parse the greedy arguments
+        cmdline.evaluate(cmdline_group::sum_greedy);
+        if (!cmdline.fine(false))
+        {
+            error_prompt(std::cerr, cmdline);
+            return TSUBAKI_INVALID_OPERATION;
         }
         // Store the excludes
         for (auto &it : cmdline.entry(cmdline_entry::excludes).content)
