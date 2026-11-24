@@ -8,8 +8,10 @@
 #include "cmdline.hpp"
 #include "dpframework.hpp"
 #include "dynamic_provider_header.hpp"
+#include "exit_codes.hpp"
 
 #include <expected>
+#include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -107,6 +109,13 @@ checksum_api::check_args(argparser::ap_instance &cmdline)
         return {};
     if (!pro.need_args()) // need_args()==true <=> arg_def!=nullptr
         return {};
+    if (pro.arg_def == nullptr)
+    {
+        std::cerr << "Fatal: the provider needs more args but didn't define "
+                     "the ArgParser script."
+                  << std::endl;
+        _Exit(TSUBAKI_FATAL);
+    }
     auto get_argdef = argparser::parse_script(std::string(pro.arg_def()));
     std::vector<std::string> names;
     for (auto &entry : get_argdef)
