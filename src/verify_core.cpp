@@ -22,7 +22,7 @@ int verify_main(argparser::ap_instance &cmdline)
     cmdline.evaluate(cmdline_group::verify);
     if (!cmdline.fine(false))
     {
-        error_prompt(std::cerr, cmdline);
+        error_prompt(std::cerr, cmdline, false);
         return TSUBAKI_INVALID_OPERATION;
     }
 

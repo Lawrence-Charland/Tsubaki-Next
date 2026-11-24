@@ -53,7 +53,7 @@ int main(int argc, char **argv)
         // Check error
         if (!cmdline.fine())
         {
-            error_prompt(std::cerr, cmdline);
+            error_prompt(std::cerr, cmdline, true);
             return TSUBAKI_INVALID_OPERATION;
         }
 

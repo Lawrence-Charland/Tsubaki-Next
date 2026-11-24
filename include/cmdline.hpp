@@ -60,21 +60,27 @@ inline constexpr const char *algo_info = "algo-info";
 using namespace argparser;
 
 static inline void error_prompt(std::ostream &os, ap_instance &cmdline,
-                                bool hint = true)
+                                bool ignore_redundant, bool hint = true)
 {
     for (auto &err : cmdline.errors())
     {
+        // A redundant argument carries the raw token, not an entry name, so it
+        // cannot go through entry(): either report it as it is, or drop it
+        // because the caller asked for redundancy to be ignored.
         if (err.second == argparser::ap_result::invalid_arguments)
-            os << "Error: invalid argument: " << err.first << std::endl;
-        else
-            os << "Error: " << argparser::describe(err.second) << ": "
-               << [&cmdline, &err]()
-            {
-                auto &entry = cmdline.entry(err.first);
-                if (entry.explanations.empty())
-                    return entry.name;
-                return entry.explanations.at(0);
-            }() << std::endl;
+        {
+            if (!ignore_redundant)
+                os << "Error: invalid argument: " << err.first << std::endl;
+            continue;
+        }
+        os << "Error: " << argparser::describe(err.second) << ": "
+           << [&cmdline, &err]()
+        {
+            auto &entry = cmdline.entry(err.first);
+            if (entry.explanations.empty())
+                return entry.name;
+            return entry.explanations.at(0);
+        }() << std::endl;
     }
     if (hint)
         os << "Try '"

@@ -42,7 +42,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
     // Check errors (early stage)
     if (!cmdline.fine())
     {
-        error_prompt(std::cerr, cmdline);
+        error_prompt(std::cerr, cmdline, true);
         return TSUBAKI_INVALID_OPERATION;
     }
 
@@ -224,7 +224,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
         cmdline.evaluate(cmdline_group::sum_greedy);
         if (!cmdline.fine(false))
         {
-            error_prompt(std::cerr, cmdline);
+            error_prompt(std::cerr, cmdline, false);
             return TSUBAKI_INVALID_OPERATION;
         }
         // Store the excludes

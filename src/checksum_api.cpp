@@ -141,7 +141,7 @@ checksum_api::check_args(argparser::ap_instance &cmdline)
     if (!cmdline.fine())
     {
         std::stringstream ss;
-        error_prompt(ss, cmdline, false);
+        error_prompt(ss, cmdline, true, false);
         return ss.str();
     }
     // entry.content holds the strings and stays alive until this returns.

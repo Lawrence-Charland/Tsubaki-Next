@@ -188,7 +188,7 @@ int algo_info_core(argparser::ap_instance &cmdline)
     cmdline.evaluate(cmdline_group::algo_info);
     if (!cmdline.fine(false))
     {
-        error_prompt(std::cerr, cmdline);
+        error_prompt(std::cerr, cmdline, false);
         return TSUBAKI_INVALID_OPERATION;
     }
     const std::string algo =
