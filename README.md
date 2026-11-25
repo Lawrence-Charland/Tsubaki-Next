@@ -2,25 +2,27 @@
 
 [中文](README.zh-cn.md)
 
-Tsubaki computes checksums. Input can be a file, a directory tree, an existing
-manifest or standard input, combined freely in one run and hashed in parallel.
-The built-in algorithms cover the common digests and keyed hashes (HMAC, keyed
-BLAKE2); `tsubaki -a` prints the full list. It is the spiritual successor of the
-original [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki), but not a
-feature superset: what exists there and not here is listed under
-[Relationship to the original Tsubaki](#relationship-to-the-original-tsubaki).
+Generate, verify and compare checksum manifests. Input can be a file, a
+directory tree, an existing manifest or standard input, combined freely in one
+run and hashed in parallel. The built-in algorithms cover the common digests
+and keyed hashes (HMAC, keyed BLAKE2); `tsubaki -a` prints the full list.
 
 The result is a manifest: one `<checksum> <path>` line per file, followed by a
 `#` report block naming the algorithm, counts, duration and errors. Manifest
-lines interoperate with GNU coreutils hash tool output. `sum` does the hashing;
-the other three subcommands work on the manifests it produces. `verify`
-re-hashes the paths a manifest names, reports what changed and what it could not
-decide, and writes a refreshed manifest; `cmp` touches no files, comparing two
-manifests to report modified, moved or renamed, added or deleted, and matched
-entries; `algo-info` describes a single algorithm. `verify` answers "did
-anything change since the record?", `cmp` answers "what exactly changed between
-two runs?", and they chain: refresh with `verify`, then compare the result with
-the old manifest using `cmp`.
+lines interoperate with GNU coreutils hash tool output. `sum` does the
+generating; the other three subcommands work on the manifests it produces.
+`verify` re-hashes the paths a manifest names, reports what changed and what it
+could not decide, and writes a refreshed manifest; `cmp` touches no files,
+comparing two manifests to report modified, moved or renamed, added or deleted,
+and matched entries; `algo-info` describes a single algorithm. `verify`
+answers "did anything change since the record?", `cmp` answers "what exactly
+changed between two runs?", and they chain: refresh with `verify`, then compare
+the result with the old manifest using `cmp`.
+
+It is the spiritual successor of the original
+[Tsubaki](https://github.com/Lawrence-Charland/Tsubaki), but not a feature
+superset: what exists there and not here is listed under
+[Relationship to the original Tsubaki](#relationship-to-the-original-tsubaki).
 
 Algorithms are not limited to the built-in list. The DPF (Dynamic Provider
 Framework) loads extensions: put a provider's directory in

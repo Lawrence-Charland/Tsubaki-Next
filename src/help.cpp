@@ -18,7 +18,7 @@
 namespace tsubaki
 {
 const std::string help_body =
-    R"HELP(Tsubaki-Next {version} - build, verify and compare checksum manifests
+    R"HELP(Tsubaki-Next {version} - Generate, verify and compare checksum manifests
 
 Usage:
   {program} sum [options] <algorithm> <file|dir>...

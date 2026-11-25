@@ -2,20 +2,21 @@
 
 [English](README.md)
 
-Tsubaki 是一个校验和工具。输入可以是一个文件、一棵目录树、一份已有的清单或者
-标准输入，一次运行里任意组合、并行计算。算法覆盖常见摘要与密钥哈希（HMAC、
-带密钥 BLAKE2），完整名单见 `tsubaki -a`。它是旧版
-[Tsubaki](https://github.com/Lawrence-Charland/Tsubaki) 的精神续作，但不是功能
-超集：做法换了，旧版有而这里没有的东西列在
-[与旧版 Tsubaki 的关系](#与旧版-tsubaki-的关系) 里。
+生成、核对和比较校验和清单。输入可以是一个文件、一棵目录树、一份已有的清单
+或者标准输入，一次运行里任意组合、并行计算。内建算法覆盖常见摘要与密钥哈希
+（HMAC、带密钥 BLAKE2），完整名单见 `tsubaki -a`。
 
 输出是一份清单：每个文件一行 `<校验和> <路径>`，末尾跟一块 `#` 开头的报告，
 写明算法、处理数、耗时和错误。清单行与 GNU coreutils 的哈希工具输出互相兼容。
-计算由 `sum` 完成，另外三个子命令围绕它产出的清单工作：`verify` 按清单里的
+生成由 `sum` 完成，另外三个子命令围绕它产出的清单工作：`verify` 按清单里的
 路径重算，报出变了和无法判断的条目，同时写出刷新后的清单；`cmp` 不碰文件，
 只比较两份清单，报出修改、移动/改名、增删和相同；`algo-info` 说明单个算法。
 `verify` 回答“和记录相比变了没有”，`cmp` 回答“两次之间具体变了什么”，两者
 可以接力：先用 `verify` 刷新，再用 `cmp` 和旧清单细比。
+
+它是旧版 [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki) 的精神续作，但
+不是功能超集：做法换了，旧版有而这里没有的东西列在
+[与旧版 Tsubaki 的关系](#与旧版-tsubaki-的关系) 里。
 
 算法不限于内建列表。DPF（Dynamic Provider Framework）负责加载这些扩展：把
 provider 的目录写进 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，其中的 `.so` 就会被
