@@ -683,6 +683,32 @@ exits `73`; the result stream is checked when the run ends. If the results go to
 a pipe whose reader has already closed it, the process is killed by `SIGPIPE`
 instead (a shell reports 141), so the `73` path is not reached.
 
+### Report keys
+
+These key names are fixed: they are not renamed, removed or given another
+meaning. `Changed` and `Unsure` come from `verify`; the other seven are written
+by both subcommands.
+
+| Key | Meaning |
+| --- | --- |
+| `Algorithm` | the algorithm the run used; written even when the run was interrupted |
+| `Processed` | `Hashed + Failed` |
+| `Hashed` | files whose checksum was computed in this run |
+| `Failed` | files that could not be opened, read or hashed |
+| `Not hashed` | files left without a checksum: interrupted, or the `none` algorithm |
+| `Duration` | seconds spent by the workers, as a decimal number |
+| `Changed` | paths whose checksum differs from the manifest |
+| `Unsure` | paths that could not be decided: missing, unreadable or not hashed |
+| `Errors` | recorded errors; this line is always written |
+
+The headings inside the block are fixed too: `Changed files:`, `Unsure files:`,
+`Error messages:`, and each error line is `Value: <number>, Message: <text>,
+Operation: <text>`.
+
+Everything else about the block is formatting rather than contract: the spaces
+after the colon, the way `Duration` prints its value, and the order of the
+result lines above the block.
+
 ## Exit status
 
 | Code | Meaning |
