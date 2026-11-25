@@ -30,8 +30,7 @@ std::optional<task_token> listscanner::pop_raw()
                     line);
             continue;
         }
-        // A real digest is only returned when rescanning; a "<NONE>" line names
-        // a file to hash either way.
+        // "<NONE>" names a file to hash either way; a digest only matters on rescan.
         if (rescan || parsed->sum.empty())
             return parsed.value();
         std::osyncstream(os)

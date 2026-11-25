@@ -84,9 +84,7 @@ bool is_checksum(const std::string &target)
 
 namespace
 {
-// coreutils escapes a name by marking the whole line with a leading backslash
-// and replacing only two sequences inside it: "\\" and "\n". Anything else
-// after a backslash is left alone.
+// An escaped line starts with a backslash and escapes only "\\" and "\n" inside.
 std::string unescape_name(const std::string &name)
 {
     std::string out;
@@ -129,9 +127,7 @@ std::optional<task_token> parse_line(const std::string &line)
     if (i == line.size())
         return {};
 
-    // One or more spaces separate the fields. Exactly one space followed by '*'
-    // is the binary marker coreutils writes, and the marker is dropped; two or
-    // more spaces mean a name that happens to start with '*', so it keeps it.
+    // One space + '*' is the binary marker ( dropped ); two spaces keep the '*'.
     const std::size_t sep_begin = i;
     while (i < line.size() && line[i] == ' ')
         ++i;
@@ -159,8 +155,7 @@ void write_line(const std::string &sum, const std::filesystem::path &p,
     const std::string name = p.string();
     if (name.find_first_of("\n\\") != std::string::npos)
     {
-        // The leading backslash marks the line as escaped; the separator is
-        // still the usual two spaces.
+        // Escaped: a leading backslash marks the line.
         os << '\\' << sum << "  ";
         for (char c : name)
         {
@@ -179,9 +174,7 @@ void write_line(const std::string &sum, const std::filesystem::path &p,
 
 std::string shown_name(const std::string &name)
 {
-    // Unescaping turns "\n" back into a real newline. Printing that into a
-    // "# Kept:" comment would split the comment and leave a bare path on the
-    // stream, which reads like a manifest line, so show it escaped again.
+    // A newline would split the "#" comment and leave a bare path; keep it escaped.
     std::string shown;
     shown.reserve(name.size());
     for (char c : name)
