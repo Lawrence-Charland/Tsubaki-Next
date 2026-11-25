@@ -521,8 +521,8 @@ file name for `-l`, and both read stdin. Each line is trimmed before it is
 looked at, so leading and trailing whitespace never becomes part of a path.
 
 - an empty line or a line starting with `#` is ignored;
-- a line starting with `<NONE> ` (the marker and one space) names the path after
-  the marker;
+- a line starting with `<NONE>` and one or two spaces (`sum` writes two) names
+  the path after the marker;
 - a line in `<checksum> <path>` form keeps the checksum as it is, writes
   `# Kept: <path>` and the (trimmed) original line to the output, and only
   rescans the path when `--force-rescan` is given;
@@ -556,10 +556,10 @@ shell splits the result on whitespace before tsubaki sees it.
 
 coreutils separates a checksum from its path with two spaces, or with a space
 and a `*` for a binary read (`sha256sum --binary`); the `*` is dropped and is
-never part of the path, so a listing written either way reads the same. Because
-the output of `sum` uses a single space, a path that really starts with
-`*` would read back as that marker: write it as `./*name` or as an absolute
-path.
+never part of the path, so a listing written either way reads the same. `sum`
+writes the two spaces and never the marker, so its output reads back unchanged
+even when a path starts with `*`. Only a hand-written single-space line is
+ambiguous: write such a path as `./*name` or as an absolute path.
 
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
 fed back with `-l` to redo only the files that were not hashed.
@@ -595,6 +595,9 @@ a `# tsubaki checksum result` header, then one line per file:
 ```
 <checksum> <path>
 ```
+
+The two fields are separated by two spaces, as in a coreutils listing; a `*`
+binary marker is accepted on input but never written.
 
 (`cmp` writes `# tsubaki comparison result` and its own sections instead; see
 [Comparing](#comparing).)

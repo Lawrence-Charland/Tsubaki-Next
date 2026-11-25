@@ -129,7 +129,7 @@ void work_manager::worker(bool verify)
         if (interrupted.load(std::memory_order_relaxed))
         {
             std::osyncstream(os)
-                << none_checksum << ' ' << target->p.string() << '\n';
+                << none_checksum << "  " << target->p.string() << '\n';
             unprocessed.fetch_add(1, std::memory_order_relaxed);
             if (verify)
                 _unsure.push_back(target.value());
@@ -143,7 +143,7 @@ void work_manager::worker(bool verify)
                 error_entry(checksum.error(), "calculating the checksum of " +
                                                   target->p.string()));
             std::osyncstream(os)
-                << none_checksum << ' ' << target->p.string() << '\n';
+                << none_checksum << "  " << target->p.string() << '\n';
             failed.fetch_add(1, std::memory_order_relaxed);
             if (verify)
                 _unsure.push_back(target.value());
@@ -151,7 +151,7 @@ void work_manager::worker(bool verify)
         else
         {
             std::osyncstream(os)
-                << checksum.value() << ' ' << target->p.string() << '\n';
+                << checksum.value() << "  " << target->p.string() << '\n';
             if (api.hashing())
             {
                 success.fetch_add(1, std::memory_order_relaxed);

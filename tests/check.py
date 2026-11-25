@@ -166,7 +166,7 @@ def test_basic(h: Harness, root: Path) -> None:
     name = ("output matches sha256sum line by line "
             "(subdirectory/empty file/space name/= name)")
     r = h.sum("sha256", fx)
-    got = [tuple(line.split(" ", 1)) for line in result_lines(r.out)]
+    got = [tuple(line.split(None, 1)) for line in result_lines(r.out)]
     want = [(digest(p), str(p)) for p in sorted(fx.rglob("*")) if p.is_file()]
     if r.rc == 0 and sorted(got) == sorted(want):
         h.ok("01", name)
@@ -494,7 +494,7 @@ def test_special_files(h: Harness, root: Path) -> None:
     th.start()
     r = h.sum("sha256", fifo, timeout=10)
     th.join(timeout=5)
-    want = f"{hashlib.sha256(b'hello\n').hexdigest()} {fifo}"
+    want = f"{hashlib.sha256(b'hello\n').hexdigest()}  {fifo}"
     if r.rc == 0 and result_lines(r.out) == [want]:
         h.ok("21", name)
     else:
@@ -537,7 +537,7 @@ def test_verify(h: Harness, root: Path) -> None:
     if (r.rc == 0 and field(report, "Changed") == "1"
             and field(report, "Unsure") == "0"
             and f"# {a}" in report
-            and f"{new_digest} {a}" in report
+            and f"{new_digest}  {a}" in report
             and field(r_again.out, "Changed") == "0"):
         h.ok("23", name)
     else:
@@ -553,7 +553,7 @@ def test_verify(h: Harness, root: Path) -> None:
     if (r.rc == 1 and field(r.out, "Changed") == "0"
             and field(r.out, "Unsure") == "1"
             and count_results(r.out) == 1
-            and f"{digest(b)} {b}" in r.out
+            and f"{digest(b)}  {b}" in r.out
             and 'not a "<checksum> <path>" line' in r.out):
         h.ok("24", name)
     else:
@@ -648,7 +648,7 @@ def test_verify(h: Harness, root: Path) -> None:
     os.chmod(locked, 0o644)
     if (r.rc == 1 and field(r.out, "Failed") == "1"
             and field(r.out, "Unsure") == "1"
-            and f"<NONE> {target}" in r.out
+            and f"<NONE>  {target}" in r.out
             and f"# Unsure files:\n# {target}\n" in r.out):
         h.ok("30", name)
     else:
@@ -761,7 +761,7 @@ def test_cmp(h: Harness, root: Path) -> None:
 # ---------------------------------------------------------------- 38-39
 
 def test_manifest_lines(h: Harness, root: Path) -> None:
-    section("38-39 Manifest line format")
+    section("38-39, 53-54 Manifest line format")
     fx = root / "m"
     fx.mkdir(parents=True)
     target = fx / "a.txt"
@@ -778,7 +778,7 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
     r = h.verify(marked, "-o", "-")
     if (r.rc == 0 and field(r.out, "Changed") == "0"
             and field(r.out, "Failed") == "0"
-            and f"{digest} {target}\n" in r.out):
+            and f"{digest}  {target}\n" in r.out):
         h.ok("38", name)
     else:
         h.bad("38", name, f"rc={r.rc} out={r.out!r} err={r.err!r}")
@@ -789,6 +789,37 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
         h.ok("39", name)
     else:
         h.bad("39", name, f"rc={r.rc} out={r.out!r}")
+
+    name = ("sum writes two spaces after the checksum, and the line reads back "
+            "unchanged")
+    manifest = fx / "sep.txt"
+    h.sum("sha256", target, "-o", manifest)
+    line = f"{digest}  {target}"
+    r_refeed = h.sum("sha256", "-l", manifest, "-f", "-o", "-")
+    if (line in manifest.read_text(encoding="utf-8")
+            and r_refeed.rc == 0 and result_lines(r_refeed.out) == [line]):
+        h.ok("53", name)
+    else:
+        h.bad("53", name, f"manifest={manifest.read_text(encoding='utf-8')!r} "
+                          f"refeed={r_refeed.out!r}")
+
+    name = ("a path that starts with * keeps its star, because the two-space "
+            "separation is unambiguous")
+    star = fx / "*star"
+    star.write_text("x\n", encoding="utf-8")
+    star_manifest = fx / "star.txt"
+    r_star = h.sum("sha256", "*star", "-o", star_manifest, cwd=fx)
+    r_star_refeed = h.sum("sha256", "-l", star_manifest, "-f", "-o", "-",
+                          cwd=fx)
+    want_star = f"{hashlib.sha256(b'x\n').hexdigest()}  *star"
+    if (result_lines(star_manifest.read_text(encoding="utf-8"))
+            == [want_star] and r_star_refeed.rc == 0
+            and result_lines(r_star_refeed.out) == [want_star]):
+        h.ok("54", name)
+    else:
+        h.bad("54", name, f"manifest="
+                          f"{star_manifest.read_text(encoding='utf-8')!r} "
+                          f"refeed={r_star_refeed.out!r}")
 
 
 # ---------------------------------------------------------------- 40
@@ -803,7 +834,7 @@ def test_stdout_output(h: Harness, root: Path) -> None:
 
     name = "-o - writes to stdout instead of a file named -"
     r = h.sum("sha256", a, "-o", "-", cwd=fx)
-    if (r.rc == 0 and f"{digest} {a}\n" in r.out
+    if (r.rc == 0 and f"{digest}  {a}\n" in r.out
             and not (fx / "-").exists()):
         h.ok("40", name)
     else:
@@ -888,7 +919,7 @@ def test_verify_streams(h: Harness, root: Path) -> None:
     fx = root / "v45"
     a = write(fx / "a.txt", b"hello\n")
     manifest_text = SHA256_HEADER + f"{digest(a)} {a}\n"
-    want = f"{digest(a)} {a}"
+    want = f"{digest(a)}  {a}"
 
     name = 'a "-" manifest needs -u, because its header cannot be prefetched'
     r = h.verify("-", stdin_data=manifest_text)
@@ -995,7 +1026,7 @@ def test_text_key(h: Harness, root: Path) -> None:
             and r_literal.rc == 0
             and result_lines(r_literal.out) != want
             and r_plain_digest.rc == 0
-            and result_lines(r_plain_digest.out) == [f"{digest(a)} {a}"]
+            and result_lines(r_plain_digest.out) == [f"{digest(a)}  {a}"]
             and "doesn't need key" in r_plain_digest.err):
         h.ok("50", name)
     else:
