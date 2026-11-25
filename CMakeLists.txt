@@ -103,7 +103,20 @@ if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
     endif()
 endif()
 
-string(TIMESTAMP TSUBAKI_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
+# `tsubaki -V` reports the build time in Beijing time (UTC+8), whatever the
+# build host's zone. Ask date for the offset too, so a host without
+# Asia/Shanghai tzdata falls back to UTC instead of mislabelling local time.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env TZ=Asia/Shanghai LC_ALL=C
+            date "+%Y-%m-%dT%H:%M:%S%z"
+    OUTPUT_VARIABLE TSUBAKI_BUILD_TIMESTAMP
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE _tsubaki_date_rc)
+if(NOT _tsubaki_date_rc EQUAL 0 OR
+   NOT TSUBAKI_BUILD_TIMESTAMP MATCHES "\\+0800$")
+    string(TIMESTAMP TSUBAKI_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
+endif()
 
 target_compile_definitions(tsubaki PRIVATE
     TSUBAKI_VERSION="${PROJECT_VERSION}"

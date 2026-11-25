@@ -271,7 +271,7 @@ void show_version(std::ostream &os)
     os << "     CPU threads:    "
        << std::to_string(std::thread::hardware_concurrency()) << std::endl;
 #if defined(TSUBAKI_BUILD_TIMESTAMP)
-    os << "     Built:          " << TSUBAKI_BUILD_TIMESTAMP << std::endl;
+    os << "     Build time:     " << TSUBAKI_BUILD_TIMESTAMP << std::endl;
 #endif
     os << "     License:        GPL-2.0-only" << std::endl;
     os << "     Homepage:       "
