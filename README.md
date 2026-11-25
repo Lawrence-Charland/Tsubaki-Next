@@ -26,13 +26,9 @@ Algorithms are not limited to the built-in list. The DPF (Dynamic Provider
 Framework) loads extensions: put a provider's directory in
 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` and its `.so` files are loaded, listed in the
 `-a` table, queryable with `algo-info`, and usable as an algorithm name for
-`sum` or `verify -u`. A provider can also declare its own command-line
-parameters through the same parser, so they are not mistaken for paths. Only
-plain data crosses the ABI — no `std::string`, `std::filesystem` or
-`std::expected` — so a provider may be written with another compiler, another
-C++ standard library, or even another language, as long as it exports those
-symbols with the C ABI; a statically linked `tsubaki` still loads it, with no
-rebuild per algorithm.
+`sum` or `verify -u`. A provider may also declare command-line parameters of its
+own. No rebuild is needed to add an algorithm; the module contract is described
+in [docs/PROVIDER-ABI.md](docs/PROVIDER-ABI.md).
 
 ## Contents
 
@@ -61,11 +57,9 @@ only Linux is published so far, and OpenSSL is linked in statically, so your
 system does not need to have it at all. Other platforms build from source as
 described below.
 
-Requirements: CMake 3.28+ (that is what `CMakePresets.json` asks for;
-`CMakeLists.txt` itself accepts 3.10), a C++23 compiler, OpenSSL 3.0 or newer
-(only `libcrypto` is linked; `EVP_MAC` and `<openssl/core_names.h>` set the
-floor), Ninja for the bundled presets. The system's shared OpenSSL is enough —
-a source build needs no static library at all.
+Requirements: CMake 3.28+, a C++23 compiler, OpenSSL 3.0 or newer, and Ninja for
+the bundled presets. The system's shared OpenSSL is enough — a source build
+needs no static library at all.
 
 ```sh
 cmake --preset linux-gcc-release
@@ -89,18 +83,17 @@ copies it to `CMAKE_INSTALL_PREFIX/bin` (`/usr/local` by default).
 
 ### Supported platforms
 
-Tsubaki-Next is a POSIX program: dynamic providers need `dlfcn.h`, file reads
-use `unistd.h` and `fcntl.h`, the worker pool uses `pthread.h`, and the
-progress line asks `sys/ioctl.h` for the terminal width. Everything that
-provides those builds without source changes:
+Tsubaki-Next is a POSIX program, so every system that provides the POSIX calls
+it uses builds without source changes; the list of them is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#build-system).
 
 | System | Presets | Notes |
 | --- | --- | --- |
 | Linux, glibc or musl | `linux-gcc-debug`, `linux-gcc-release` | GCC is the default toolchain. x86_64, aarch64, armv7, riscv64, loongarch64 and ppc64le are all supported. |
-| macOS 12+ | `macos-debug`, `macos-release` | Xcode 16+ (libc++ needs it for `std::expected`). Apple toolchain only — GCC cannot target Darwin. Homebrew's `openssl@3` is found automatically. |
+| macOS 12+ | `macos-debug`, `macos-release` | Xcode 16+. Apple toolchain only — GCC cannot target Darwin. Homebrew's `openssl@3` is found automatically. |
 | FreeBSD 13+ | `freebsd-debug`, `freebsd-release` | Base clang; `pkg install openssl3`. |
-| NetBSD, OpenBSD, DragonFly, illumos, Solaris, Cygwin | `posix-debug`, `posix-release` | Need OpenSSL 3.0+ from ports or pkgsrc: LibreSSL has no `EVP_MAC`, and CMake stops with an explicit message instead of failing at the first include. On Cygwin the providers must end in `.so`; the providers project sets that suffix. |
-| **Native Windows (MSVC, MinGW)** | — | **Not supported and not planned.** The sources use `dlfcn.h`, `unistd.h`, `pthread.h`, `sys/ioctl.h`, `::open`/`::read` and `O_CLOEXEC`, none of which native Windows has. Use WSL or Cygwin. |
+| NetBSD, OpenBSD, DragonFly, illumos, Solaris, Cygwin | `posix-debug`, `posix-release` | Need OpenSSL 3.0+ from ports or pkgsrc: LibreSSL has no `EVP_MAC`, and CMake stops with an explicit message rather than failing at the first include. On Cygwin the providers must end in `.so`; the providers project sets that suffix. |
+| **Native Windows (MSVC, MinGW)** | — | **Not supported and not planned.** Use WSL or Cygwin. |
 
 `linux-clang-debug` is the single non-GCC Linux preset, kept as a second opinion
 on compiler warnings. The other Linux presets pin GCC by absolute path
@@ -196,11 +189,8 @@ The digests agree with `openssl dgst -<name>`, the HMACs with
 lowercase hexadecimal, and its length is set by the algorithm.
 
 `tsubaki -a` (or `--algorithm`) prints the same names as a two-column table
-(`ALGORITHM`, `KEYED`): the names are walked from the literal list the parser
-itself uses and `KEYED` comes from the key policy, so the table tracks the
-implementation instead of repeating the list above by hand.
-A second `ALGORITHM`, `KEYED`, `EXTRA ARGS`, `SOURCE` table follows when provider
-modules were loaded; see below.
+(`ALGORITHM`, `KEYED`). A second `ALGORITHM`, `KEYED`, `EXTRA ARGS`, `SOURCE`
+table follows when provider modules were loaded; see below.
 
 `tsubaki algo-info <algorithm>` prints the same facts for one name: a `Source:`
 line (`built-in`, or the path of the module that supplied it), the digest width,
@@ -224,83 +214,46 @@ are ready to use. That repository's README lists what it currently contains.
 It is also the shortest way to see the contract compiled and is a fair
 template for a provider of your own.
 
-- **What a provider exports.** Four required `extern "C"` symbols, an optional
-  `tsubaki_algo_info()`, and an optional trio that declares extra command-line
-  arguments — declared for it in `include/dynamic_provider_header.hpp`, which
-  also states the contract in full: `tsubaki_provider_name()` returns the name
-  to use on the command line, `tsubaki_is_keyed()` says whether a key is
-  required, `tsubaki_check_key()` accepts or rejects a key, and
-  `tsubaki_checksum_file()` computes the digest
-  into a `tsubaki_checksum_result` returned by value: a caller-owned buffer for
-  the digest plus an errno-style `errcode`, both filled on success and on
-  failure. Only plain data crosses — no `std::string`, no
-  `std::filesystem::path`, no `std::expected`, no `std::error_code` — so
-  nothing is ever allocated on one side and freed on the other. That is what
-  lets a statically linked `tsubaki` load modules at all. The optional
-  `tsubaki_algo_info()` returns three static lines (`Digest:`, `Key:`, `Note:`)
-  that `tsubaki algo-info` prints verbatim; the `Source:` line above them is
-  added by `tsubaki`, not by the module.
+A module you did not build yourself is worth a look before it goes into
+`TSUBAKI_DYNAMIC_PROVIDER_PATHS`:
+
+```sh
+tsubaki -a                  # everything loaded, and the path each came from
+tsubaki algo-info blake3    # width, key, note, and the switches it claims
+```
+
+`algo-info` prints the module's path and, when the provider declares arguments,
+the whole script it accepts — enough to see whether the path is the copy you
+meant and which switches it will claim. A provider that follows the contract
+also names its own project or URL in that text; the `Source:` line above it is
+tsubaki's own and only ever carries the path. It loads the module in order to
+answer, so it tells you what the module claims, not whether it can be trusted.
+
 - **Where the name works.** Everywhere an algorithm name is accepted, `verify`
   `-u` included. A built-in name always wins: a module that reports one is
   refused while it loads, with an error naming the file, and never reaches the
-  table, so a `.so` cannot shadow `sha256`. Between two providers claiming one
-  name, the first loaded wins — the order in the environment variable, then the
-  walk order inside each directory.
+  table, so a `.so` cannot shadow `sha256`.
 - **Keys.** A keyed provider is asked for a key like any built-in keyed
-  algorithm (`needs a key`, exit status 64) and validates it through
-  `tsubaki_check_key()`. The key is a byte string whose length is passed
-  separately, so it may contain NUL bytes; there is no length limit to
-  declare.
-- **What the digest must look like.** Hexadecimal, lowercase, NUL terminated,
-  written into a buffer of `TSUBAKI_MAX_RESULT_LENGTH` bytes, so at most 256
-  characters (the last byte is the NUL). A digest that does not fit is an error,
-  never a truncation; no real digest comes close, but the limit is hard. There
-  is no lower bound: a listing line always starts with the checksum, so a short
-  one is never mistaken for a path.
-- **How it must be built.** A C++23 `-fPIC` shared object for the same
-  architecture and calling convention as `tsubaki`. The boundary carries plain
-  data only, so the two sides no longer have to share one standard library, but
-  a module is self-contained: `tsubaki` exports no symbols to it and hands it no
-  runtime to borrow, and a statically linked `tsubaki` still loads modules
-  through the system C library, so the module has to match the glibc generation
-  `tsubaki` was linked with. One project may build several algorithms — try
-  this first: they share the contract header and the file loop — emitting one
-  `.so` per name, and the directory walk picks up every one of them.
+  algorithm (`needs a key`, exit status 64).
 - **Extra command-line arguments.** An algorithm that needs more than a file
-  name can declare its own switches: export `tsubaki_need_more_args()`,
-  `tsubaki_arg_definition()` and `tsubaki_take_args()` and `tsubaki` parses that
-  table before it reads the file list, so `tsubaki sum shake128 -L 128 file`
-  reaches the module through `tsubaki_take_args()` instead of being turned into
-  a path. The table is one `{ entry_name = ...; entry_type = ...; }` block per
-  argument, in the script language documented in
-  [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser)'s
-  `docs/USAGE.md` under "Script language". `CMakeLists.txt` pins the library to
-  one commit, so check that commit's documentation rather than the repository's
-  latest. Writing a provider with parameters means following that syntax; export
-  none of the three symbols and the provider takes no arguments. The quickest
-  way in is to copy an existing module's `tsubaki_arg_definition()` — `tsubaki
-  algo-info` prints them verbatim.
-  Entries appear in errors as `<name>@dynamic`; a command line that breaks the
-  declared `min_value_count`, `max_value_count` or `max_repetition` is refused
-  by `tsubaki` itself, `tsubaki_take_args()` is not called, and the exit status
-  64 — a non-empty return from `tsubaki_take_args()` is printed as an error
-  with the same status. The switches go after the algorithm name — a word in
-  front of it is still read as the algorithm — and `tsubaki algo-info` prints
-  the table verbatim, so a user
-  can look the syntax up; a module that says it needs arguments but returns a
-  null table is fatal, with status 70. `verify` forwards whatever it does not
-  recognise, so `verify -u shake128 file.sum -L 128` works too. Provider
-  switches are matched first, so they must not reuse `tsubaki`'s own letters.
-  A manifest records the algorithm name but not these parameters: `-L 128`
-  never appears in it, and `verify` cannot infer it. Rechecking means writing
-  the same parameters again on the `verify` command line; leaving them out or
-  changing them makes the module hash with other settings, and every entry
-  then reads as changed. Nothing else remembers them, so they are the user's
-  to keep.
+  name can declare its own switches, and `tsubaki algo-info <name>` prints the
+  script that documents them. The switches go after the algorithm name, and
+  `verify` forwards whatever it does not recognise, so
+  `verify -u shake128 file.sum -L 128` works too; a provider's switches are
+  matched first, so they must not reuse `tsubaki`'s own letters. A manifest
+  records the algorithm name but not these parameters: `-L 128` never appears in
+  it, and `verify` cannot infer it. Rechecking means writing the same parameters
+  again on the `verify` command line; leaving them out or changing them makes the
+  module hash with other settings, and every entry then reads as changed.
 - **What goes wrong.** A path that is not a readable directory, a `.so` that
-  `dlopen` refuses, a missing symbol: each prints one `Error:` line on stderr
+  cannot be loaded, a missing symbol: each prints one `Error:` line on stderr
   and is skipped, and none of them changes the exit status. Modules stay loaded
   for the life of the process; nothing unloads them.
+
+Writing a provider — the symbols to export, the digest buffer limit, the build
+requirements and the argument-script syntax — is described in
+[docs/PROVIDER-ABI.md](docs/PROVIDER-ABI.md) and in
+`include/dynamic_provider_header.hpp`.
 
 `--algorithm` lists what it found in its own table:
 
@@ -351,11 +304,6 @@ prefetched, so a `-` input requires `-u`.
 algorithm, key, thread or scan option; `-v`, `-t`, `-k`, `-K`, `-T`,
 `-e`, `-l`, `-s` and `-f` are rejected with exit status 64. Its two positionals
 are the result files to compare, not paths to hash.
-
-Parsing itself is done by
-[LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser), a small
-standalone library; `include/cmdline.hpp` only describes this program's command
-line.
 
 ### Option values
 
@@ -546,12 +494,11 @@ same path repeated with different checksums in one listing is refused with exit
 status 64, because there is no single value to compare.
 
 Without `-c`, paths are compared exactly as written, so `./a.txt` and
-`b/../a.txt` are different paths. With `-c` (or `--canonical`) both sides are
-passed through `std::filesystem::canonical()` first, which makes each path
-absolute, resolves symlinks and normalizes separators, so differently spelled
-routes to the same file match. Canonicalization needs the path to exist: a
-deleted file cannot be canonicalized, so it will be compared with an uncanonicalized 
-path, with an error reported.
+`b/../a.txt` are different paths. With `-c` (or `--canonical`) each path is
+first made absolute, symlinks are resolved and separators normalized, so
+differently spelled routes to the same file match. Canonicalization needs the
+path to exist: a deleted file cannot be canonicalized, so it will be compared
+with an uncanonicalized path, with an error reported.
 
 Without `-o`, the result goes to `<left-stem>_to_<right-stem>.cmp` in the
 current directory (`old.txt` and `new.txt` give `old_to_new.cmp`), and a notice
@@ -617,13 +564,13 @@ path.
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
 fed back with `-l` to redo only the files that were not hashed.
 
-Excludes are compared with `equivalent()` against every entry met during a
-directory walk, so they are neither patterns nor string prefixes. They only
-affect directory scans: a file named on the command line, or read from a list,
-is hashed even when it is excluded. An exclude that is the scanned directory
-itself, or a parent of it, matches nothing and is silently ignored — exclude a
-subdirectory instead. Do not use `-e` to drop a directory that you also pass as
-an input; just leave that argument out.
+Excludes name paths, not patterns: an exclude is compared against every entry
+met during a directory walk, so `-e build` drops that directory tree while
+`-e '*.tmp'` matches nothing. They only affect directory scans: a file named on
+the command line, or read from a list, is hashed even when it is excluded. An
+exclude that is the scanned directory itself, or a parent of it, matches nothing
+and is silently ignored — exclude a subdirectory instead. Do not use `-e` to
+drop a directory that you also pass as an input; just leave that argument out.
 
 A device or a FIFO named on the command line or in a list is opened and read as
 a stream. `/dev/null` therefore hashes as empty content, `/dev/stdin` hashes
@@ -712,13 +659,10 @@ the results go to the file.
 The progress indicator, when enabled, is written to stderr and never to the
 result stream.
 
-Write errors are checked at the end through `std::ostream::fail()`. Every worker
-line is flushed out whole through `std::osyncstream`, and the report is written
-after the workers are joined; a flush that fails — a full disk, a broken
-descriptor, a file on a removed mount — leaves the stream in a failed state, and
-the exit status is `73`. If the results go to a pipe whose reader has already
-closed it, the write raises `SIGPIPE` and the default action kills the process
-(a shell reports 141), so the `73` path is not reached.
+A failed write — a full disk, a broken descriptor, a file on a removed mount —
+exits `73`; the result stream is checked when the run ends. If the results go to
+a pipe whose reader has already closed it, the process is killed by `SIGPIPE`
+instead (a shell reports 141), so the `73` path is not reached.
 
 ## Exit status
 
@@ -728,7 +672,7 @@ closed it, the write raises `SIGPIPE` and the default action kills the process
 | `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error |
 | `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header when `-u` is absent, a `-` input with no `-u`, a header written with `none`, an unknown `-u` name, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
 | `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is a directory, or a `cmp` list cannot be read |
-| `70` | fatal start-up failure: `argc` is 0; a provider that needs arguments without an ArgParser script, or a script that fails to parse |
+| `70` | fatal start-up failure: a provider that declares arguments without a usable argument script |
 | `73` | the `--output` file cannot be opened for writing, or the output stream fails |
 | `130` | the run was interrupted with `Ctrl-C` |
 | `250` | `Ctrl-C` was pressed five times; the process aborted immediately, so the output can end without its report block |
@@ -739,20 +683,15 @@ sysexits values `EX_USAGE`, `EX_NOINPUT`, `EX_SOFTWARE` and `EX_CANTCREAT`;
 `130` is the shell convention `128 + SIGINT`; `250` is just below the `255`
 used for an unexpected exception, so the two cannot be confused.
 
-The codes live in `include/exit_codes.hpp` as `TSUBAKI_SUCCESS`,
-`TSUBAKI_HASH_ERROR`, `TSUBAKI_INVALID_OPERATION`, `TSUBAKI_FILE_WRITE_FAILED`,
-`TSUBAKI_FILE_READ_FAILED`, `TSUBAKI_INTERRUPTED`, `TSUBAKI_TERMINATED`,
-`TSUBAKI_FATAL` and `TSUBAKI_UNEXPECTED`.
-
 ## Interrupt
 
-The first `Ctrl-C` raises the manager's interrupt flag. Workers stop before
-hashing the next path: files that have not started yet are still popped,
-written as `<NONE>` and counted as `Not hashed`, so the report accounts for
-every file the scanners produced. A file that has already entered the hashing
-call is not abandoned; for a device or a FIFO that means it keeps reading until
-EOF. A worker blocked in `open()` or in an endless read never gets back to the
-check, so a single `Ctrl-C` cannot stop it.
+The first `Ctrl-C` stops the run. Workers stop before hashing the next path:
+files that have not started yet are still popped, written as `<NONE>` and
+counted as `Not hashed`, so the report accounts for every file the scanners
+produced. A file that has already entered the hashing call is not abandoned;
+for a device or a FIFO that means it keeps reading until EOF. A worker blocked
+in `open()` or in an endless read never gets back to the check, so a single
+`Ctrl-C` cannot stop it.
 
 Pressing `Ctrl-C` five times gives up altogether: the handler writes a fixed
 message to stderr and calls `_exit(250)` on the spot. Nothing is flushed after
@@ -774,10 +713,8 @@ is now archived.
 
 The shape changed more than the feature list: modes became subcommands, the
 manifest became an intermediate that can be fed back, and algorithms moved
-from a compile-time list to loadable `.so` modules. `sum` and `verify` share
-one streaming pipeline; `cmp` does not — it loads both manifests into memory
-before comparing. `verify`'s resume path and the DPF both rest on those
-changes.
+from a compile-time list to loadable `.so` modules. How that is arranged is
+described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Some things were dropped. There is no separate deduplication mode —
 duplicates surface through `cmp`'s `[D]` groups; size filtering, `--test` dry
@@ -792,9 +729,6 @@ is unchanged, and `--exclude`, `-v` and `--force-rescan` keep their names.
 `--thread`, and the `stdin` positional became `-`. The manifests are readable
 by either version; only the report fields were renamed.
 
-`cmp` has a different shape from the pipeline and could live in a separate
-binary; it stays in the same target only to avoid a second thing to maintain.
-
 The name predates this rewrite: it comes from Tsubaki Sawabe in *Your Lie
 in April* — purely personal preference — and has nothing to do with
 checksumming.
@@ -802,7 +736,8 @@ checksumming.
 ## Architecture
 
 The module layout, the task-stream interface, the threading model and the data
-flow are described in [ARCHITECTURE.md](ARCHITECTURE.md).
+flow are described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Anyone
+writing a provider wants [docs/PROVIDER-ABI.md](docs/PROVIDER-ABI.md) instead.
 
 ## License
 

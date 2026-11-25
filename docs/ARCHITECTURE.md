@@ -2,6 +2,9 @@
 
 [中文](ARCHITECTURE.zh-cn.md)
 
+This document is about tsubaki itself. The contract a provider module has to
+keep is [PROVIDER-ABI.md](PROVIDER-ABI.md).
+
 ## Overview
 
 `sum` and `verify` are a pull-based pipeline: producers hand out paths, a
@@ -37,6 +40,9 @@ once both are loaded:
 is its `tsubaki_arg_definition()`, printed verbatim under an `ArgParser script:`
 line, and only asked for when `tsubaki_need_more_args()` says yes.
 
+All four drivers live in one executable: a feature is a subcommand, not a second
+binary.
+
 ## Contents
 
 - [Startup and dispatch](#startup-and-dispatch)
@@ -52,6 +58,7 @@ line, and only asked for when `tsubaki_need_more_args()` says yes.
 - [Exit codes](#exit-codes)
 - [Data flow example](#data-flow-example)
 - [Extension points](#extension-points)
+- [Build system](#build-system)
 - [Source map](#source-map)
 
 ## Startup and dispatch
@@ -95,7 +102,9 @@ code: 130 when interrupted, 1 when an error was recorded, 0 otherwise.
 
 ## Comparison
 
-`cmp_main()` never hashes; it decides only after both listings are read.
+`cmp_main()` never hashes; it decides only after both listings are read. It
+shares nothing with the pipeline but `listscanner`, and could live in a separate
+binary; it stays in the same target only to avoid a second thing to maintain.
 
 - It evaluates the `cmp` group (`--canonical`, `to_compare`, `-o`) and chooses
   the sink first: stdout for `-o -`, otherwise the named file, or
@@ -124,7 +133,8 @@ code: 130 when interrupted, 1 when an error was recorded, 0 otherwise.
 
 Parsing is done by `LC-ArgParser`, a standalone C++17 library fetched by CMake
 and compiled in as a source file. Tsubaki-Next only uses `ap_instance`,
-`ap_entry` and `ap_defkey`.
+`ap_entry` and `ap_defkey`; `include/cmdline.hpp` only describes this program's
+command line.
 
 - `pre_parse()` tags tokens. An unmatched `-x`/`--foo` is `simple` and is
   re-tokenized by `reparse()`; a word after `--` is `forced_simple` and is
@@ -190,6 +200,10 @@ The fan-in holds no lock of its own: each child serialises `pop()`, so workers
 queue on whichever child is yielding and only hashing runs in parallel. A
 `listscanner` blocked on stdin therefore blocks the whole stream.
 
+Excludes are compared with `std::filesystem::equivalent()`, so an exclude names
+an inode rather than a spelling: neither a glob pattern nor a string prefix. An
+exclude that is the scanned directory itself, or a parent of it, matches nothing.
+
 ## Thread-safety rules
 
 - `pop_raw()` runs under `mutex_`; it may touch its own state, but must not call
@@ -211,6 +225,10 @@ and `max_key_length()` in the same header, `digest_for()` and `mac_for()` in
 `src/checksum.cpp`. `check_key_validity()` turns the first two into the key
 policy. A new row is therefore necessary but not sufficient: it still needs the
 matching `digest_for()` or `mac_for()` case.
+
+The `--algorithm` table is generated the same way: `list_algorithm()` walks
+`mapper` for the names (skipping `none`) and asks `is_keyed()` for the `KEYED`
+column, so the table cannot drift from the implementation.
 
 `src/checksum.cpp` holds all OpenSSL use: `digest_for()` maps plain
 digests to `EVP_MD`, `mac_for()` maps keyed algorithms to a `mac_spec`, and
@@ -235,6 +253,10 @@ indefinitely; the interrupt flag is only checked between files.
 
 ### Dynamic providers
 
+The contract a module has to keep — exports, memory rules, digest and key rules,
+the argument script, build requirements, compatibility — is
+[PROVIDER-ABI.md](PROVIDER-ABI.md). This section is only the loader.
+
 `algorithm::dynamic` is a sentinel, not a table row: `mapper` has no entry for
 it, so `alg_to_str()` would throw and the name shown in the report comes from
 the provider instead. `dpf_instance` (`include/dpframework.hpp`) does
@@ -257,12 +279,16 @@ the loading:
   got; anything but `success` is printed and dropped. The handle is never
   closed, so a module lives as long as the process.
 - `provider_mapper` is keyed by the name the module reports and filled with
-  `emplace()`, so a duplicate keeps whichever module claimed the name first.
+  `emplace()`, so a duplicate keeps whichever module claimed the name first —
+  the environment variable's order, then the walk order inside each directory.
 - A provider may also declare the command-line arguments its algorithm needs.
-  `tsubaki_need_more_args()` is the switch: without the symbol the provider
-  takes nothing and the other two are never looked up, but exporting it obliges
-  the module to export `tsubaki_arg_definition()` and `tsubaki_take_args()` as
-  well, so a half-declared trio fails the load like any missing symbol.
+  `tsubaki_need_more_args()` is the switch, and a missing symbol is treated
+  exactly like one that returns false. `provider::provider()` wires that up by
+  jumping to the same `no_args` label in both cases and replacing the pointer
+  with `dont_need_args()`, so every later call goes through one function. Only a
+  true return leads to looking up `tsubaki_arg_definition()` and
+  `tsubaki_take_args()`, which then both have to be there; a half-declared trio
+  fails the load like any missing required symbol.
   `checksum_api::check_args()` parses the definition with
   `argparser::parse_script()`, whose script language is documented in
   LC-ArgParser's `docs/USAGE.md` under "Script language" (`CMakeLists.txt` pins
@@ -271,8 +297,9 @@ the loading:
   the `#dynamic` group under `<name>@dynamic` — the suffix keeps a provider from
   colliding with, or being confused for, one of tsubaki's own entries — calls
   `reparse()` so the command line recognises the new names, evaluates that
-  group, and hands the values to `tsubaki_take_args()` as one
-  `tsubaki_pass_content` per entry. It calls `fine()` first, so a command line
+  group, and builds one `tsubaki_pass_content` per parsed entry by iterating the
+  script's own vector, which is what makes the count and the order match the
+  definition exactly. It calls `fine()` first, so a command line
   that breaks the declared counts is reported exactly like a built-in option,
   with the provider's `explanations` line as the label, and
   `tsubaki_take_args()` is not called at all.
@@ -312,16 +339,13 @@ nothing here is freed there, which is what lets a statically linked `tsubaki` �
 one private copy of glibc — load a module that brings in the shared one without
 a cross-allocator free. The `std::error_code` in the returned `expected` is
 built by `checksum_api` from that `int` with `std::make_error_code()`, so its
-category and the message it produces stay in tsubaki's own standard library; an
-`error_code` made inside a module would carry a category from the module's
-library and its message would be allocated there and freed here. A module is
-still self-contained, must not keep either pointer, and has to use the same
-glibc as tsubaki. The digest goes into that buffer, so it holds at most 256
-characters — `TSUBAKI_MAX_RESULT_LENGTH` is 257 and the last byte is the NUL;
-one that does not fit is an error, not a truncation. There is no lower bound: a
-listing line always starts with the checksum, so nothing has to guess where it
-ends.
+category and the message it produces stay in tsubaki's own standard library. The
+digest buffer holds at most 256 characters: `TSUBAKI_MAX_RESULT_LENGTH` is 257
+and the last byte is the NUL.
 
+The rules a module must keep are in [PROVIDER-ABI.md](PROVIDER-ABI.md); the ones
+whose violation is undefined behaviour are repeated at the top of
+`include/dynamic_provider_header.hpp`.
 
 ## Workers, progress and report
 
@@ -436,6 +460,43 @@ sorts it twice and writes the sections; no task stream or worker is involved.
   `dpf_instance`, `--algorithm` lists it with its `SOURCE` and whether it takes
   extra arguments, and `verify -u` accepts it. A module that reports a built-in name is refused at load, so it
   cannot shadow one, and its digest holds at most 256 characters.
+
+## Build system
+
+`CMakeLists.txt` accepts CMake 3.10 and `CMakePresets.json` requires 3.28; the
+presets are what the README documents, and the older floor only matters when
+configuring by hand. The target is POSIX-only: the sources include `dlfcn.h`
+(dynamic providers), `unistd.h` and `fcntl.h` (file reads), `pthread.h`
+(workers) and `sys/ioctl.h` (terminal width), and use `::open()`/`::read()` with
+`O_CLOEXEC`. A native Windows configure therefore stops immediately with an
+explicit `FATAL_ERROR`, while Cygwin passes. OpenSSL 3.0 is the floor because
+`EVP_MAC` and `<openssl/core_names.h>` are used unconditionally, and a LibreSSL
+`FindOpenSSL` result is rejected with a message instead of failing at the first
+include. macOS needs Xcode 16 or newer, because libc++ provides `std::expected`
+only from that version.
+
+`LC-ArgParser` is fetched at configure time and compiled into the target as two
+source files rather than linked as a library.
+`FETCHCONTENT_SOURCE_DIR_LC-ARGPARSER` points the fetch at a local checkout;
+otherwise the copy stays under `build/<preset>/_deps` and is reused. Its
+`GIT_TAG` pins one commit: upstream carries no semantic versioning, so a
+floating reference would let the meaning of a provider's script drift with no
+version to notice it by. That commit's `docs/USAGE.md` is the authority on the
+script language a provider may use for its arguments, not the repository's tip,
+and from 2.1.3 a bump of that pin is guaranteed not to change the meaning of an
+existing provider's script — see
+[PROVIDER-ABI.md](PROVIDER-ABI.md#the-argument-script).
+
+The Linux presets pin GCC by absolute path (`/usr/bin/g++`) so a stray `CC` in
+the environment cannot silently change the toolchain; `linux-clang-debug` is the
+only non-GCC preset and exists as a second opinion on warnings. The macOS,
+FreeBSD and other-POSIX presets leave the compiler to the platform default.
+
+`-V` reports build provenance through three compile definitions:
+`TSUBAKI_VERSION` from `project()`, `TSUBAKI_GIT_COMMIT` from
+`git rev-parse --short=12 HEAD` with `-dirty` appended when tracked files are
+modified, and `TSUBAKI_BUILD_TIMESTAMP`, stamped at configure time in Beijing
+time (UTC+8) so the printed time does not depend on the build host's zone.
 
 ## Source map
 

@@ -2,6 +2,9 @@
 
 [English](ARCHITECTURE.md)
 
+本文讲的是 tsubaki 本身。provider 模块必须遵守的契约见
+[PROVIDER-ABI.zh-cn.md](PROVIDER-ABI.zh-cn.md)。
+
 ## 总览
 
 `sum` 和 `verify` 是一条拉取式流水线：生产者交出路径，汇流把多条流合并起来，工作
@@ -34,6 +37,8 @@
 `tsubaki_arg_definition()`，原样打印在 “ArgParser script:” 之下，且只有
 `tsubaki_need_more_args()` 说是时才会去要。
 
+四个驱动都在同一个可执行文件里：加一个功能是加一个子命令，而不是加一个二进制。
+
 ## 目录
 
 - [启动与分发](#启动与分发)
@@ -49,6 +54,7 @@
 - [退出码](#退出码)
 - [数据流示例](#数据流示例)
 - [扩展点](#扩展点)
+- [构建系统](#构建系统)
 - [源码映射](#源码映射)
 
 ## 启动与分发
@@ -86,7 +92,8 @@ try/catch 里，逃出的异常映射成 255。
 
 ## 比较
 
-`cmp_main()` 完全不计算哈希，两份清单都读完之后才下结论。
+`cmp_main()` 完全不计算哈希，两份清单都读完之后才下结论。除 `listscanner` 之外，
+它与流水线没有共用代码，本可单开一个二进制；留在这里只是不想多一份维护成本。
 
 - 它评估 `cmp` 组（`--canonical`、`to_compare`、`-o`），先定输出端：`-o -` 用
   stdout，否则用指定文件；没给 `-o` 时是 `.` 下的
@@ -111,7 +118,8 @@ try/catch 里，逃出的异常映射成 255。
 ## 命令行层
 
 解析交给 `LC-ArgParser`：一个独立的 C++17 库，由 CMake 拉取并作为源文件编入。
-Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`。
+Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`；
+`include/cmdline.hpp` 只描述本程序的命令行。
 
 - `pre_parse()` 给 token 打风格标记。匹配不到任何条目的 `-x`/`--foo` 是
   `simple`，`reparse()` 时还会被重新切分；`--` 之后的词是 `forced_simple`，
@@ -166,6 +174,10 @@ std::vector<error_entry> take_errors();
 汇流本身不加锁：每个子流自己串行化 `pop()`，所以工作线程会排队等在当前交出路径的
 那个子流上，只有计算真正并行。`listscanner` 卡在 stdin 上就会卡住整条流。
 
+排除项用 `std::filesystem::equivalent()` 比较，所以比对的是 inode 而不是拼写：
+既不是通配模式，也不是字符串前缀。排除项就是被扫描的目录本身、或它的上级目录时，
+什么都匹配不到。
+
 ## 线程安全规则
 
 - `pop_raw()` 在持有 `mutex_` 时运行；可以碰自己的状态，但不能调用
@@ -184,10 +196,14 @@ std::vector<error_entry> take_errors();
 仍是手写的 `switch`：`is_keyed()` 和 `max_key_length()` 在同一头文件里，
 `digest_for()` 和 `mac_for()` 在 `src/checksum.cpp` 里。`check_key_validity()` 把前
 两者合成密钥策略。所以加一行是必要但不充分的，还得补上对应的 `digest_for()` 或
-`mac_for()` case。OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要
-映射到 `EVP_MD`，`mac_for()` 把密钥算法映射到 `mac_spec`，`stream_file()` 按 64 KiB
-分块喂给回调。`checksum_file()` 与 `checksum_file_key()` 分别走 `EVP_Digest*` 和
-`EVP_MAC*`。
+`mac_for()` case。
+
+`--algorithm` 表也是同一套路生成的：`list_algorithm()` 遍历 `mapper` 取名字
+（跳过 `none`），`KEYED` 一列问 `is_keyed()`，所以表格不会和实现跑偏。
+
+OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要映射到 `EVP_MD`，
+`mac_for()` 把密钥算法映射到 `mac_spec`，`stream_file()` 按 64 KiB 分块喂给回调。
+`checksum_file()` 与 `checksum_file_key()` 分别走 `EVP_Digest*` 和 `EVP_MAC*`。
 
 程序其余部分只接触 `checksum_api`（`include/checksum_api.hpp`、`src/checksum_api.cpp`）
 这一个句柄：`set_algo()` 解析字面算法名，失败时记下 `unknown_algorithm` 而不是返回
@@ -202,6 +218,9 @@ std::vector<error_entry> take_errors();
 中断标志只在文件与文件之间检查。
 
 ### 动态 provider
+
+模块必须遵守的契约——导出什么、内存规则、摘要与密钥规则、参数脚本、构建要求、
+兼容性——见 [PROVIDER-ABI.zh-cn.md](PROVIDER-ABI.zh-cn.md)。这一节只讲加载器。
 
 `algorithm::dynamic` 是哨兵而不是表里的一行：`mapper` 里没有它，`alg_to_str()` 会抛
 异常，报告里显示的名字由 provider 自己给出。加载逻辑在 `dpf_instance`
@@ -220,18 +239,20 @@ std::vector<error_entry> take_errors();
   `provider_msg` 记下走到哪一步；只要不是 `success` 就打印出来并丢弃。句柄永不
   关闭，模块与进程同寿。
 - `provider_mapper` 以模块自报的名字为键，用 `emplace()` 填充，所以重名时保留先
-  认领那个名字的模块。
+  认领那个名字的模块——顺序是先环境变量里的目录，再是各目录内的遍历顺序。
 - provider 也可以声明自己的算法需要哪些命令行参数。开关是
-  `tsubaki_need_more_args()`：没有这个符号就表示不接受额外参数，另两个也不会去
-  查；导出它则必须同时导出 `tsubaki_arg_definition()` 与 `tsubaki_take_args()`，
-  少一个就像缺任何必需符号一样加载失败。`checksum_api::check_args()` 用
+  `tsubaki_need_more_args()`，缺这个符号与它返回 false 完全等价：
+  `provider::provider()` 在两种情况下都跳到同一个 `no_args` 标签，把指针换成
+  `dont_need_args()`，所以之后每次调用走的都是同一个函数。只有它返回 true 时，
+  才会去查 `tsubaki_arg_definition()` 与 `tsubaki_take_args()`，而这两个此时必须
+  都在；只声明一半就会像缺任何必需符号一样加载失败。`checksum_api::check_args()` 用
   `argparser::parse_script()` 解析参数表（说明在 LC-ArgParser 的 `docs/USAGE.md`
   的“Script language”；`CMakeLists.txt` 的 `GIT_TAG` 指着哪个提交，就以哪份
   为准），把每个条目以 `<名字>@dynamic` 注册进 `#dynamic` 组——后缀既避免和
   tsubaki 自己的条目撞名，也让报错能看出这是内部要求还是外部要求——再调
-  `reparse()` 让命令行认得这些新名字，然后求值该组，把值按脚本顺序逐个条目
-  打包成 `tsubaki_pass_content` 交给 `tsubaki_take_args()`。调用前它会先查
-  `fine()`，所以违反声明数量的命令行会像
+  `reparse()` 让命令行认得这些新名字，然后求值该组，再按解析出的条目向量逐个
+  打包成 `tsubaki_pass_content` 交给 `tsubaki_take_args()`——数量与顺序因此和脚本
+  定义完全一致。调用前它会先查 `fine()`，所以违反声明数量的命令行会像
   内建选项那样报错（标签用 provider 的 `explanations`），`tsubaki_take_args()`
   根本不会被调用。
 - `algo_info_core()` 也把脚本写出来：`tsubaki_need_more_args()` 返回真时它去取
@@ -263,12 +284,11 @@ errno 风格的错误码，模块无论成败都必须填好。
 这里永远不释放，这里的东西模块也永远不释放，静态链接的 `tsubaki`（自带一份 glibc）
 才能加载一个把共享 glibc 带进来的模块而不发生跨分配器 free。返回的 `expected` 里那个
 `std::error_code` 由 `checksum_api` 用 `std::make_error_code()` 从那个 `int` 造出来，
-category 和它产生的消息都留在 tsubaki 自己那份标准库里；模块内部造出来的
-`error_code` 会带着模块那份库的 category，它的消息也会在那边分配、在这边释放。模块
-仍然必须自包含，不能保留那两个指针，并且要和 tsubaki 用同一个 glibc。
-摘要写进那块缓冲，所以最多 256 个字符——`TSUBAKI_MAX_RESULT_LENGTH` 是 257，
-末字节留给 NUL；装不下算错误，不做截断。下限没有：清单行总是以校验和开头，
-不需要猜它在哪结束。
+category 和它产生的消息都留在 tsubaki 自己那份标准库里。摘要写进那块缓冲，所以最多
+256 个字符：`TSUBAKI_MAX_RESULT_LENGTH` 是 257，末字节留给 NUL。
+
+模块必须自己守住的那套规则见 [PROVIDER-ABI.zh-cn.md](PROVIDER-ABI.zh-cn.md)；其中
+违反即未定义行为的几条，在 `include/dynamic_provider_header.hpp` 顶部又列了一遍。
 
 ## 工作线程、进度与报告
 
@@ -371,6 +391,35 @@ tsubaki sum sha256 . -e build -l old.txt
   `verify -u` 也认。
   自报名字是内建算法的模块在加载时就被拒掉，抢不走内建名字；摘要最多 256 个
   字符。
+
+## 构建系统
+
+`CMakeLists.txt` 接受 CMake 3.10，`CMakePresets.json` 要求 3.28；README 里写的是
+预设那条路，3.10 这个下限只在手工配置时才用得上。目标只支持 POSIX：源码用到
+`dlfcn.h`（动态 provider）、`unistd.h` 和 `fcntl.h`（读文件）、`pthread.h`
+（工作线程）和 `sys/ioctl.h`（终端宽度），以及带 `O_CLOEXEC` 的
+`::open()`/`::read()`。所以原生 Windows 一配置就给出明确的 `FATAL_ERROR`，
+Cygwin 能通过。OpenSSL 的下限是 3.0，因为 `EVP_MAC` 和
+`<openssl/core_names.h>` 是无条件使用的；`FindOpenSSL` 找到 LibreSSL 时会直接
+报错，而不是拖到第一个 include 才失败。macOS 需要 Xcode 16 及以上，因为 libc++
+从那一版起才提供 `std::expected`。
+
+`LC-ArgParser` 在配置时拉取，作为两个源文件编进目标，而不是链接成库；
+`FETCHCONTENT_SOURCE_DIR_LC-ARGPARSER` 可以把它指向本地检出，否则副本留在
+`build/<预设名>/_deps` 里复用。它的 `GIT_TAG` 固定在一个提交上：上游没有语义化
+版本管理，跟着浮动引用走，provider 脚本的含义可能在无人察觉的情况下漂移。脚本语法
+以那个提交的 `docs/USAGE.md` 为准，而不是仓库最新版；并且从 2.1.3 起，推进锁定
+保证不改变现有 provider 脚本的含义——见
+[PROVIDER-ABI.zh-cn.md](PROVIDER-ABI.zh-cn.md#参数脚本)。
+
+Linux 预设用绝对路径固定了 GCC（`/usr/bin/g++`），环境里残留的 `CC` 无法悄悄换掉
+工具链；`linux-clang-debug` 是唯一的非 GCC 预设，留着交叉核对编译告警。macOS、
+FreeBSD 和其它 POSIX 预设则交给系统默认编译器。
+
+`-V` 通过三个编译定义报告构建来源：`TSUBAKI_VERSION` 取自 `project()`；
+`TSUBAKI_GIT_COMMIT` 取自 `git rev-parse --short=12 HEAD`，跟踪文件有改动时追加
+`-dirty`；`TSUBAKI_BUILD_TIMESTAMP` 在配置时按北京时间（UTC+8）打上，所以打印
+出来的时间与构建机所在时区无关。
 
 ## 源码映射
 

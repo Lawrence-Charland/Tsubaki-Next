@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Lawrence Charland
 """Black-box contract tests for tsubaki.
 
-Every case corresponds to one promise in ARCHITECTURE.md / README.md. Nothing
+Every case corresponds to one promise in docs/ARCHITECTURE.md or README.md. Nothing
 here calls internal functions: the test feeds bytes in and checks the bytes
 that come back out.
 

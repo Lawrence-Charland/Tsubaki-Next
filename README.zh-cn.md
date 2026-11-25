@@ -20,11 +20,8 @@ Tsubaki 是一个校验和工具。输入可以是一个文件、一棵目录树
 算法不限于内建列表。DPF（Dynamic Provider Framework）负责加载这些扩展：把
 provider 的目录写进 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，其中的 `.so` 就会被
 加载；它的名字会列进 `-a` 的表格，`algo-info` 能查，也能当算法名交给 `sum`
-或 `verify -u`。provider 还能用同一套解析器声明自己的命令行参数，不再被当成
-路径。跨 ABI 只传纯数据，没有 `std::string`、`std::filesystem` 或
-`std::expected`，所以 provider 用别的编译器、别的 C++ 标准库，甚至别的
-语言写也行，只要按 C ABI 导出那几个符号；静态链接的 `tsubaki` 照样能
-加载它，不必为某个算法重新编译。
+或 `verify -u`。provider 还可以声明自己的命令行参数。加算法不必重新编译，
+模块契约见 [docs/PROVIDER-ABI.zh-cn.md](docs/PROVIDER-ABI.zh-cn.md)。
 
 ## 目录
 
@@ -51,10 +48,8 @@ provider 的目录写进 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，其中的 `.so` 就�
 上的二进制：目前只发布 Linux 版本，OpenSSL 已经静态编进去，系统里有没有 OpenSSL
 都无所谓。其它平台请按下面的说明自行构建。
 
-需要 CMake 3.28+（这是 `CMakePresets.json` 的要求；`CMakeLists.txt` 本身只要求
-3.10）、支持 C++23 的编译器、OpenSSL 3.0 及以上（只链接 `libcrypto`；`EVP_MAC` 与
-`<openssl/core_names.h>` 决定了这个下限），预设里用的是 Ninja。OpenSSL 用系统自带的
-动态库即可，从源码构建不需要任何静态库。
+需要 CMake 3.28+、支持 C++23 的编译器、OpenSSL 3.0 及以上，预设里用的是 Ninja。
+OpenSSL 用系统自带的动态库即可，从源码构建不需要任何静态库。
 
 ```sh
 cmake --preset linux-gcc-release
@@ -77,17 +72,17 @@ cmake --preset linux-gcc-release \
 
 ### 支持的系统
 
-Tsubaki-Next 是 POSIX 程序：动态 provider 需要 `dlfcn.h`，读文件用 `unistd.h` 和
-`fcntl.h`，工作线程用 `pthread.h`，进度行靠 `sys/ioctl.h` 取终端宽度。能提供这些的
-系统都不需要改源码就能编译：
+Tsubaki-Next 是 POSIX 程序，凡是提供了它用到的那几个 POSIX 接口的系统，都不需要改
+源码就能编译；具体是哪些接口，见
+[docs/ARCHITECTURE.zh-cn.md](docs/ARCHITECTURE.zh-cn.md#构建系统)。
 
 | 系统                                                 | 预设                                   | 说明                                                                                                                                                                                         |
 | ---------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Linux（glibc 或 musl）                               | `linux-gcc-debug`、`linux-gcc-release` | 默认用 GCC。x86_64、aarch64、armv7、riscv64、loongarch64、ppc64le 都支持。                                                                                                                   |
-| macOS 12+                                            | `macos-debug`、`macos-release`         | 需要 Xcode 16+（libc++ 的 `std::expected` 要求）。只能用 Apple 工具链，GCC 不能生成 Darwin 二进制。Homebrew 的 `openssl@3` 会被自动找到。                                                    |
+| macOS 12+                                            | `macos-debug`、`macos-release`         | 需要 Xcode 16+。只能用 Apple 工具链，GCC 不能生成 Darwin 二进制。Homebrew 的 `openssl@3` 会被自动找到。                                                                                      |
 | FreeBSD 13+                                          | `freebsd-debug`、`freebsd-release`     | 用 base 里的 clang；`pkg install openssl3`。                                                                                                                                                 |
 | NetBSD、OpenBSD、DragonFly、illumos、Solaris、Cygwin | `posix-debug`、`posix-release`         | 需要 ports/pkgsrc 里的 OpenSSL 3.0+：LibreSSL 没有 `EVP_MAC`，CMake 会直接给出明确报错，而不是拖到第一个 include 才失败。Cygwin 下 provider 必须是 `.so`，providers 项目已经设置了这个后缀。 |
-| **原生 Windows（MSVC、MinGW）**                      | —                                      | **不支持，短期内也不打算支持。** 源码用到 `dlfcn.h`、`unistd.h`、`pthread.h`、`sys/ioctl.h`、`::open`/`::read` 和 `O_CLOEXEC`，原生 Windows 一个都没有。请改用 WSL 或 Cygwin。                     |
+| **原生 Windows（MSVC、MinGW）**                      | —                                      | **不支持，短期内也不打算支持。** 请改用 WSL 或 Cygwin。                                                                                                                                      |
 
 `linux-clang-debug` 是唯一一个非 GCC 的 Linux 预设，留着用来交叉核对编译告警；其余
 Linux 预设都用绝对路径固定了 GCC（`/usr/bin/g++`），如果本机装在其它的位置，配置时加
@@ -167,10 +162,9 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 一致，BLAKE2 MAC 与 `openssl mac -macopt key:<密钥> BLAKE2BMAC`（或 `BLAKE2SMAC`）
 一致。输出是小写十六进制，长度由算法决定。
 
-`tsubaki -a`（`--algorithm`）把同一批名字打成两列表格（`ALGORITHM`、`KEYED`）：名字
-逐个取自解析器自己用的那张字面量表，`KEYED` 取自密钥策略，所以表格跟着实现走，而不
-是把上面的列表再抄一遍。有 provider 模块被加载时，后面还会跟一张 `ALGORITHM`、
-`KEYED`、`EXTRA ARGS`、`SOURCE` 表，见下一节。
+`tsubaki -a`（`--algorithm`）把同一批名字打成两列表格（`ALGORITHM`、`KEYED`）。
+有 provider 模块被加载时，后面还会跟一张 `ALGORITHM`、`KEYED`、`EXTRA ARGS`、
+`SOURCE` 表，见下一节。
 
 `tsubaki algo-info <算法>` 把同一批事实按单个名字打出来：一行 `Source:`（内建是
 `built-in`，动态算法是提供它的模块路径），然后是摘要宽度、密钥格式，以及一小段
@@ -191,61 +185,37 @@ ArgParser 脚本原样打印在 “ArgParser script:” 之下，模块接受哪
 算法以那个仓库的 README 为准。想看清契约被编译成什么样，看它最快，自己写
 provider 也可以直接照抄。
 
-- **provider 要导出什么。** 四个必需的 `extern "C"` 符号、一个可选的
-  `tsubaki_algo_info()`，以及一组可选的、用来声明额外命令行参数的三个符号，都声明
-  在 `include/dynamic_provider_header.hpp` 里：
-  `tsubaki_provider_name()` 给出命令行上用的名字，`tsubaki_is_keyed()` 说明是否需要
-  密钥，`tsubaki_check_key()` 接受或拒绝一个密钥，`tsubaki_checksum_file()` 把摘要
-  算进一个按值返回的
-  `tsubaki_checksum_result`：调用方拥有的摘要缓冲，加上一个 errno 风格的
-  `errcode`，成功失败都要填好。跨边界的只有纯数据——没有 `std::string`、没有
-  `std::filesystem::path`、没有 `std::expected`、没有 `std::error_code`——所以永远
-  不会出现一边分配、另一边释放。静态链接的 `tsubaki` 之所以还能加载模块，靠的就是
-  这一点。可选的 `tsubaki_algo_info()` 返回一段静态的 `Digest:`/`Key:`/`Note:`
-  三行文本，`tsubaki algo-info` 会原样打印；`Source:` 那一行由 `tsubaki` 自己加。
+不是自己构建的模块，放进 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 之前值得先看一眼：
+
+```sh
+tsubaki -a                  # 加载了哪些，各自来自哪个路径
+tsubaki algo-info blake3    # 宽度、密钥、说明，以及它将占用的开关
+```
+
+`algo-info` 会打印模块路径；provider 声明了参数时，还会把接受的整份脚本原样打出来
+——足以看出路径是不是你想要的那份、它会占用哪些开关。遵守契约的 provider 还会在同一
+段文本里写明自己的项目或网址；上面那行 `Source:` 是 tsubaki 自己加的，只会写路径。
+它是**加载了模块**才回答的，所以它告诉你模块声称什么，而不是它是否可信。
+
 - **名字能用在哪。** 所有接受算法名的地方，包括 `verify` 的 `-u`。内建名字永远
   优先：模块自报的名字若是内建算法，加载时就被拒掉并打印出文件名，根本进不了表，
-  所以 `.so` 抢不走 `sha256`。两个 provider 抢同一个名字时先加载的胜出——先是
-  环境变量里的顺序，然后才是各目录内的遍历顺序。
+  所以 `.so` 抢不走 `sha256`。
 - **密钥。** 带密钥的 provider 索取密钥的方式与内建密钥算法一致（`needs a key`，
-  退出码 64），合法性由 `tsubaki_check_key()` 判断。密钥是字节串，长度单独给出，
-  所以里面可以有 NUL 字节；没有长度上限可声明。
-- **摘要长什么样。** 十六进制、小写、以 NUL 结尾，写进
-  `TSUBAKI_MAX_RESULT_LENGTH` 字节的缓冲，所以最多 256 个字符（最后一个字节留给
-  NUL）。装不下算错误，不做截断；实际上没有这么宽的摘要，但这是硬边界。宽度下限
-  没有：清单行总是以校验和开头，短的也不会被当成路径。
-- **怎么编译。** 按 C++23 编成 `-fPIC` 动态库，架构与调用约定要和 `tsubaki` 一致。
-  边界上只走纯数据，所以两边不必再共用同一套标准库；但模块必须自包含：`tsubaki`
-  不向它导出符号，也不给它可借用的运行时。静态链接的 `tsubaki` 仍要通过系统
-  C 库加载模块，所以主程序和 provider 用同一个 glibc 就行。一个工程里
-  可以放多个算法——推荐先这样组织，契约头文件和读取文件的循环都能共用——一个名字
-  出一个 `.so`，目录遍历会把它们全部收进来。
-- **额外的命令行参数。** 需要文件之外参数的算法可以自己声明开关：导出
-  `tsubaki_need_more_args()`、`tsubaki_arg_definition()` 和 `tsubaki_take_args()`，
-  `tsubaki` 就会在读文件列表之前解析这张参数表，于是
-  `tsubaki sum shake128 -L 128 file` 会经 `tsubaki_take_args()` 送到模块手里，而不是
-  被当成路径。参数表每个参数写一个 `{ entry_name = ...; entry_type = ...; }` 块，
-  用的是 [LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser) 的
-  脚本语言，语法见它 `docs/USAGE.md` 的“Script language”。`CMakeLists.txt`
-  的 `GIT_TAG` 固定在一个提交上，对照时以那个提交里的文档为准，不是仓库的最新
-  版本。要写带参数的 provider，就得按这套语法写；不导出这三个符号，provider 就是
-  无参数的。想省事可以照抄现成模块的 `tsubaki_arg_definition()`，`tsubaki
-  algo-info` 会把它们原样打出来。
-  条目在报错里写作 `<名字>@dynamic`；命令行违反脚本声明的数量
-  （`min_value_count`、`max_value_count`、`max_repetition`）时，由 `tsubaki`
-  自己拒绝，`tsubaki_take_args()` 不会被调用，退出码 64；`tsubaki_take_args()`
-  返回非空串同样算错误，退出码也是 64。
-  开关写在算法名之后——写在它前面的词仍会被当成算法名——`tsubaki algo-info`
-  会把这张表原样打印出来，用户能直接查到语法；模块声明自己需要参数却返回空指针，
-  算致命错误，退出码 70。`verify` 会把不认识的参数转发下去，所以
-  `verify -u shake128 file.sum -L 128` 同样可用。provider 的开关先于 `tsubaki`
-  自己的选项匹配，因此不能复用后者的字母。
-  清单只记算法名，不记这些参数：`-L 128` 不会写进清单，`verify` 也不会从清单
-  推断出来。复核得在命令行上原样再给一遍；漏给或给错，模块就按默认值另算一份，
-  所有条目都会变成 changed——参数只能自己记着，清单和 `verify` 都帮不上忙。
-- **出错会怎样。** 路径不是可读目录、`dlopen` 拒绝某个 `.so`、少了符号：各打一行
+  退出码 64）。
+- **额外的命令行参数。** 需要文件之外参数的算法可以自己声明开关，`tsubaki
+  algo-info <名字>` 会把说明这些开关的脚本原样打印出来。开关写在算法名之后，
+  `verify` 会把不认识的参数转发下去，所以 `verify -u shake128 file.sum -L 128`
+  同样可用；provider 的开关先于 `tsubaki` 自己的选项匹配，因此不能复用后者的
+  字母。清单只记算法名，不记这些参数：`-L 128` 不会写进清单，`verify` 也不会从
+  清单推断出来。复核得在命令行上原样再给一遍；漏给或给错，模块就按默认值另算
+  一份，所有条目都会变成 changed。
+- **出错会怎样。** 路径不是可读目录、某个 `.so` 加载不了、少了符号：各打一行
   `Error:` 到 stderr 然后跳过，都不改变退出码。模块与进程同寿，没有任何地方会卸载
   它们。
+
+自己写 provider——要导出哪些符号、摘要缓冲的上限、编译要求、参数脚本的语法——见
+[docs/PROVIDER-ABI.zh-cn.md](docs/PROVIDER-ABI.zh-cn.md) 和
+`include/dynamic_provider_header.hpp`。
 
 `--algorithm` 会把找到的模块单列一张表：
 
@@ -291,10 +261,6 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 `cmp` 只接受 `-o` 和 `-c`。它完全不计算哈希，所以没有算法、密钥、线程或扫描类
 选项；`-v`、`-t`、`-k`、`-K`、`-T`、`-e`、`-l`、`-s`、`-f` 都会按命令行
 错误拒绝，退出码 64。它的两个位置参数是要比较的结果文件，不是待计算的路径。
-
-解析本身由独立的小库
-[LC-ArgParser](https://github.com/Lawrence-Charland/LC-ArgParser) 完成；
-`include/cmdline.hpp` 里只负责描述本程序的命令行。
 
 ### 选项的取值
 
@@ -452,8 +418,8 @@ tsubaki cmp old.txt new.txt -o diff.cmp   # 写到 diff.cmp
 校验和不同，会按命令行错误拒绝（退出码 64），因为没有一个唯一的值可以比较。
 
 不给 `-c` 时，路径按原样逐字比较，所以 `./a.txt` 和 `b/../a.txt` 是两个不同的路径。
-给了 `-c`（`--canonical`）时，两边路径先经过 `std::filesystem::canonical()`，它会把
-路径变成绝对路径、解析软链接并规整分隔符，因此指向同一文件的不同写法可以匹配上。
+给了 `-c`（`--canonical`）时，两边路径先变成绝对路径、解析软链接并规整分隔符，
+因此指向同一文件的不同写法可以匹配上。
 规范化要求路径存在：已删除的文件没法规范化，所以会保留未被规范化的路径并参与比较，
 同时记录一条错误。
 
@@ -509,12 +475,12 @@ coreutils 用两个空格、或空格加 `*`（`sha256sum --binary` 的二进制
 `<NONE> <路径>` 也能作为输入，所以一次运行的输出可以直接用 `-l` 喂回去，只重做
 那些没有计算校验和的文件。
 
-排除项是用 `equivalent()` 跟目录遍历中遇到的每个条目比较的，因此它既不是通配
-模式，也不是字符串前缀。它只作用于目录扫描：命令行上直接给出的文件、或列表里
-读进来的文件，即使被排除也照样计算，因为程序认为这两个途径属于“显式指定”。
-若排除项就是被扫描的目录本身、或它的某个上级目录，则什么都匹配不到，会被静默忽略
-——要排除就排除子目录。也别用 `-e` 去“排除”一个同时作为输入传进来的目录：
-不想要它，就别在命令行上写它。
+排除项写的是路径，不是模式：它跟目录遍历中遇到的每个条目逐一比较，所以
+`-e build` 会排除那棵目录树，而 `-e '*.tmp'` 什么都匹配不到。它只作用于目录扫描：
+命令行上直接给出的文件、或列表里读进来的文件，即使被排除也照样计算，因为程序
+认为这两个途径属于“显式指定”。若排除项就是被扫描的目录本身、或它的某个上级目录，
+则什么都匹配不到，会被静默忽略——要排除就排除子目录。也别用 `-e` 去“排除”一个
+同时作为输入传进来的目录：不想要它，就别在命令行上写它。
 
 命令行上或列表里显式给出的设备/FIFO 会被当作流打开并读完。所以 `/dev/null` 算出
 的是空内容，`/dev/stdin` 算管道送来的东西，进程替换的 `/dev/fd/N` 也能用。这类流
@@ -589,10 +555,8 @@ coreutils 用两个空格、或空格加 `*`（`sha256sum --binary` 的二进制
 
 进度指示只写 stderr，不混进结果流。
 
-程序在最后会使用 `std::ostream::fail()` 检查写错误。工作线程的每一行都经
-`std::osyncstream` 完整刷出，报告在工作线程 join 之后写入；刷出失败——
-磁盘写满、描述符损坏、文件所在挂载点被移除——会在流上留下失败状态，
-退出码是 `73`。若结果写往读端已关闭的管道，写入会触发 `SIGPIPE`，进程按默认动作
+写入失败——磁盘写满、描述符损坏、文件所在挂载点被移除——退出码是 `73`，结果流在
+运行结束时统一检查。若结果写往读端已关闭的管道，进程会被 `SIGPIPE` 按默认动作
 直接结束（shell 报 141），走不到 `73`。
 
 ## 退出状态
@@ -603,7 +567,7 @@ coreutils 用两个空格、或空格加 `*`（`sha256sum --binary` 的二进制
 | `1`    | 记录过至少一条错误：校验失败、不存在的路径、打不开的列表文件、不存在的排除项；`cmp` 还会把没有校验和的清单行、`-c` 无法规范化的路径、清单读取失败记为错误                                                                                                                                                                                                                                                           |
 | `64`   | 命令行无效：未知子命令、未知算法、密钥算法没给密钥或密钥过长、`-k` 与 `-K` 同时给、`-K -` 与 `-` 输入同时出现、线程数不对，或者有多余参数；`verify` 还会在没有 `-u` 时对没有 `Algorithm:` 头的输入、对没配 `-u` 的 `-` 输入、对用 `none` 写出的清单、对未知的 `-u` 名字、以及输出指向输入文件的情况返回 64；`cmp` 在两份清单都是 stdin、输出指向其中一份清单、或同一份清单里同一路径带着不同校验和重复出现时返回 64 |
 | `66`   | `--key-file` 读不了、密钥文件里没有密钥，`verify` 的输入不存在或是个目录，或者 `cmp` 的清单读不了                                                                                                                                                                                                                                                                                                                   |
-| `70`   | 启动即失败：`argc` 为 0；provider 声明需要参数却没给脚本，或脚本解析失败（`EX_SOFTWARE`） |
+| `70`   | 启动即失败：provider 声明需要参数，却没有一份可用的参数脚本 |
 | `73`   | `--output` 指定的文件打不开，或者输出流错误。                                                                                                                                                                                                                                                                                                                                                                       |
 | `130`  | 运行被 `Ctrl-C` 打断                                                                                                                                                                                                                                                                                                                                                                                                |
 | `250`  | 按下五次 `Ctrl-C`，进程当场中止，不保证输出结果的完整性。                                                                                                                                                                                                                                                                                                                                                           |
@@ -613,14 +577,9 @@ coreutils 用两个空格、或空格加 `*`（`sha256sum --binary` 的二进制
 的 `EX_USAGE`、`EX_NOINPUT`、`EX_SOFTWARE` 和 `EX_CANTCREAT`；`130` 就是 shell 的
 `128 + SIGINT`；`250` 与意外异常使用的 `255` 差一格，两者不会混。
 
-这些码定义在 `include/exit_codes.hpp` 里：`TSUBAKI_SUCCESS`、`TSUBAKI_HASH_ERROR`、
-`TSUBAKI_INVALID_OPERATION`、`TSUBAKI_FILE_WRITE_FAILED`、
-`TSUBAKI_FILE_READ_FAILED`、`TSUBAKI_INTERRUPTED`、`TSUBAKI_TERMINATED`、
-`TSUBAKI_FATAL` 和 `TSUBAKI_UNEXPECTED`。
-
 ## 中断
 
-第一次 `Ctrl-C` 会置上 manager 的中断标志。工作线程在处理下一个文件之前就停下：
+第一次 `Ctrl-C` 会让本次运行停下来。工作线程在处理下一个文件之前就停下：
 还没开始的文件照样被取出，写成 `<NONE>` 并计入 `Not hashed`，因此报告能为扫描器
 产出的每个文件留个交代。已经进入计算函数的文件不会被丢掉；如果那是设备或 FIFO，
 就意味着它可能一直读到 EOF。而卡在 `open()` 或无限读取里的工作线程根本回不到检查点，
@@ -635,11 +594,8 @@ coreutils 用两个空格、或空格加 `*`（`sha256sum --binary` 的二进制
 
 ## 架构
 
-模块划分、任务流接口、线程模型和数据流见 [ARCHITECTURE.zh-cn.md](ARCHITECTURE.zh-cn.md)。
-
-项目只构建一个可执行文件 `tsubaki`，新功能以子命令的形式加入：目前有 `sum`、
-`verify`、`cmp` 和 `algo-info` 四个。`sum` 和 `verify` 是流式的，一次只处理一个
-文件；`cmp` 把两份清单都读进内存，等两边齐了再比较。
+模块划分、任务流接口、线程模型和数据流见 [docs/ARCHITECTURE.zh-cn.md](docs/ARCHITECTURE.zh-cn.md)。
+写 provider 的人应该看 [docs/PROVIDER-ABI.zh-cn.md](docs/PROVIDER-ABI.zh-cn.md)。
 
 ## 与旧版 Tsubaki 的关系
 
@@ -648,8 +604,7 @@ Tsubaki-Next 是把 [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki)
 查找重复文件、比较两份结果——仓库现已归档。
 
 做法换了：模式变成子命令，清单变成能回喂的中间产物，算法从编译期列表变成
-可加载的 `.so`。`sum` 和 `verify` 共享一条流式流水线；`cmp` 不在其中，它把两份
-清单读进内存才开始比较。`verify` 的续算和 DPF 都建在这些改变上。
+可加载的 `.so`。具体怎么组织见 [docs/ARCHITECTURE.zh-cn.md](docs/ARCHITECTURE.zh-cn.md)。
 
 也有取舍：去重模式不再单列，重复文件从 `cmp` 的 `[D]` 分组看；按大小过滤、
 `--test` 预演、`--balance` 排序没有保留；纯路径列表要写成 `<NONE> <路径>` 或
@@ -659,8 +614,6 @@ Tsubaki-Next 是把 [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki)
 `-v`、`--force-rescan` 原样有效。`--allow-symlinks` 和 `--thd-amount` 分别叫
 `--follow-symlinks`、`--thread`，读列表的 `stdin` 换成 `-`；清单也还能互读，
 只有报告块的字段换了名字。
-
-`cmp` 与流水线不同形，本可单开一个二进制；留在这里只是不想多一份维护成本。
 
 名字是旧版就定下的，取自《四月是你的谎言》里的泽部椿（Sawabe Tsubaki），
 纯纯个人喜好，和校验和没有关系。
