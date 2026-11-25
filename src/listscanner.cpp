@@ -18,8 +18,10 @@ std::optional<task_token> listscanner::pop_raw()
     std::string line;
     while (std::getline(is, line))
     {
-        trim_str(line);
-        if (line.empty() || line.at(0) == '#')
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        const std::size_t first = line.find_first_not_of(" \t");
+        if (first == std::string::npos || line[first] == '#')
             continue;
         auto parsed = parse_line(line);
         if (!parsed)

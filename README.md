@@ -519,15 +519,15 @@ Files and directories on the command line are scanned directly. A list file
 (`-l`, or stdin via `-`) is read line by line, and every line is a
 `<checksum> <path>` pair: there is one format, not two. A lone `-` and
 `-l -` are the same thing: one treats it as an input source, the other as the
-file name for `-l`, and both read stdin. Each line is trimmed before it is
-looked at, so leading and trailing whitespace never becomes part of a path.
+file name for `-l`, and both read stdin. Lines are read the way coreutils reads
+them, so a path keeps its own leading and trailing spaces:
 
-- an empty line or a line starting with `#` is ignored;
-- a line starting with `<NONE>` and one or two spaces (`sum` writes two) names
-  the path after the marker;
+- an empty line, or a line whose first non-blank character is `#`, is ignored;
+- a line starting with `<NONE>` followed by a whitespace character names the
+  path after the separator;
 - a line in `<checksum> <path>` form keeps the checksum as it is, writes
-  `# Kept: <path>` and the (trimmed) original line to the output, and only
-  rescans the path when `--force-rescan` is given;
+  `# Kept: <path>` and the original line to the output, and only rescans the
+  path when `--force-rescan` is given;
 - anything else is not a listing line: it is reported as an error and skipped.
 
 A kept line is decoupled from the hashing run: it is not hashed and does not
@@ -560,13 +560,22 @@ coreutils separates a checksum from its path with two spaces, or with a space
 and a `*` for a binary read (`sha256sum --binary`); the `*` is dropped and is
 never part of the path, so a listing written either way reads the same. `sum`
 writes the two spaces and never the marker, so its output reads back unchanged
-even when a path starts with `*`. Only a hand-written single-space line is
-ambiguous: write such a path as `./*name` or as an absolute path.
+even when a path starts with `*`.
 
-A name that contains a newline or a backslash is written the way coreutils
-writes it: the line starts with `\` and those two characters become `\n` and
-`\\` inside the name, and such a line is read back the same way. Leading and
-trailing spaces in a name are not preserved: the reader trims the path.
+The reader takes a line apart exactly as coreutils does: leading blanks are
+skipped, the checksum ends at the first space or tab, one whitespace character
+is consumed, and one more is consumed only when it is a space or the `*` marker
+and more than one character follows. Everything after that is the path, so a
+name keeps its own leading and trailing spaces and a third space belongs to the
+name. A single-space line reads like a two-space one, except that its path may
+not start with `*`: write such a path as `./*name`, as an absolute path, or
+after two spaces. A trailing `\r` is dropped before parsing, so a CRLF listing
+reads like an LF one.
+
+A name that contains a newline, a carriage return or a backslash is written the
+way coreutils writes it: the line starts with `\` and those three characters
+become `\n`, `\r` and `\\` inside the name, and such a line is read back the
+same way. Any other `\x` sequence makes the line invalid.
 
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
 fed back with `-l` to redo only the files that were not hashed.

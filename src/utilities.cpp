@@ -84,21 +84,34 @@ bool is_checksum(const std::string &target)
 
 namespace
 {
-// An escaped line starts with a backslash and escapes only "\\" and "\n" inside.
-std::string unescape_name(const std::string &name)
+// An escaped line starts with a backslash; inside, only \\, \n and \r are valid.
+std::optional<std::string> unescape_name(const std::string &name)
 {
     std::string out;
     out.reserve(name.size());
     for (std::size_t i = 0; i < name.size(); ++i)
     {
-        if (name[i] == '\\' && i + 1 < name.size() &&
-            (name[i + 1] == '\\' || name[i + 1] == 'n'))
+        if (name[i] != '\\')
         {
-            out.push_back(name[i + 1] == 'n' ? '\n' : '\\');
-            ++i;
+            out.push_back(name[i]);
             continue;
         }
-        out.push_back(name[i]);
+        if (++i == name.size())
+            return {};
+        switch (name[i])
+        {
+        case '\\':
+            out.push_back('\\');
+            break;
+        case 'n':
+            out.push_back('\n');
+            break;
+        case 'r':
+            out.push_back('\r');
+            break;
+        default:
+            return {};
+        }
     }
     return out;
 }
@@ -106,43 +119,42 @@ std::string unescape_name(const std::string &name)
 
 std::optional<task_token> parse_line(const std::string &line)
 {
+    std::size_t i = line.find_first_not_of(" \t");
+    if (i == std::string::npos)
+        return {};
+
     bool escaped = false;
-    std::size_t i = 0;
-    if (!line.empty() && line[0] == '\\')
+    if (line[i] == '\\')
     {
         escaped = true;
-        i = 1;
+        ++i;
     }
 
     const std::size_t digest_begin = i;
-    while (i < line.size() && line[i] != ' ')
+    while (i < line.size() && line[i] != ' ' && line[i] != '\t')
         ++i;
-    if (i == digest_begin)
+    if (i == digest_begin || i == line.size())
         return {};
 
     const std::string digest(line, digest_begin, i - digest_begin);
     if (digest != none_checksum && !is_checksum(digest))
         return {};
 
-    if (i == line.size())
-        return {};
-
-    // One space + '*' is the binary marker ( dropped ); two spaces keep the '*'.
-    const std::size_t sep_begin = i;
-    while (i < line.size() && line[i] == ' ')
+    // One whitespace is consumed, then a space or '*' only when the path would
+    // still be non-empty: that keeps the two-space and '*' forms apart from a
+    // name that itself starts with a space or a star.
+    ++i;
+    if (line.size() - i > 1 && (line[i] == ' ' || line[i] == '*'))
         ++i;
-    if (i == line.size())
-        return {};
-    if (i - sep_begin == 1 && line[i] == '*')
-    {
-        ++i;
-        if (i == line.size())
-            return {};
-    }
 
     std::string path = line.substr(i);
     if (escaped)
-        path = unescape_name(path);
+    {
+        std::optional<std::string> unescaped = unescape_name(path);
+        if (!unescaped)
+            return {};
+        path = std::move(*unescaped);
+    }
 
     if (digest == none_checksum)
         return task_token(path);
@@ -153,18 +165,27 @@ void write_line(const std::string &sum, const std::filesystem::path &p,
                 std::ostream &os)
 {
     const std::string name = p.string();
-    if (name.find_first_of("\n\\") != std::string::npos)
+    if (name.find_first_of("\n\r\\") != std::string::npos)
     {
         // Escaped: a leading backslash marks the line.
         os << '\\' << sum << "  ";
         for (char c : name)
         {
-            if (c == '\\')
+            switch (c)
+            {
+            case '\\':
                 os << "\\\\";
-            else if (c == '\n')
+                break;
+            case '\n':
                 os << "\\n";
-            else
+                break;
+            case '\r':
+                os << "\\r";
+                break;
+            default:
                 os << c;
+                break;
+            }
         }
     }
     else
@@ -174,13 +195,15 @@ void write_line(const std::string &sum, const std::filesystem::path &p,
 
 std::string shown_name(const std::string &name)
 {
-    // A newline would split the "#" comment and leave a bare path; keep it escaped.
+    // A line break would split the "#" comment and leave a bare path behind.
     std::string shown;
     shown.reserve(name.size());
     for (char c : name)
     {
         if (c == '\n')
             shown += "\\n";
+        else if (c == '\r')
+            shown += "\\r";
         else
             shown += c;
     }

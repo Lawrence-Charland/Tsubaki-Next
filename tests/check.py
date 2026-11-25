@@ -761,7 +761,7 @@ def test_cmp(h: Harness, root: Path) -> None:
 # ---------------------------------------------------------------- 38-39
 
 def test_manifest_lines(h: Harness, root: Path) -> None:
-    section("38-39, 53-57 Manifest line format")
+    section("38-39, 53-60 Manifest line format")
     fx = root / "m"
     fx.mkdir(parents=True)
     target = fx / "a.txt"
@@ -849,12 +849,14 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
         h.bad("55", name, f"manifest={got_odd!r} refeed={got_refeed!r} "
                           f"rc={r_odd.rc} err={r_odd.err!r}")
 
-    name = ("one, three and eight spaces between the fields name the same "
-            "file; one space before * is still the binary marker")
+    name = ("one space, two spaces and a tab separate the fields; one space "
+            "before * is still the binary marker")
     forms = {
+        "one": f"{digest} {target}",
+        "two": f"{digest}  {target}",
+        "tab": f"{digest}\t{target}",
+        "tab-space": f"{digest}\t {target}",
         "marker": f"{digest} *{target}",
-        "three": f"{digest}   {target}",
-        "eight": f"{digest}        {target}",
     }
     broken = []
     for label, text in forms.items():
@@ -868,6 +870,69 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
         h.ok("56", name)
     else:
         h.bad("56", name, "; ".join(broken))
+
+    name = ("leading and trailing spaces in a name are part of the path, and a "
+            "carriage return is escaped")
+    spaced_dir = fx / "spaced"
+    spaced_dir.mkdir()
+    (spaced_dir / " lead.txt").write_text("l\n", encoding="utf-8")
+    (spaced_dir / "trail.txt ").write_text("t\n", encoding="utf-8")
+    (spaced_dir / "car\rret").write_text("c\n", encoding="utf-8")
+    spaced_manifest = fx / "spaced.txt"
+    r_spaced = h.sum("sha256", " lead.txt", "trail.txt ", "car\rret",
+                     "-o", spaced_manifest, cwd=spaced_dir)
+    want_spaced = sorted([
+        f"{hashlib.sha256(b'l\n').hexdigest()}   lead.txt",
+        f"{hashlib.sha256(b't\n').hexdigest()}  trail.txt ",
+        f"\\{hashlib.sha256(b'c\n').hexdigest()}  car\\rret",
+    ])
+    got_spaced = sorted(body_lines(
+        spaced_manifest.read_text(encoding="utf-8")))
+    r_spaced_refeed = h.sum("sha256", "-l", spaced_manifest, "-f", "-o", "-",
+                            cwd=spaced_dir)
+    got_spaced_refeed = sorted(body_lines(r_spaced_refeed.out))
+    r_spaced_verify = h.verify(spaced_manifest, "-o", "-", cwd=spaced_dir)
+    if (r_spaced.rc == 0 and got_spaced == want_spaced
+            and r_spaced_refeed.rc == 0 and got_spaced_refeed == want_spaced
+            and r_spaced_verify.rc == 0
+            and field(r_spaced_verify.out, "Failed") == "0"
+            and field(r_spaced_verify.out, "Changed") == "0"):
+        h.ok("58", name)
+    else:
+        h.bad("58", name, f"manifest={got_spaced!r} "
+                          f"refeed={got_spaced_refeed!r} "
+                          f"verify={r_spaced_verify.out!r}")
+
+    name = ("an extra space stays in the name, and a lone * after one space is "
+            "a name")
+    lead_three = fx / "lead-three.txt"
+    lead_three.write_text(
+        f"# Algorithm: sha256\n{hashlib.sha256(b'l\n').hexdigest()}   "
+        f"lead.txt\n", encoding="utf-8")
+    (fx / "*").write_text("x\n", encoding="utf-8")
+    star_only = fx / "star-only.txt"
+    star_only.write_text(
+        f"# Algorithm: sha256\n{hashlib.sha256(b'x\n').hexdigest()} *\n",
+        encoding="utf-8")
+    r_lead = h.verify(lead_three, "-o", "-", cwd=spaced_dir)
+    r_star = h.verify(star_only, "-o", "-", cwd=fx)
+    if (r_lead.rc == 0 and field(r_lead.out, "Hashed") == "1"
+            and field(r_lead.out, "Failed") == "0"
+            and r_star.rc == 0 and field(r_star.out, "Hashed") == "1"
+            and field(r_star.out, "Failed") == "0"):
+        h.ok("59", name)
+    else:
+        h.bad("59", name, f"lead={r_lead.out!r} star={r_star.out!r}")
+
+    name = "an escape sequence coreutils does not define makes the line invalid"
+    bad_escape = fx / "bad-escape.txt"
+    bad_escape.write_text(f"# Algorithm: sha256\n\\{digest}  a\\q.txt\n",
+                          encoding="utf-8")
+    r_bad = h.verify(bad_escape, "-o", "-")
+    if r_bad.rc == 1 and field(r_bad.out, "Errors") == "1":
+        h.ok("60", name)
+    else:
+        h.bad("60", name, f"rc={r_bad.rc} out={r_bad.out!r}")
 
     name = ("a changed name with a newline stays on one comment line in the "
             "verify report")
