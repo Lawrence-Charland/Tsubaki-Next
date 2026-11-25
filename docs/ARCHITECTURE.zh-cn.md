@@ -142,7 +142,7 @@ Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`；
 `--help` 优先于校验；短名只比较第一个字符；`-` 既能当 `files` 的输入源，也能当
 `-l` 的值，两条路最后都变成读 stdin 的 `listscanner`，所以 `-` 和 `-l -` 等价。
 
-`excludes` 和 `lists` 有意不设 `max_value_count`：排除项和清单常成串出现，
+`excludes` 和 `lists` 有意不设 `no_variadic`：排除项和清单常成串出现，
 `-e a b c` 比 `-e a -e b -e c` 省事，代价是分离式写法会一直吞到下一个开关为止。
 喜欢 getopt 那种一次一个值的人，可以给这两条加上 `no_variadic` 重新编译；
 `-e a b c` 会变成 `-e a` 加两个路径参数，不报错，语义却变了，README 里“只有两处

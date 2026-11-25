@@ -164,7 +164,7 @@ wins over validation; and a short name only compares its first character. `-`
 can be an input source in `files` or a value of `-l`, and both end up as a
 `listscanner` reading stdin, so `-` and `-l -` are equivalent.
 
-`excludes` and `lists` deliberately leave `max_value_count` unset: excludes and
+`excludes` and `lists` deliberately leave `no_variadic` unset: excludes and
 listings tend to come in runs, and `-e a b c` is less typing than
 `-e a -e b -e c`. The price is that a separated value keeps consuming until the
 next switch. Anyone who prefers getopt's one-value-per-option can add
