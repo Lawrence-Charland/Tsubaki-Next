@@ -563,6 +563,11 @@ writes the two spaces and never the marker, so its output reads back unchanged
 even when a path starts with `*`. Only a hand-written single-space line is
 ambiguous: write such a path as `./*name` or as an absolute path.
 
+A name that contains a newline or a backslash is written the way coreutils
+writes it: the line starts with `\` and those two characters become `\n` and
+`\\` inside the name, and such a line is read back the same way. Leading and
+trailing spaces in a name are not preserved: the reader trims the path.
+
 Since `<NONE> <path>` is accepted as input as well, the output of one run can be
 fed back with `-l` to redo only the files that were not hashed.
 

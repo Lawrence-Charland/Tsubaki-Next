@@ -49,7 +49,7 @@ void work_result::print(std::ostream &os, bool in_details)
             {
                 os << "#\n# Changed files:" << std::endl;
                 for (auto &files : changed)
-                    os << "# " << files.p.string() << std::endl;
+                    os << "# " << shown_name(files.p.string()) << std::endl;
                 os << "#\n";
             }
         }
@@ -60,7 +60,7 @@ void work_result::print(std::ostream &os, bool in_details)
             {
                 os << "#\n# Unsure files:" << std::endl;
                 for (auto &files : unsure)
-                    os << "# " << files.p.string() << std::endl;
+                    os << "# " << shown_name(files.p.string()) << std::endl;
                 os << "#\n";
             }
         }
@@ -75,7 +75,7 @@ void work_result::print(std::ostream &os, bool in_details)
     for (auto &it : errors)
     {
         os << "# Value: " << it.ec.value() << ", Message: " << it.ec.message()
-           << ", Operation: " << it.op << std::endl;
+           << ", Operation: " << shown_name(it.op) << std::endl;
     }
 }
 
@@ -84,6 +84,9 @@ namespace
 std::atomic<bool> *volatile g_interrupt = nullptr;
 
 std::atomic<unsigned> volatile int_count = 0;
+
+// write_line() takes the digest as a string; the literal is a string_view.
+const std::string none_sum(none_checksum);
 
 const constexpr char *term_msg =
     "\nTerminated after Ctrl+C was pressed 5 times.\n";
@@ -128,8 +131,8 @@ void work_manager::worker(bool verify)
     {
         if (interrupted.load(std::memory_order_relaxed))
         {
-            std::osyncstream(os)
-                << none_checksum << "  " << target->p.string() << '\n';
+            std::osyncstream out(os);
+            write_line(none_sum, target->p, out);
             unprocessed.fetch_add(1, std::memory_order_relaxed);
             if (verify)
                 _unsure.push_back(target.value());
@@ -142,16 +145,16 @@ void work_manager::worker(bool verify)
             tasks.report_error(
                 error_entry(checksum.error(), "calculating the checksum of " +
                                                   target->p.string()));
-            std::osyncstream(os)
-                << none_checksum << "  " << target->p.string() << '\n';
+            std::osyncstream out(os);
+            write_line(none_sum, target->p, out);
             failed.fetch_add(1, std::memory_order_relaxed);
             if (verify)
                 _unsure.push_back(target.value());
         }
         else
         {
-            std::osyncstream(os)
-                << checksum.value() << "  " << target->p.string() << '\n';
+            std::osyncstream out(os);
+            write_line(checksum.value(), target->p, out);
             if (api.hashing())
             {
                 success.fetch_add(1, std::memory_order_relaxed);

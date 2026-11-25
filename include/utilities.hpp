@@ -4,6 +4,7 @@
 #ifndef LCPROJECTS_TSUBAKI_UTILITIES_HPP
 #define LCPROJECTS_TSUBAKI_UTILITIES_HPP
 
+#include "basic_taskstream.hpp"
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
@@ -24,6 +25,13 @@ std::vector<std::string> get_env_arr(const std::string &env_name,
                                      char separator);
 
 bool is_checksum(const std::string &target);
+
+std::optional<task_token> parse_line(const std::string &line);
+
+void write_line(const std::string &sum, const std::filesystem::path &p,
+                std::ostream &os);
+
+std::string shown_name(const std::string &name);
 
 std::optional<std::string> get_file_content(std::istream &is, bool text);
 

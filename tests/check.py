@@ -761,7 +761,7 @@ def test_cmp(h: Harness, root: Path) -> None:
 # ---------------------------------------------------------------- 38-39
 
 def test_manifest_lines(h: Harness, root: Path) -> None:
-    section("38-39, 53-54 Manifest line format")
+    section("38-39, 53-57 Manifest line format")
     fx = root / "m"
     fx.mkdir(parents=True)
     target = fx / "a.txt"
@@ -821,6 +821,66 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
                           f"{star_manifest.read_text(encoding='utf-8')!r} "
                           f"refeed={r_star_refeed.out!r}")
 
+    def body_lines(text: str) -> list[str]:
+        return [ln for ln in text.splitlines()
+                if ln and not ln.startswith("#")]
+
+    name = ("a name coreutils would escape is written escaped, and reads back "
+            "unchanged")
+    odd = fx / "odd"
+    odd.mkdir()
+    (odd / "back\\slash.txt").write_text("b\n", encoding="utf-8")
+    (odd / "new\nline.txt").write_text("n\n", encoding="utf-8")
+    odd_manifest = fx / "odd.txt"
+    r_odd = h.sum("sha256", "back\\slash.txt", "new\nline.txt",
+                  "-o", odd_manifest, cwd=odd)
+    r_odd_refeed = h.sum("sha256", "-l", odd_manifest, "-f", "-o", "-", cwd=odd)
+    want_odd = sorted([
+        f"\\{hashlib.sha256(b'b\n').hexdigest()}  back\\\\slash.txt",
+        f"\\{hashlib.sha256(b'n\n').hexdigest()}  new\\nline.txt",
+    ])
+    got_odd = sorted(body_lines(odd_manifest.read_text(encoding="utf-8")))
+    got_refeed = sorted(body_lines(r_odd_refeed.out))
+    if (r_odd.rc == 0 and got_odd == want_odd and r_odd_refeed.rc == 0
+            and got_refeed == want_odd
+            and field(r_odd_refeed.out, "Failed") == "0"):
+        h.ok("55", name)
+    else:
+        h.bad("55", name, f"manifest={got_odd!r} refeed={got_refeed!r} "
+                          f"rc={r_odd.rc} err={r_odd.err!r}")
+
+    name = ("one, three and eight spaces between the fields name the same "
+            "file; one space before * is still the binary marker")
+    forms = {
+        "marker": f"{digest} *{target}",
+        "three": f"{digest}   {target}",
+        "eight": f"{digest}        {target}",
+    }
+    broken = []
+    for label, text in forms.items():
+        spaced = fx / f"space-{label}.txt"
+        spaced.write_text(f"# Algorithm: sha256\n{text}\n", encoding="utf-8")
+        r = h.verify(spaced, "-o", "-")
+        if not (r.rc == 0 and field(r.out, "Failed") == "0"
+                and field(r.out, "Changed") == "0"):
+            broken.append(f"{label}: rc={r.rc} err={r.err!r}")
+    if not broken:
+        h.ok("56", name)
+    else:
+        h.bad("56", name, "; ".join(broken))
+
+    name = ("a changed name with a newline stays on one comment line in the "
+            "verify report")
+    (odd / "new\nline.txt").write_text("n2\n", encoding="utf-8")
+    r_report = h.verify(odd_manifest, "-o", "-", cwd=odd)
+    report = r_report.out
+    name_ok = "# Changed files:\n# new\\nline.txt\n" in report
+    stray = "\nline.txt\n" in report
+    if r_report.rc == 0 and name_ok and not stray:
+        h.ok("57", name)
+    else:
+        h.bad("57", name, f"rc={r_report.rc} stray={stray!r} "
+                          f"report={report!r}")
 
 # ---------------------------------------------------------------- 40
 

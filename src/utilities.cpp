@@ -82,6 +82,118 @@ bool is_checksum(const std::string &target)
     return true;
 }
 
+namespace
+{
+// coreutils escapes a name by marking the whole line with a leading backslash
+// and replacing only two sequences inside it: "\\" and "\n". Anything else
+// after a backslash is left alone.
+std::string unescape_name(const std::string &name)
+{
+    std::string out;
+    out.reserve(name.size());
+    for (std::size_t i = 0; i < name.size(); ++i)
+    {
+        if (name[i] == '\\' && i + 1 < name.size() &&
+            (name[i + 1] == '\\' || name[i + 1] == 'n'))
+        {
+            out.push_back(name[i + 1] == 'n' ? '\n' : '\\');
+            ++i;
+            continue;
+        }
+        out.push_back(name[i]);
+    }
+    return out;
+}
+} // namespace
+
+std::optional<task_token> parse_line(const std::string &line)
+{
+    bool escaped = false;
+    std::size_t i = 0;
+    if (!line.empty() && line[0] == '\\')
+    {
+        escaped = true;
+        i = 1;
+    }
+
+    const std::size_t digest_begin = i;
+    while (i < line.size() && line[i] != ' ')
+        ++i;
+    if (i == digest_begin)
+        return {};
+
+    const std::string digest(line, digest_begin, i - digest_begin);
+    if (digest != none_checksum && !is_checksum(digest))
+        return {};
+
+    if (i == line.size())
+        return {};
+
+    // One or more spaces separate the fields. Exactly one space followed by '*'
+    // is the binary marker coreutils writes, and the marker is dropped; two or
+    // more spaces mean a name that happens to start with '*', so it keeps it.
+    const std::size_t sep_begin = i;
+    while (i < line.size() && line[i] == ' ')
+        ++i;
+    if (i == line.size())
+        return {};
+    if (i - sep_begin == 1 && line[i] == '*')
+    {
+        ++i;
+        if (i == line.size())
+            return {};
+    }
+
+    std::string path = line.substr(i);
+    if (escaped)
+        path = unescape_name(path);
+
+    if (digest == none_checksum)
+        return task_token(path);
+    return task_token(path, digest);
+}
+
+void write_line(const std::string &sum, const std::filesystem::path &p,
+                std::ostream &os)
+{
+    const std::string name = p.string();
+    if (name.find_first_of("\n\\") != std::string::npos)
+    {
+        // The leading backslash marks the line as escaped; the separator is
+        // still the usual two spaces.
+        os << '\\' << sum << "  ";
+        for (char c : name)
+        {
+            if (c == '\\')
+                os << "\\\\";
+            else if (c == '\n')
+                os << "\\n";
+            else
+                os << c;
+        }
+    }
+    else
+        os << sum << "  " << name;
+    os << '\n';
+}
+
+std::string shown_name(const std::string &name)
+{
+    // Unescaping turns "\n" back into a real newline. Printing that into a
+    // "# Kept:" comment would split the comment and leave a bare path on the
+    // stream, which reads like a manifest line, so show it escaped again.
+    std::string shown;
+    shown.reserve(name.size());
+    for (char c : name)
+    {
+        if (c == '\n')
+            shown += "\\n";
+        else
+            shown += c;
+    }
+    return shown;
+}
+
 std::optional<std::string> get_file_content(std::istream &is, bool text)
 {
     std::string key;
@@ -185,3 +297,4 @@ int fd_guard::get() const noexcept
     return fd_;
 }
 } // namespace tsubaki
+// The logic associated with GNU Coreutils line format was assisted by DeepSeek.
