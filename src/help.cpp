@@ -18,7 +18,7 @@
 namespace tsubaki
 {
 const std::string help_body =
-    R"HELP({program} {version} - build a checksum manifest, and verify or compare it
+    R"HELP(Tsubaki-Next {version} - build, verify and compare checksum manifests
 
 Usage:
   {program} sum [options] <algorithm> <file|dir>...
@@ -33,11 +33,12 @@ Subcommands:
   cmp       compare two manifests
   algo-info print what an algorithm is and how to key it
 
-Algorithms:
+Built-in Algorithms:
   none  md5  sha1  sha224  sha256  sha384  sha512  sha3_256  sha3_512
   blake2b512  blake2s256
   hmac_md5  hmac_sha1  hmac_sha224  hmac_sha256  hmac_sha384  hmac_sha512
   hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
+  (Try "{program} -a" to see the whole list, which includes dynamic providers.)
 
 General:
   -h, --help                  print this help
@@ -72,6 +73,7 @@ Examples:
   {program} sum hmac_sha256 . -K key
   {program} verify sums.txt -o -
   {program} cmp old.txt new.txt -o -
+  {program} algo-info sha256
 
 Exit status:
   0 ok  1 error  64 usage  66 input  70 startup  73 output
