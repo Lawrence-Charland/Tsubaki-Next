@@ -493,6 +493,11 @@ The Linux presets pin GCC by absolute path (`/usr/bin/g++`) so a stray `CC` in
 the environment cannot silently change the toolchain; `linux-clang-debug` is the
 only non-GCC preset and exists as a second opinion on warnings. The macOS,
 FreeBSD and other-POSIX presets leave the compiler to the platform default.
+`linux-gcc-san` inherits the Debug preset and adds `-fsanitize=address,undefined`,
+`-fno-omit-frame-pointer` and `-fno-sanitize-recover=undefined` to the compile
+flags and `-fsanitize=address,undefined` to the link flags; it produces an
+instrumented binary for local checks, and a UBSan diagnostic aborts instead of
+continuing.
 
 `-V` reports build provenance through three compile definitions:
 `TSUBAKI_VERSION` from `project()`, `TSUBAKI_GIT_COMMIT` from

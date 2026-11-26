@@ -100,7 +100,8 @@ switch, `-e` and `-l` especially.
 | native Windows | — | not supported and not planned; use WSL or Cygwin |
 
 `linux-clang-debug` is the single non-GCC Linux preset, kept as a second opinion
-on compiler warnings.
+on compiler warnings. `linux-gcc-san` adds AddressSanitizer and
+UndefinedBehaviorSanitizer to the Debug build for local runs.
 
 ## Documentation
 

@@ -84,6 +84,7 @@ tsubaki cmp old.txt new.txt          # 比较两份清单，写出 old_to_new.cm
 | 原生 Windows | — | 不支持，也不打算支持；用 WSL 或 Cygwin |
 
 另有 `linux-clang-debug`，唯一的非 GCC Linux 预设，用来看编译器警告。
+`linux-gcc-san` 在 Debug 构建上开着 ASan 和 UBSan，只用于本机跑。
 
 ## 文档
 

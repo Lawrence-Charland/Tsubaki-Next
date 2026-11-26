@@ -34,6 +34,17 @@
       }
     },
     {
+      "name": "linux-gcc-san",
+      "displayName": "Linux GCC ASan+UBSan",
+      "description": "Debug build with AddressSanitizer and UndefinedBehaviorSanitizer, for local checks only: much slower and not redistributable.",
+      "inherits": "linux-gcc-debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    },
+    {
       "name": "linux-clang-debug",
       "displayName": "Linux Clang Debug (second opinion)",
       "description": "The one non-GCC preset: build this when you want a second compiler to look at warnings.",
@@ -127,6 +138,11 @@
     {
       "name": "linux-gcc-release",
       "configurePreset": "linux-gcc-release",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-gcc-san",
+      "configurePreset": "linux-gcc-san",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     },
     {

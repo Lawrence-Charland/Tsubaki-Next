@@ -415,7 +415,10 @@ Cygwin 能通过。OpenSSL 的下限是 3.0，因为 `EVP_MAC` 和
 
 Linux 预设用绝对路径固定了 GCC（`/usr/bin/g++`），环境里残留的 `CC` 无法悄悄换掉
 工具链；`linux-clang-debug` 是唯一的非 GCC 预设，留着交叉核对编译告警。macOS、
-FreeBSD 和其它 POSIX 预设则交给系统默认编译器。
+FreeBSD 和其它 POSIX 预设则交给系统默认编译器。`linux-gcc-san` 继承 Debug 预设，
+编译旗标加上 `-fsanitize=address,undefined`、`-fno-omit-frame-pointer` 和
+`-fno-sanitize-recover=undefined`，链接旗标加上 `-fsanitize=address,undefined`，
+产出一个只供本机检查的插桩二进制；UBSan 报错直接中止，不会带着问题继续跑。
 
 `-V` 通过三个编译定义报告构建来源：`TSUBAKI_VERSION` 取自 `project()`；
 `TSUBAKI_GIT_COMMIT` 取自 `git rev-parse --short=12 HEAD`，跟踪文件有改动时追加
