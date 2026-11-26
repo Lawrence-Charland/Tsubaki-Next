@@ -50,13 +50,18 @@ inline constexpr const char *canonical = "canonical";
 inline constexpr const char *algo_to_info = "algo_to_info";
 } // namespace cmdline_entry
 
+#define SUBCOMMAND_LIST(X)                                                     \
+    X(sum, "sum")                                                              \
+    X(verify, "verify")                                                        \
+    X(cmp, "cmp")                                                              \
+    X(algo, "algo")                                                            \
+    X(algo_info, "algo-info")
+
 namespace subcommands
 {
-inline constexpr const char *sum = "sum";
-inline constexpr const char *verify = "verify";
-inline constexpr const char *cmp = "cmp";
-inline constexpr const char *algo_info = "algo-info";
-inline constexpr const char *algo = "algo";
+#define SUBCOMMANDS_STRINGS(name, str) inline const constexpr char *name = str;
+SUBCOMMAND_LIST(SUBCOMMANDS_STRINGS)
+#undef SUBCOMMANDS_STRINGS
 } // namespace subcommands
 
 using namespace argparser;

@@ -315,6 +315,9 @@ std::unordered_set<std::string> get_completion()
                 .ls_options();
         result.insert(dynamic_options.begin(), dynamic_options.end());
     }
+#define SUBCOMMAND_COMP(name, str) result.insert(str);
+    SUBCOMMAND_LIST(SUBCOMMAND_COMP)
+#undef SUBCOMMAND_COMP
     return result;
 }
 

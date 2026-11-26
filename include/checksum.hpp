@@ -17,31 +17,31 @@
 namespace tsubaki
 {
 #define ALGORITHM_LIST(X)                                                      \
-    X(none, "none")                                                            \
-    X(md5, "md5")                                                              \
-    X(sha1, "sha1")                                                            \
-    X(sha224, "sha224")                                                        \
-    X(sha256, "sha256")                                                        \
-    X(sha384, "sha384")                                                        \
-    X(sha512, "sha512")                                                        \
-    X(sha3_256, "sha3_256")                                                    \
-    X(sha3_512, "sha3_512")                                                    \
-    X(blake2b512, "blake2b512")                                                \
-    X(blake2s256, "blake2s256")                                                \
-    X(hmac_md5, "hmac_md5")                                                    \
-    X(hmac_sha1, "hmac_sha1")                                                  \
-    X(hmac_sha224, "hmac_sha224")                                              \
-    X(hmac_sha256, "hmac_sha256")                                              \
-    X(hmac_sha384, "hmac_sha384")                                              \
-    X(hmac_sha512, "hmac_sha512")                                              \
-    X(hmac_sha3_256, "hmac_sha3_256")                                          \
-    X(hmac_sha3_512, "hmac_sha3_512")                                          \
-    X(blake2b512_mac, "blake2b512_mac")                                        \
-    X(blake2s256_mac, "blake2s256_mac")
+    X(none)                                                                    \
+    X(md5)                                                                     \
+    X(sha1)                                                                    \
+    X(sha224)                                                                  \
+    X(sha256)                                                                  \
+    X(sha384)                                                                  \
+    X(sha512)                                                                  \
+    X(sha3_256)                                                                \
+    X(sha3_512)                                                                \
+    X(blake2b512)                                                              \
+    X(blake2s256)                                                              \
+    X(hmac_md5)                                                                \
+    X(hmac_sha1)                                                               \
+    X(hmac_sha224)                                                             \
+    X(hmac_sha256)                                                             \
+    X(hmac_sha384)                                                             \
+    X(hmac_sha512)                                                             \
+    X(hmac_sha3_256)                                                           \
+    X(hmac_sha3_512)                                                           \
+    X(blake2b512_mac)                                                          \
+    X(blake2s256_mac)
 
 enum class algorithm
 {
-#define ALGORITHM_ENUM_ITEM(name, str) name,
+#define ALGORITHM_ENUM_ITEM(name) name,
     ALGORITHM_LIST(ALGORITHM_ENUM_ITEM)
 #undef ALGORITHM_ENUM_ITEM
     dynamic,
@@ -49,7 +49,7 @@ enum class algorithm
 };
 
 const std::vector<std::string> mapper = {
-#define ALGORITHM_STR_ITEM(name, str) str,
+#define ALGORITHM_STR_ITEM(name) #name,
     ALGORITHM_LIST(ALGORITHM_STR_ITEM)
 #undef ALGORITHM_STR_ITEM
 };
