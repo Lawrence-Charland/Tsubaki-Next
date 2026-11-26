@@ -17,6 +17,7 @@ of the project are in the [README](../README.md).
   - [Keyed hashes](#keyed-hashes)
   - [Verifying](#verifying)
   - [Comparing](#comparing)
+  - [Shell completion](#shell-completion)
 - [Inputs](#inputs)
 - [Output](#output)
   - [Report keys](#report-keys)
@@ -33,17 +34,18 @@ tsubaki algo-info <algorithm>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
+tsubaki --completions
 ```
 
 A subcommand is required: `sum` calculates checksums, `verify` re-checks a
 file written by `sum`, `cmp` compares two such files, and `algo-info` explains
-one algorithm. `--help`, `--version` and `--algorithm` (or `-a`) are the only
-invocations that do not need one; any other word in the subcommand position is
-rejected as an unknown subcommand.
-Those three are checked before validation, so they also win over every argument
+one algorithm. `--help`, `--version`, `--algorithm` (or `-a`) and
+`--completions` (or `-C`) are the only invocations that do not need one; any
+other word in the subcommand position is rejected as an unknown subcommand.
+Those four are checked before validation, so they also win over every argument
 error: running `tsubaki -a junk` prints the algorithm table and exits 0. When
-several of them are given, `--help` wins over `--version`, and both win over
-`--algorithm`.
+several of them are given, `--help` wins over `--version`, both win over
+`--algorithm`, and that one wins over `--completions`.
 
 Everything up to [Verifying](#verifying) describes `sum`; `verify` reuses the
 checksum-file format and the `-v`, `-t`, `-k`, `-K`, `-o` and `-u` options. `cmp`
@@ -191,6 +193,7 @@ the modules that take no arguments come first.
 | `-h`, `--help`                 | print help and exit                                                  |
 | `-V`, `--version`              | print the version and exit                                           |
 | `-a`, `--algorithm`            | print the algorithms, whether each one is keyed, whether a provider takes extra arguments, and for a provider the module it came from, then exit; needs no subcommand |
+| `-C`, `--completions`          | print words for shell completion, then exit; needs no subcommand     |
 | `-v`, `--verbose`              | live progress indicator on stderr; not shown for `none`              |
 | `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
 | `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
@@ -423,6 +426,51 @@ initial copy goes to stderr so it stays visible when the result goes to a file.
 `cmp` never hashes, walks or scans anything: it reads two files, so the
 interrupt handling described below does not apply to it and a `Ctrl-C` simply
 kills the process.
+
+### Shell completion
+
+`-C` (or `--completions`) prints one line and exits: every option name — the
+built-in ones and the ones a provider declares — plus every built-in algorithm
+and every loaded provider, separated by spaces. Like `-a` it needs no
+subcommand.
+
+```sh
+tsubaki -C                        # the line, space separated
+tsubaki -C | tr ' ' '\n' | sort   # one word per line
+```
+
+That line is meant for a shell's word-list completion. In bash:
+
+```sh
+complete -o default -W "$(tsubaki -C)" tsubaki
+```
+
+The quotes are part of the command. Without them the shell splits the output
+into one argument per word, `complete -W` keeps only the first of them, and
+nothing but a single algorithm name ends up completing. `-o default` keeps
+filename completion alive, which is what `sum` and `cmp` mostly take. The
+substitution runs once, when the shell reads that line, so a provider installed
+afterwards shows up in the next shell.
+
+zsh has no `complete`; `compadd` and `_files` do the same job:
+
+```zsh
+_tsubaki() {
+    local words="$(tsubaki -C)"
+    compadd -- ${(s: :)words}
+    _files
+}
+compdef _tsubaki tsubaki
+```
+
+The `--` is required, because the words begin with `-`.
+
+What the list leaves out: the four subcommands, since it is built from the
+parser tables and the subcommands are not in them; `--verify`, which is
+internal; and any positional context, because this is one flat list offered at
+every position. So `su<TAB>` falls back to filenames, and prefixes shared by
+several words, such as `--thread` and `--threads`, insert nothing until a
+second `<TAB>` lists them.
 
 ## Inputs
 

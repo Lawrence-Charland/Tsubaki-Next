@@ -64,8 +64,8 @@ binary.
 ## Startup and dispatch
 
 `main()` (`src/main.cpp`) parses the `general` group — the `subcmd` positional
-plus `--help`, `--version` and `--algorithm` — from `def_args()` in
-`include/cmdline.hpp`. The three flags are handled before validation, so they
+plus `--help`, `--version`, `--algorithm` and `--completions` — from `def_args()`
+in `include/cmdline.hpp`. The four flags are handled before validation, so they
 need no subcommand and win over argument errors. After `fine()` validates
 `general`, `subcmd` selects one of `sum_main()`, `verify_main()`,
 `cmp_main()` or `algo_info_core()`; anything else exits 64. The dispatch sits in a try/catch that maps
@@ -149,7 +149,8 @@ command line.
   `evaluate(group)` restricts this to one group.
 
 Entries in `include/cmdline.hpp` may join several groups: `general` holds
-`subcmd`, `--help`, `--version`, `--algorithm`; `key-file`, `key`, `text`,
+`subcmd`, `--help`, `--version`, `--algorithm`, `--completions`; `key-file`,
+`key`, `text`,
 `threads` and `verbose` belong to `sum` and `verify`; `output` joins `sum`,
 `verify` and `cmp`; `sum` also has excludes, lists, follow-symlinks,
 force-rescan, algorithm
@@ -320,8 +321,9 @@ the loading:
 once, when the first `checksum_api` is constructed, and every later one reuses
 that map: `sum` and `verify` share a single scan even though `verify` builds two
 `checksum_api` objects (its own and the one inside the internal `sum`), and
-`cmp` builds none, so it never scans. `list_algorithm()` in `src/help.cpp` is
-the exception: `--algorithm` constructs a local `dpf_instance` of its own.
+`cmp` builds none, so it never scans. `list_algorithm()` and
+`get_completion()` in `src/help.cpp` are the exception: `--algorithm` and
+`--completions` each construct a local `dpf_instance` of their own.
 `set_algo()` tries `str_to_alg()` before `find_provider()`, so name lookup
 cannot reach a provider for a built-in name either. For a provider,
 `keyed()` asks `tsubaki_is_keyed()`, `set_key()` asks `tsubaki_check_key()`
@@ -546,5 +548,5 @@ time (UTC+8) so the printed time does not depend on the build host's zone.
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |
-| `include/help.hpp`, `src/help.cpp` | help text and the `--algorithm` table |
+| `include/help.hpp`, `src/help.cpp` | help text, the `--algorithm` table and the completion word list |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |

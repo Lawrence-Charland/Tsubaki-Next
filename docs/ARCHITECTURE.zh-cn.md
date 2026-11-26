@@ -60,8 +60,8 @@
 ## 启动与分发
 
 `main()`（`src/main.cpp`）用 `include/cmdline.hpp` 里 `def_args()` 的定义解析
-`general` 组——`subcmd` 位置参数加上 `--help`、`--version`、`--algorithm`。三个标志
-在校验之前处理，所以不需要子命令，也优先于参数错误。`fine()` 校验完 `general` 后，
+`general` 组——`subcmd` 位置参数加上 `--help`、`--version`、`--algorithm`、
+`--completions`。四个标志在校验之前处理，所以不需要子命令，也优先于参数错误。`fine()` 校验完 `general` 后，
 `subcmd` 选择 `sum_main()`、`verify_main()`、`cmp_main()` 或
 `algo_info_core()`；其它值退出 64。分发包在
 try/catch 里，逃出的异常映射成 255。
@@ -131,7 +131,7 @@ Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`；
   落到谁手里；`evaluate(group)` 只处理一个组。
 
 `include/cmdline.hpp` 里的条目可以同时属于多个组：`general` 放 `subcmd`、
-`--help`、`--version`、`--algorithm`；`key-file`、`key`、`text`、
+`--help`、`--version`、`--algorithm`、`--completions`；`key-file`、`key`、`text`、
 `threads`、`verbose` 属于 `sum` 和 `verify`；`output` 属于 `sum`、`verify` 和
 `cmp`；`sum` 还有 excludes、lists、follow-symlinks、force-rescan、algorithm、files；`sum_int` 放
 内部的 `verify_sumint` 标志；`verify` 加 `to_verify` 和 `use_algo`；`cmp` 加
@@ -269,8 +269,9 @@ OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要映�
 `checksum_api` 把 `dpf_instance` 存成 `inline static`，所以整个进程只扫一次——第一
 个 `checksum_api` 构造时扫，之后每个都复用那张表：`sum` 与 `verify` 共用一次扫描，
 尽管 `verify` 会构造两个 `checksum_api`（自己那个加上内部 `sum` 的那个）；`cmp` 一个
-都不构造，因此从不扫描。`src/help.cpp` 里的 `list_algorithm()` 是例外：`--algorithm`
-会自己造一个局部 `dpf_instance`。`set_algo()` 先试 `str_to_alg()` 再问
+都不构造，因此从不扫描。`src/help.cpp` 里的 `list_algorithm()` 和
+`get_completion()` 是例外：`--algorithm` 和 `--completions` 各自会造一个局部
+`dpf_instance`。`set_algo()` 先试 `str_to_alg()` 再问
 `find_provider()`，所以按名字查找同样碰不到内建名字对应的 provider。对
 provider 来说，`keyed()` 问 `tsubaki_is_keyed()`，`set_key()` 问
 `tsubaki_check_key()` 而不是 `check_key_validity()`，`calc()` 调
@@ -469,5 +470,5 @@ FreeBSD 和其它 POSIX 预设则交给系统默认编译器。
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、注释查找、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |
-| `include/help.hpp`, `src/help.cpp` | 帮助文本与 `--algorithm` 表格 |
+| `include/help.hpp`, `src/help.cpp` | 帮助文本、`--algorithm` 表格与补全词表 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |

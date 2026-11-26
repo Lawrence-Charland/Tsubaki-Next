@@ -1195,6 +1195,36 @@ def test_text_key(h: Harness, root: Path) -> None:
                           f"help={r_help.rc} listed={'--text' in r_help.out}")
 
 
+# ---------------------------------------------------------------- 61-62
+
+def test_completion(h: Harness, root: Path) -> None:
+    name = "-C needs no subcommand, wins over argument errors, and every --option in --help is in its list"
+    r = h.run("-C")
+    r_junk = h.run("-C", "junk")
+    r_help = h.run("--help")
+    words = r.out.split()
+    advertised = set(re.findall(r"--[a-z][a-z-]*", r_help.out))
+    missing = sorted(advertised - set(words))
+    if (r.rc == 0 and not r.err and r_junk.rc == 0
+            and sorted(r_junk.out.split()) == sorted(words)
+            and "--help" in words and "-a" in words and "--completions" in words
+            and "sha256" in words and "none" in words
+            and "--verify" not in words
+            and len(words) == len(set(words))
+            and not missing):
+        h.ok("61", name)
+    else:
+        h.bad("61", name, f"rc={r.rc}/{r_junk.rc} words={len(words)} "
+                          f"err={r.err!r} missing={missing}")
+
+    name = "--help announces -C and --completions"
+    if (r_help.rc == 0 and "-C, --completions" in r_help.out):
+        h.ok("62", name)
+    else:
+        h.bad("62", name, f"rc={r_help.rc} "
+                          f"listed={'-C, --completions' in r_help.out}")
+
+
 # ---------------------------------------------------------------- runner
 
 def resolve_binary(explicit: str | None) -> Path | None:
@@ -1251,6 +1281,7 @@ def main(argv: list[str]) -> int:
         test_use_algo(h, root)
         test_verify_streams(h, root)
         test_text_key(h, root)
+        test_completion(h, root)
 
     print("\n--------------------------------")
     print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")

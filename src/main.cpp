@@ -49,6 +49,11 @@ int main(int argc, char **argv)
             list_algorithm(std::cout);
             return TSUBAKI_SUCCESS;
         }
+        if (cmdline.entry(cmdline_entry::comp).repetition)
+        {
+            print_completion(std::cout);
+            return TSUBAKI_SUCCESS;
+        }
 
         // Check error
         if (!cmdline.fine())

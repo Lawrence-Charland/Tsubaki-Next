@@ -2,16 +2,22 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "help.hpp"
+#include "ap_script.hpp"
+#include "argparser.hpp"
 #include "checksum.hpp"
+#include "cmdline.hpp"
 #include "dpframework.hpp"
+#include "exit_codes.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <iomanip>
+#include <iostream>
 #include <openssl/crypto.h>
 #include <ostream>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -44,6 +50,7 @@ General:
   -h, --help                  print this help
   -V, --version               print the version
   -a, --algorithm             list algorithms and exit
+  -C, --completions           print words for shell completion and exit
 
 Options (sum, verify):
   -v, --verbose               progress on stderr
@@ -279,5 +286,42 @@ void show_version(std::ostream &os)
     os << "     Homepage:       "
           "https://github.com/Lawrence-Charland/Tsubaki-Next"
        << std::endl;
+}
+
+std::unordered_set<std::string> get_completion()
+{
+    auto result = def_args().ls_options();
+    // Must exist, or it is unexpected error.
+    result.erase(result.find("--verify"));
+    result.insert(mapper.begin(), mapper.end());
+    dpf_instance dpf;
+    auto dynamic_mapper = dpf.show_mapper();
+    for (auto &look : dynamic_mapper)
+    {
+        result.insert(look.first);
+        if (!look.second.need_args())
+            continue;
+        if (look.second.arg_def == nullptr)
+        {
+            std::cerr
+                << "Fatal: the provider needs more args but didn't define "
+                   "the ArgParser script."
+                << std::endl;
+            _Exit(TSUBAKI_FATAL);
+        }
+        auto dynamic_options =
+            ap_instance(parse_script(std::string(look.second.arg_def())))
+                .ls_options();
+        result.insert(dynamic_options.begin(), dynamic_options.end());
+    }
+    return result;
+}
+
+void print_completion(std::ostream &os)
+{
+    auto completions = get_completion();
+    for (auto &comp : completions)
+        os << comp << ' ';
+    os << std::endl;
 }
 } // namespace tsubaki

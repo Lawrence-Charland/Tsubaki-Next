@@ -28,6 +28,7 @@ inline constexpr const char *subcmd = "subcmd";
 inline constexpr const char *version = "version";
 inline constexpr const char *list_alg = "list_alg";
 inline constexpr const char *help = "help";
+inline constexpr const char *comp = "comp";
 inline constexpr const char *key = "key";
 inline constexpr const char *key_file = "key_file";
 inline constexpr const char *text = "text";
@@ -133,6 +134,17 @@ static inline ap_instance def_args()
                     {ap_defkey::explanations,"-a or --algorithm"},
                     {ap_defkey::long_name,"algorithm"},
                     {ap_defkey::short_name,"a"},
+                    {ap_defkey::max_repetition,"1"},
+                }
+            ),
+            ap_entry(
+                cmdline_entry::comp,
+                ap_type::flag,
+                {
+                    {ap_defkey::group, cmdline_group::general},
+                    {ap_defkey::explanations,"-C or --completions"},
+                    {ap_defkey::long_name,"completions"},
+                    {ap_defkey::short_name,"C"},
                     {ap_defkey::max_repetition,"1"},
                 }
             ),

@@ -16,6 +16,7 @@ Tsubaki-Next 的运行手册：四个子命令、全部选项、它读写的校�
   - [密钥哈希](#密钥哈希)
   - [校验](#校验)
   - [比较](#比较)
+  - [Shell 补全](#shell-补全)
 - [输入](#输入)
 - [输出](#输出)
   - [报告字段](#报告字段)
@@ -32,14 +33,15 @@ tsubaki algo-info <算法>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
+tsubaki --completions
 ```
 
 子命令是必需的：`sum` 计算校验和，`verify` 复核 `sum` 写出的结果文件，`cmp` 比较
-两份这样的结果文件，`algo-info` 说明单个算法。只有 `--help`、`--version` 和
-`--algorithm`（`-a`）不需要子命令；
-子命令位置上换成别的词会按未知子命令报错。这三个都在校验之前检查，所以也优先于其它
+两份这样的结果文件，`algo-info` 说明单个算法。只有 `--help`、`--version`、
+`--algorithm`（`-a`）和 `--completions`（`-C`）不需要子命令；
+子命令位置上换成别的词会按未知子命令报错。这四个都在校验之前检查，所以也优先于其它
 参数错误：`tsubaki -a junk` 照样打印算法表并退出 0。同时给出多个时，`--help` 优先于
-`--version`，两者又都优先于 `--algorithm`。
+`--version`，两者又都优先于 `--algorithm`，而它又优先于 `--completions`。
 
 下文直到 [校验](#校验) 都在讲 `sum`；`verify` 复用同一份校验和文件格式以及
 `-v`、`-t`、`-k`、`-K`、`-o`、`-u` 这几个选项。`cmp` 复用同一份格式，但它要两份文件，
@@ -167,6 +169,7 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 | `-h`, `--help`                  | 打印帮助后退出                                                                                                                            |
 | `-V`, `--version`               | 打印版本后退出                                                                                                                            |
 | `-a`, `--algorithm`             | 打印算法列表、每个是否带密钥、provider 是否接受额外参数，以及它来自哪个模块，然后退出                                                     |
+| `-C`, `--completions`           | 打印一行供 shell 补全用的词表，然后退出；不需要子命令                                                                                                     |
 | `-v`, `--verbose`               | 在 stderr 上显示实时进度（`none` 时不显示）                                                                                               |
 | `-t<n>`, `--thread=<n>`         | 工作线程数，正整数，默认为硬件并发数（取不到时用 1）                                                                                      |
 | `-k<key>`, `--key=<key>`        | 密钥算法的密钥；普通算法会警告并忽略                                                                                                      |
@@ -360,6 +363,45 @@ tsubaki cmp old.txt new.txt -o diff.cmp   # 写到 diff.cmp
 
 `cmp` 不做任何哈希、遍历或扫描：它只读两个文件，所以下文的“中断”处理不适用于它，
 `Ctrl-C` 会直接按默认动作结束进程。
+
+### Shell 补全
+
+`-C`（`--completions`）打印一行后退出：全部选项名（内建的，以及 provider 自己声明的）、
+全部内建算法、全部已加载的 provider，以空格分隔。和 `-a` 一样，它不需要子命令。
+
+```sh
+tsubaki -C                        # 那一行，空格分隔
+tsubaki -C | tr ' ' '\n' | sort   # 一个词一行
+```
+
+这一行是给 shell 的词表补全用的。bash 里：
+
+```sh
+complete -o default -W "$(tsubaki -C)" tsubaki
+```
+
+引号是命令的一部分。少了它，shell 会把输出按空格切成一个个参数，`complete -W` 只留
+其中一个，结果只有某一个算法名补得出来。`-o default` 让文件名补全继续生效，而 `sum`
+和 `cmp` 收的绝大多数参数正是路径。这条命令在 shell 读到时执行一次，所以之后再装的
+provider 要到下一个 shell 才出现。
+
+zsh 没有 `complete`，用 `compadd` 加 `_files` 顶上同样的位置：
+
+```zsh
+_tsubaki() {
+    local words="$(tsubaki -C)"
+    compadd -- ${(s: :)words}
+    _files
+}
+compdef _tsubaki tsubaki
+```
+
+`--` 不能省，因为表里的词以 `-` 开头。
+
+表里没有的东西：四个子命令（它由解析器表推导而来，而子命令不在那些表里）、
+`--verify`（内部开关），以及任何位置上下文——它就是一张平表，在每个位置都全量给出。
+所以 `su<TAB>` 会退回补文件名；`--thread` 和 `--threads` 这种共享前缀的词，要按第二次
+`<TAB>` 才会列出来。
 
 ## 输入
 

@@ -6,6 +6,7 @@
 
 #include <ostream>
 #include <string>
+#include <unordered_set>
 
 // Injected by CMake through target_compile_definitions(). The fallback keeps
 // IDE builds and single-file compiles working.
@@ -23,7 +24,11 @@ void list_algorithm(std::ostream &os);
 
 void show_version(std::ostream &os);
 
+void print_completion(std::ostream &os);
+
 std::string get_compiler_info();
+
+std::unordered_set<std::string> get_completion();
 } // namespace tsubaki
 
 #endif
