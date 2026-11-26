@@ -10,7 +10,6 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -70,7 +69,7 @@ inline std::string alg_to_str(const algorithm &alg)
     return mapper.at(static_cast<size_t>(alg));
 }
 
-inline constexpr std::string_view none_checksum = "<NONE>";
+inline constexpr const char* none_checksum = "<NONE>";
 
 std::expected<std::string, std::error_code>
 checksum_file(const std::filesystem::path &path, algorithm algo);
@@ -99,7 +98,7 @@ inline constexpr bool is_keyed(const algorithm &alg)
     }
 }
 
-inline constexpr std::size_t max_key_length(const algorithm &alg)
+inline std::size_t max_key_length(const algorithm &alg)
 {
     switch (alg)
     {
@@ -112,7 +111,7 @@ inline constexpr std::size_t max_key_length(const algorithm &alg)
     }
 }
 
-inline constexpr bool check_key_validity(const std::string &key,
+inline bool check_key_validity(const std::string &key,
                                          const algorithm &alg)
 {
     if (!is_keyed(alg))

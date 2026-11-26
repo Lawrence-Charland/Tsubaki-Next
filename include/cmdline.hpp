@@ -59,7 +59,7 @@ inline constexpr const char *algo_to_info = "algo_to_info";
 
 namespace subcommands
 {
-#define SUBCOMMANDS_STRINGS(name, str) inline const constexpr char *name = str;
+#define SUBCOMMANDS_STRINGS(name, str) inline constexpr const char *name = str;
 SUBCOMMAND_LIST(SUBCOMMANDS_STRINGS)
 #undef SUBCOMMANDS_STRINGS
 } // namespace subcommands

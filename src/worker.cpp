@@ -85,7 +85,7 @@ std::atomic<bool> *volatile g_interrupt = nullptr;
 
 std::atomic<unsigned> volatile int_count = 0;
 
-// write_line() takes the digest as a string; the literal is a string_view.
+// write_line() takes the digest as a string; the literal is a C string.
 const std::string none_sum(none_checksum);
 
 const constexpr char *term_msg =
