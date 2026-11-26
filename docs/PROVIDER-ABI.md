@@ -16,7 +16,7 @@ provider vendors that header into its own tree.
 For the tsubaki side — how the loader walks directories, resolves symbols and
 registers a provider's arguments — see
 [ARCHITECTURE.md](ARCHITECTURE.md#dynamic-providers). For the user-facing side
-of installing providers, see the [README](../README.md#dynamic-algorithms).
+of installing providers, see [USAGE.md](USAGE.md#dynamic-algorithms).
 
 ## Contents
 

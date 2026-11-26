@@ -170,7 +170,7 @@ listings tend to come in runs, and `-e a b c` is less typing than
 next switch. Anyone who prefers getopt's one-value-per-option can add
 `no_variadic` to those two entries and rebuild; `-e a b c` then becomes `-e a`
 plus two path arguments, with no error and a silently different meaning, and the
-README's "only two things break with convention" loses one of them.
+usage reference's "only two things break with convention" loses one of them.
 
 ## Task streams
 

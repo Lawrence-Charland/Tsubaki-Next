@@ -12,7 +12,7 @@ provider 把那个头文件复制进自己的源码树使用。
 
 tsubaki 这一侧——加载器怎么遍历目录、解析符号、注册 provider 的参数——见
 [ARCHITECTURE.zh-cn.md](ARCHITECTURE.zh-cn.md#动态-provider)；安装 provider 的用户
-视角见 [README](../README.zh-cn.md#动态算法)。
+视角见 [USAGE.zh-cn.md](USAGE.zh-cn.md#动态算法)。
 
 ## 目录
 

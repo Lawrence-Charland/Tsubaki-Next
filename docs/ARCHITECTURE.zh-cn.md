@@ -145,7 +145,7 @@ Tsubaki-Next 只用 `ap_instance`、`ap_entry`、`ap_defkey`；
 `excludes` 和 `lists` 有意不设 `no_variadic`：排除项和清单常成串出现，
 `-e a b c` 比 `-e a -e b -e c` 省事，代价是分离式写法会一直吞到下一个开关为止。
 喜欢 getopt 那种一次一个值的人，可以给这两条加上 `no_variadic` 重新编译；
-`-e a b c` 会变成 `-e a` 加两个路径参数，不报错，语义却变了，README 里“只有两处
+`-e a b c` 会变成 `-e a` 加两个路径参数，不报错，语义却变了，用法文档里“只有两处
 不合惯例”也就只剩一处。
 
 ## 任务流层

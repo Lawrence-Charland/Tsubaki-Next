@@ -3,9 +3,9 @@
 # Copyright (C) 2026 Lawrence Charland
 """Black-box contract tests for tsubaki.
 
-Every case corresponds to one promise in docs/ARCHITECTURE.md or README.md. Nothing
-here calls internal functions: the test feeds bytes in and checks the bytes
-that come back out.
+Every case corresponds to one promise in docs/USAGE.md, docs/ARCHITECTURE.md or
+README.md. Nothing here calls internal functions: the test feeds bytes in and
+checks the bytes that come back out.
 
     ./tests/check.py                          # find the binary under build/
     TSUBAKI=/usr/bin/tsubaki ./tests/check.py # name the binary
@@ -1269,4 +1269,4 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 
-# This test script was assisted by DeepSeek
+# This test script was assisted by DeepSeek.
