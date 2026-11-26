@@ -354,17 +354,21 @@ whose violation is undefined behaviour are repeated at the top of
 ## Workers, progress and report
 
 `work_manager` owns the worker vector, the printer thread, a `const
-checksum_api`, the interrupt flag, the counters and — in verification mode — the
-`changed` and `unsure` vectors. `run(n)` installs the SIGINT handler when asked,
-writes the `# tsubaki checksum result` header, starts `n` workers plus the
-printer, and waits.
+checksum_api`, the interrupt flag, the flag that stops the printer, the counters
+and — in verification mode — the `changed` and `unsure` vectors. `run(n)`
+installs the SIGINT handler when asked, writes the
+`# tsubaki checksum result` header, starts `n` workers plus the printer, and
+waits.
 
 - A worker pops a path; when interrupted it prints `<NONE>` and counts the file
   as not hashed (and unsure in a verify run); otherwise it calls `api.calc()`,
   writes one line through `std::osyncstream` and updates the counters,
   `changed` or `unsure`.
-- The printer repaints one stderr line every 100 ms until the run finishes or
-  is interrupted.
+- The printer repaints one stderr line every 100 ms — only under `-v`, but for
+  every algorithm, `none` included — until the run finishes. The line counts the
+  files handled so far and moves an indicator across 80 % of the terminal
+  width; once `SIGINT` is seen, the indicator is replaced by `Completing the
+  output manifest, please wait...` until the run ends.
 - `run()` returns a `work_result` (algorithm name, verify flag, errors,
   changed, unsure, counters, interrupt flag, duration), so the caller decides
   where to print it.
@@ -374,10 +378,13 @@ printer, and waits.
 `Unsure` in verify mode, the error count, the interrupt warning, and — with
 `details` — the error list and the per-count path lists.
 
-`SIGINT` sets the manager flag. Workers still drain the stream, so every path a
-scanner produced is accounted for; a file already being hashed finishes
-normally, while a worker blocked in `open()` or an endless read never returns to
-the check. The fifth `Ctrl-C` writes a fixed message and calls `_exit(250)`.
+`SIGINT` sets the manager flag, so a worker stops hashing at its next path.
+Workers still drain the stream, so every path a scanner produced is accounted
+for; a file already being hashed finishes normally, while a worker blocked in
+`open()` or an endless read never returns to the check. The printer keeps
+repainting until the workers are joined, which is what keeps the wait message on
+screen; without `-v` the first `Ctrl-C` prints nothing. The fifth `Ctrl-C` writes
+a fixed message and calls `_Exit(250)`.
 
 ## Output streams
 
@@ -400,11 +407,12 @@ shell).
 | --- | --- | --- |
 | main | 1 | builds the streams, then calls `run()`, which joins the workers |
 | worker | `-t` | pop one path, hash it, write one line (and compare it in verify mode) |
-| printer | 1 | repaint the progress line every 100 ms |
+| printer | 1 | repaint the progress line every 100 ms, past an interrupt too |
 
 - One mutex per task stream, held only while a path is taken out.
-- The `interrupted` flag and the counters are atomics; the algorithm lives in
-  the manager's `const checksum_api` and never changes during a run.
+- The `interrupted` and `stop_printer` flags and the counters are atomics; the
+  algorithm lives in the manager's `const checksum_api` and never changes
+  during a run.
 - No lock is held while hashing, so file I/O is fully parallel.
 
 ## Exit codes
@@ -421,7 +429,7 @@ The codes live in `include/exit_codes.hpp` and are shared by `main()`,
 | `TSUBAKI_FATAL` | 70 | `argc` is 0; a provider needs arguments but has no script, or the script fails to parse (`EX_SOFTWARE`) |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | the `--output` file cannot be opened, or the result stream fails (`EX_CANTCREAT`) |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` is set (`128 + SIGINT`) |
-| `TSUBAKI_TERMINATED` | 250 | the fifth `Ctrl-C` called `_exit()`, so no report was written |
+| `TSUBAKI_TERMINATED` | 250 | the fifth `Ctrl-C` called `_Exit()`, so no report was written |
 | `TSUBAKI_UNEXPECTED` | 255 | an exception escaped `main()` |
 
 `interrupted` wins over `errors`; a write failure returns 73, but `SIGPIPE`

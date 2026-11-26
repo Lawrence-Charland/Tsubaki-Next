@@ -294,14 +294,17 @@ category 和它产生的消息都留在 tsubaki 自己那份标准库里。摘�
 ## 工作线程、进度与报告
 
 `work_manager` 持有工作线程数组、进度线程、一个 `const checksum_api`、中断标志、
-计数器，以及校验模式下的 `changed`/`unsure` 向量。`run(n)` 在需要时装好 SIGINT
-处理函数，写出 `# tsubaki checksum result` 头，启动 `n` 个工作线程和进度线程，然后
-等待。
+停止进度线程的标志、计数器，以及校验模式下的 `changed`/`unsure` 向量。`run(n)`
+在需要时装好 SIGINT 处理函数，写出 `# tsubaki checksum result` 头，启动 `n` 个
+工作线程和进度线程，然后等待。
 
 - 工作线程取一条路径；已中断就打印 `<NONE>` 并计入未计算（校验模式下同时计为
   unsure）；否则调用 `api.calc()`，经 `std::osyncstream` 写一行，并更新计数器、
   `changed` 或 `unsure`。
-- 进度线程每 100 ms 往 stderr 重画一行，直到运行结束或被中断。
+- 进度线程每 100 ms 往 stderr 重画一行——只在 `-v` 时启动，但所有算法都画，`none`
+  也不例外——直到运行结束。行内给出已处理的文件数，指示器在终端宽度 80% 的范围里
+  移动；一旦看到 `SIGINT`，指示器就换成 `Completing the output manifest, please
+  wait...`，直到运行结束。
 - `run()` 返回 `work_result`（算法名、verify 标志、错误、changed、unsure、计数器、
   中断标志、耗时），打印到哪里由调用方决定。
 
@@ -309,9 +312,11 @@ category 和它产生的消息都留在 tsubaki 自己那份标准库里。摘�
 hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Unsure`，然后是错误
 数、中断警告；`details` 为真时再写错误列表和各计数下的路径列表。
 
-`SIGINT` 只置管理器的标志。工作线程仍会把流取空，所以扫描器产出的每条路径都有
-交代；已经进入计算的文件会正常算完，而卡在 `open()` 或无限读取里的线程回不到检查
-点。第五次 `Ctrl-C` 会写一条固定消息并调用 `_exit(250)`。
+`SIGINT` 只置管理器的标志，工作线程取下一条路径时就不再计算。工作线程仍会把流取空，
+所以扫描器产出的每条路径都有交代；已经进入计算的文件会正常算完，而卡在 `open()` 或
+无限读取里的线程回不到检查点。进度线程一直重画到工作线程 join 完成，等待消息因此
+留在屏幕上；没开 `-v` 时，第一次 `Ctrl-C` 不打印任何东西。第五次 `Ctrl-C` 会写一条
+固定消息并调用 `_Exit(250)`。
 
 ## 输出流
 
@@ -331,11 +336,11 @@ hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Uns
 | --- | --- | --- |
 | 主线程 | 1 | 搭好各条流，调用 `run()`，由它 join 工作线程 |
 | 工作线程 | `-t` 个 | 取一条路径、算哈希、写一行（校验模式下再比较一次） |
-| 进度线程 | 1 | 每 100 ms 重画进度行 |
+| 进度线程 | 1 | 每 100 ms 重画进度行，中断后也继续 |
 
 - 每条任务流一把互斥锁，只在取路径时持有。
-- `interrupted` 标志和计数器是原子变量；算法待在 manager 的 `const checksum_api`
-  里，运行期间不变。
+- `interrupted`、`stop_printer` 标志和计数器是原子变量；算法待在 manager 的
+  `const checksum_api` 里，运行期间不变。
 - 计算时不持任何锁，文件 I/O 完全并行。
 
 ## 退出码
@@ -352,7 +357,7 @@ hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Uns
 | `TSUBAKI_FATAL` | 70 | `argc` 为 0；provider 需要参数却没给脚本，或脚本解析失败（`EX_SOFTWARE`） |
 | `TSUBAKI_FILE_WRITE_FAILED` | 73 | `--output` 文件打不开，或结果流写失败（`EX_CANTCREAT`） |
 | `TSUBAKI_INTERRUPTED` | 130 | `work_result::interrupted` 为真（`128 + SIGINT`） |
-| `TSUBAKI_TERMINATED` | 250 | 第五次 `Ctrl-C` 直接 `_exit()`，报告没写出来 |
+| `TSUBAKI_TERMINATED` | 250 | 第五次 `Ctrl-C` 直接 `_Exit()`，报告没写出来 |
 | `TSUBAKI_UNEXPECTED` | 255 | 有异常逃出 `main()` |
 
 `interrupted` 优先于 `errors`；写失败返回 73，但读端消失的管道会先被 `SIGPIPE`

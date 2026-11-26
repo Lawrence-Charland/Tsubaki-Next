@@ -56,6 +56,7 @@ class work_manager
     std::thread progress;
     const checksum_api &api;
     std::atomic<bool> interrupted = false;
+    std::atomic<bool> stop_printer = false;
     std::atomic<unsigned> success = 0;
     std::atomic<unsigned> failed = 0;
     std::atomic<unsigned> unprocessed = 0;

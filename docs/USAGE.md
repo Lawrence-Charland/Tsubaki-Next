@@ -195,24 +195,24 @@ the modules that take no arguments come first.
 
 ### Options
 
-| Option                         | Meaning                                                              |
-| ------------------------------ | -------------------------------------------------------------------- |
-| `-h`, `--help`                 | print help and exit                                                  |
-| `-V`, `--version`              | print the version and exit                                           |
-| `-a`, `--algorithm`            | print the algorithms, whether each one is keyed, whether a provider takes extra arguments, and for a provider the module it came from, then exit; needs no subcommand |
-| `-C`, `--completions`          | print words for shell completion, then exit; needs no subcommand     |
-| `-v`, `--verbose`              | live progress indicator on stderr; not shown for `none`              |
-| `-t<n>`, `--thread=<n>`        | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown) |
-| `-k<key>`, `--key=<key>`       | secret key for the keyed algorithms; ignored with a warning by the others |
-| `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin), byte for byte; ignored by plain digests |
-| `-T`, `--text`                  | read the key file (or `-K -` stdin) as text: CRLF folds to LF, the trailing line ending goes, a lone CR stays; ignored by plain digests |
-| `-o<file>`, `--output=<file>`  | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp); `-` means stdout |
-| `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only) |
-| `-c`, `--canonical`            | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only) |
-| `-e<path>`, `--exclude=<path>` | skip `<path>` and everything below it when walking a directory; repeatable |
-| `-l<file>`, `--list=<file>`    | read a `"<checksum> <path>"` listing from `<file>`; repeatable        |
-| `-s`, `--follow-symlinks`      | follow symbolic links to directories                                 |
-| `-f`, `--force-rescan`         | recompute checksums already listed in the input                      |
+| Option                          | Meaning                                                                                                                                                               |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-h`, `--help`                  | print help and exit                                                                                                                                                   |
+| `-V`, `--version`               | print the version and exit                                                                                                                                            |
+| `-a`, `--algorithm`             | print the algorithms, whether each one is keyed, whether a provider takes extra arguments, and for a provider the module it came from, then exit; needs no subcommand |
+| `-C`, `--completions`           | print words for shell completion, then exit; needs no subcommand                                                                                                      |
+| `-v`, `--verbose`               | live progress indicator on stderr                                                                                                                                     |
+| `-t<n>`, `--thread=<n>`         | worker threads, a positive integer; defaults to hardware concurrency (1 if unknown)                                                                                   |
+| `-k<key>`, `--key=<key>`        | secret key for the keyed algorithms; ignored with a warning by the others                                                                                             |
+| `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin), byte for byte; ignored by plain digests                                                                                   |
+| `-T`, `--text`                  | read the key file (or `-K -` stdin) as text: CRLF folds to LF, the trailing line ending goes, a lone CR stays; ignored by plain digests                               |
+| `-o<file>`, `--output=<file>`   | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp); `-` means stdout        |
+| `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only)                                                                                       |
+| `-c`, `--canonical`             | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only)                                                                       |
+| `-e<path>`, `--exclude=<path>`  | skip `<path>` and everything below it when walking a directory; repeatable                                                                                            |
+| `-l<file>`, `--list=<file>`     | read a `"<checksum> <path>"` listing from `<file>`; repeatable                                                                                                        |
+| `-s`, `--follow-symlinks`       | follow symbolic links to directories                                                                                                                                  |
+| `-f`, `--force-rescan`          | recompute checksums already listed in the input                                                                                                                       |
 
 `verify` accepts `-v`, `-t`, `-k`, `-K`, `-T` (`--text`) and `-o` with the same
 meanings, plus `-u` to name the algorithm. It takes no algorithm or file
@@ -332,8 +332,8 @@ every processed file, then the report block. The report gains two fields:
 # Unsure:            0
 ```
 
-A *changed* file is one whose stored checksum differs from the recomputed one.
-An *unsure* file is one the run could not decide about: the listing gave no
+A _changed_ file is one whose stored checksum differs from the recomputed one.
+An _unsure_ file is one the run could not decide about: the listing gave no
 checksum for it (`<NONE> <path>`), or it could not be hashed at
 all — the run was interrupted, or the hash failed, or the algorithm was `none`.
 The affected paths are listed below each count in the result stream; the copy of
@@ -403,16 +403,16 @@ The output has one section per kind of difference:
 [=] ./same.txt
 ```
 
-- `[!]` *Modified*: the same path in both listings with a different checksum.
+- `[!]` _Modified_: the same path in both listings with a different checksum.
   The left spelling is printed.
-- `[D][n]` *Moved, copied, merged or renamed*: one group per checksum held by
+- `[D][n]` _Moved, copied, merged or renamed_: one group per checksum held by
   both sides at different paths; `[D][n][L]` lists the left paths and
   `[D][n][R]` the right ones. A checksum that only one side holds produces no
   group; its paths fall under deleted or added.
-- `[U]` *Deleted or added*: paths that only the left (`[U][L]`) or only the
+- `[U]` _Deleted or added_: paths that only the left (`[U][L]`) or only the
   right (`[U][R]`) listing names, with no matching checksum on the other side.
-- `[=]` *Matched*: the same path in both listings with the same checksum.
-- `[E]` *Error messages*: only when something was recorded — a line without a
+- `[=]` _Matched_: the same path in both listings with the same checksum.
+- `[E]` _Error messages_: only when something was recorded — a line without a
   checksum, a path that `-c` could not canonicalize, or a list that failed
   while being read. The comparison continues, and the exit status is then 1.
 
@@ -672,17 +672,17 @@ These key names are fixed: they are not renamed, removed or given another
 meaning. `Changed` and `Unsure` come from `verify`; the other seven are written
 by both subcommands.
 
-| Key | Meaning |
-| --- | --- |
-| `Algorithm` | the algorithm the run used; written even when the run was interrupted |
-| `Processed` | `Hashed + Failed` |
-| `Hashed` | files whose checksum was computed in this run |
-| `Failed` | files that could not be opened, read or hashed |
-| `Not hashed` | files left without a checksum: interrupted, or the `none` algorithm |
-| `Duration` | seconds spent by the workers, as a decimal number |
-| `Changed` | paths whose checksum differs from the manifest |
-| `Unsure` | paths that could not be decided: missing, unreadable or not hashed |
-| `Errors` | recorded errors; this line is always written |
+| Key          | Meaning                                                               |
+| ------------ | --------------------------------------------------------------------- |
+| `Algorithm`  | the algorithm the run used; written even when the run was interrupted |
+| `Processed`  | `Hashed + Failed`                                                     |
+| `Hashed`     | files whose checksum was computed in this run                         |
+| `Failed`     | files that could not be opened, read or hashed                        |
+| `Not hashed` | files left without a checksum: interrupted, or the `none` algorithm   |
+| `Duration`   | seconds spent by the workers, as a decimal number                     |
+| `Changed`    | paths whose checksum differs from the manifest                        |
+| `Unsure`     | paths that could not be decided: missing, unreadable or not hashed    |
+| `Errors`     | recorded errors; this line is always written                          |
 
 The headings inside the block are fixed too: `Changed files:`, `Unsure files:`,
 `Error messages:`, and each error line is `Value: <number>, Message: <text>,
@@ -694,17 +694,17 @@ result lines above the block.
 
 ## Exit status
 
-| Code | Meaning |
-| --- | --- |
-| `0` | no error was recorded; a `verify` run reports changed and unsure files, and a `cmp` run reports every difference, without treating them as errors |
-| `1` | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error |
-| `64` | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header when `-u` is absent, a `-` input with no `-u`, a header written with `none`, an unknown `-u` name, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
-| `66` | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is a directory, or a `cmp` list cannot be read |
-| `70` | fatal start-up failure: a provider that declares arguments without a usable argument script |
-| `73` | the `--output` file cannot be opened for writing, or the output stream fails |
-| `130` | the run was interrupted with `Ctrl-C` |
-| `250` | `Ctrl-C` was pressed five times; the process aborted immediately, so the output can end without its report block |
-| `255` | an unexpected exception escaped `main()` |
+| Code  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`   | no error was recorded; a `verify` run reports changed and unsure files, and a `cmp` run reports every difference, without treating them as errors                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `1`   | at least one error was recorded: a checksum failure, a missing path, an unopenable list file, or a missing exclude; `cmp` also records a list line without a checksum, a path that `-c` could not canonicalize, or a list read error                                                                                                                                                                                                                                                                                                                                                                     |
+| `64`  | invalid command line: unknown subcommand, unknown algorithm, a keyed algorithm without a key or with a key too long for it, `-k` together with `-K`, `-K -` together with a `-` input, bad thread count, or leftover arguments; `verify` also uses 64 for an input without an `Algorithm:` header when `-u` is absent, a `-` input with no `-u`, a header written with `none`, an unknown `-u` name, or an output that is the input file; `cmp` uses 64 when both lists are stdin, when the output names one of the lists, and when one list names the same path more than once with different checksums |
+| `66`  | the `--key-file` cannot be read, the key file holds no key, the `verify` input is missing or is a directory, or a `cmp` list cannot be read                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `70`  | fatal start-up failure: a provider that declares arguments without a usable argument script                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `73`  | the `--output` file cannot be opened for writing, or the output stream fails                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `130` | the run was interrupted with `Ctrl-C`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `250` | `Ctrl-C` was pressed five times; the process aborted immediately, so the output can end without its report block                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `255` | an unexpected exception escaped `main()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 `--help` and `--version` exit with `0`. `64`, `66`, `70` and `73` are the
 sysexits values `EX_USAGE`, `EX_NOINPUT`, `EX_SOFTWARE` and `EX_CANTCREAT`;
@@ -722,7 +722,7 @@ in `open()` or in an endless read never gets back to the check, so a single
 `Ctrl-C` cannot stop it.
 
 Pressing `Ctrl-C` five times gives up altogether: the handler writes a fixed
-message to stderr and calls `_exit(250)` on the spot. Nothing is flushed after
+message to stderr and calls `_Exit(250)` on the spot. Nothing is flushed after
 that, so the output can end without its report block and the counters are lost.
 
 This makes an interrupted run resumable. Feed the output file back as a `-l`

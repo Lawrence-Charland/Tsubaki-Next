@@ -92,7 +92,7 @@ const constexpr char *term_msg =
     "\nTerminated after Ctrl+C was pressed 5 times.\n";
 
 const constexpr char *int_msg =
-    "\nInterrupted. Completing the output manifest, please wait...\n";
+    "Completing the output manifest, please wait...";
 
 // is_checksum() accepts uppercase input, so a listing written by another tool
 // must not look changed merely because its hex digits are uppercase.
@@ -112,12 +112,10 @@ void on_interrupt(int)
     int_count++;
     if (g_interrupt)
         g_interrupt->store(true, std::memory_order_relaxed);
-    if (int_count == 1)
-        write(2, int_msg, strlen(int_msg));
-    else if (int_count == 5)
+    if (int_count == 5)
     {
         write(2, term_msg, strlen(term_msg));
-        _exit(TSUBAKI_TERMINATED);
+        _Exit(TSUBAKI_TERMINATED);
     }
 }
 } // namespace
@@ -184,7 +182,7 @@ void work_manager::worker(bool verify)
 
 void work_manager::printer()
 {
-    if (quiet || !api.hashing())
+    if (quiet)
         return;
     std::size_t width;
     std::size_t tick = 0;
@@ -192,15 +190,26 @@ void work_manager::printer()
     auto render = [&]() -> std::string
     {
         std::string line =
-            "[" + std::to_string(success.load(std::memory_order_relaxed)) +
+            "[" +
+            std::to_string(success.load(std::memory_order_relaxed) +
+                           failed.load(std::memory_order_relaxed) +
+                           unprocessed.load(std::memory_order_relaxed)) +
             " files]";
         if (width > line.size() + 2)
         {
             const std::size_t inner = width - line.size() - 2;
             const std::size_t head = line.size() + 1;
             line.push_back('[');
-            line.append(inner, '.');
-            line[head + tick % inner] = '#';
+            if (!interrupted.load(std::memory_order_relaxed))
+            {
+                line.append(inner, '.');
+                line[head + tick % inner] = '#';
+            }
+            else
+            {
+                line.append(int_msg);
+                line.resize(width - 1, '.');
+            }
             line.push_back(']');
         }
         if (line.size() < last_size)
@@ -208,9 +217,9 @@ void work_manager::printer()
         last_size = line.size();
         return line;
     };
-    while (!interrupted.load(std::memory_order_relaxed))
+    while (!stop_printer.load(std::memory_order_relaxed))
     {
-        width = terminal_width(stderr);
+        width = terminal_width(stderr) * 0.8;
         {
             std::osyncstream out(std::cerr);
             out << '\r' << render();
@@ -229,7 +238,7 @@ void work_manager::wait()
     for (auto &it : workers)
         if (it.joinable())
             it.join();
-    interrupted.store(true, std::memory_order_relaxed);
+    stop_printer.store(true, std::memory_order_relaxed);
     progress.join();
 }
 
@@ -260,9 +269,8 @@ work_result work_manager::run(unsigned thread_count)
         g_interrupt = nullptr;
         std::signal(SIGINT, previous);
     }
-    return work_result(api.name(), verify, tasks.take_errors(),
-                       changed, unsure, success.load(), failed.load(),
-                       unprocessed.load(),
+    return work_result(api.name(), verify, tasks.take_errors(), changed, unsure,
+                       success.load(), failed.load(), unprocessed.load(),
                        std::chrono::duration<double>(duration).count(),
                        static_cast<bool>(int_count.load()));
 }
