@@ -25,7 +25,7 @@
   argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> 比较 ──> 输出
 ```
 
-`algo-info`（也写作 `algo`）没有流水线。它只解析一个名字然后打印：
+`algo`（`algo-info` 仍作为旧拼法接受，不作承诺）没有流水线。它只解析一个名字然后打印：
 
 ```
   argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
@@ -235,7 +235,7 @@ OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要映�
   所以即使这个 `.so` 先被加载，也抢不走 `sha256`。活下来的模块继续为
   `include/dynamic_provider_header.hpp` 里声明的其余必需 `tsubaki_*` 符号
   `dlsym()`，外加可选的 `tsubaki_algo_info()`：查不到时指针就指向
-  `no_algo_info()`，`algo-info` 打印的正是它。
+  `no_algo_info()`，`algo` 打印的正是它。
   `provider_msg` 记下走到哪一步；只要不是 `success` 就打印出来并丢弃。句柄永不
   关闭，模块与进程同寿。
 - `provider_mapper` 以模块自报的名字为键，用 `emplace()` 填充，所以重名时保留先

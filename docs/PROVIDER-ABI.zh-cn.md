@@ -39,11 +39,11 @@ tsubaki 这一侧——加载器怎么遍历目录、解析符号、注册 provi
 
 | 符号 | 必需 | 签名 | 用途 |
 | --- | --- | --- | --- |
-| `tsubaki_provider_name` | 是 | `const char *() noexcept` | 命令行、`-a` 与 `algo-info` 里用的名字 |
+| `tsubaki_provider_name` | 是 | `const char *() noexcept` | 命令行、`-a` 与 `algo` 里用的名字 |
 | `tsubaki_is_keyed` | 是 | `bool() noexcept` | 是否要求密钥 |
 | `tsubaki_check_key` | 是 | `bool(const char *key, std::size_t length) noexcept` | 接受或拒绝一个密钥 |
 | `tsubaki_checksum_file` | 是 | `tsubaki_checksum_result(const char *path, const char *key, std::size_t length) noexcept` | 计算摘要 |
-| `tsubaki_algo_info` | 否 | `const char *() noexcept` | 给 `algo-info` 的三行说明 |
+| `tsubaki_algo_info` | 否 | `const char *() noexcept` | 给 `algo` 的三行说明 |
 | `tsubaki_need_more_args` | 否 | `bool() noexcept` | 开关；不导出与导出后返回 `false` 完全等价 |
 | `tsubaki_arg_definition` | 开关返回 true 时 | `const char *() noexcept` | 参数脚本 |
 | `tsubaki_take_args` | 开关返回 true 时 | `const char *(tsubaki_pass_content *content, std::size_t cnt) noexcept` | 接收解析好的取值 |
@@ -133,7 +133,7 @@ tsubaki 会拿它比对自己的内建清单，命中就在那里拒掉这个模
 
 ## `algo-info` 文本
 
-`tsubaki_algo_info` 在 ABI 层面是可选的；没有这个符号时，`tsubaki algo-info` 打印
+`tsubaki_algo_info` 在 ABI 层面是可选的；没有这个符号时，`tsubaki algo` 打印
 “No information provided.”。但按约定，每个对外发布的 provider 都应当导出它，并用它
 说明模块的出处——项目主页、代码仓库或某个网址——这样用户拿到一个 `.so` 时，在运行
 之前就能知道它是什么。
@@ -180,7 +180,7 @@ tsubaki 自己打印，位于模块文本之上，永远写着模块的加载路
   这些报错里条目写成 `<entry_name>@dynamic`——这是 tsubaki 的内部标记，用来把
   provider 选项和它自己的选项区分开，也让用户看出这条要求来自 provider 而不是程序
   本身；脚本里写了 `explanations` 时，打印出来的标签换成它。
-- 脚本写错只会在 `tsubaki sum` 注册条目时被发现，状态码 70。`tsubaki algo-info`
+- 脚本写错只会在 `tsubaki sum` 注册条目时被发现，状态码 70。`tsubaki algo`
   只原样打印脚本，不解析它。
 - provider 的条目先于 tsubaki 自己的贪婪参数（其中包含文件列表）解析，所以 provider
   的开关会盖过路径，而一个没有上限的位置参数会把文件列表吃光。哪些名字不能碰、哪些
@@ -232,8 +232,8 @@ provider 条目又先于文件列表认领 token。
 
 - 短名禁区：`h V a K T k t o v e l s f u c`。
 - 长名禁区：`help`、`version`、`algorithm`、`key-file`、`text`、`key`、
-  `thread`、`threads`、`output`、`verbose`、`exclude`、`excludes`、`list`、
-  `lists`、`follow-symlinks`、`force-rescan`、`verify`、`use-algo`、`canonical`。
+  `thread`、`output`、`verbose`、`exclude`、`list`、`follow-symlinks`、
+  `force-rescan`、`verify`、`use-algo`、`canonical`。
 - 撞名有两种后果，都是静默的：早于 provider 评估的名字（`-o`、`-k`、`-t` 等）由
   tsubaki 先消费，provider 什么也拿不到——脚本里设了 `min_value_count` 时，通常表现
   为 `Not enough values for the option: <名字>@dynamic`；晚于它评估的名字
@@ -373,5 +373,5 @@ extern "C"
 ```
 
 用 `-std=c++23 -fPIC -shared` 编译，把产物放进 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`
-列出的目录，它就会出现在 `tsubaki -a`、`tsubaki algo-info fnv32` 里，也能用
+列出的目录，它就会出现在 `tsubaki -a`、`tsubaki algo fnv32` 里，也能用
 `tsubaki sum fnv32 <路径>` 直接算。

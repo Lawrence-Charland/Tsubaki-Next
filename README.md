@@ -16,10 +16,12 @@ provider, see [More algorithms](#more-algorithms).
 
 Four subcommands: `sum` generates a manifest, `verify` re-hashes the paths a
 manifest names and reports what changed and what it could not decide, `cmp`
-compares two manifests, and `algo-info` (short alias `algo`) describes a single
-algorithm. `verify` answers "did anything change since the record?", `cmp`
-answers "what exactly changed between two runs?", and they chain: refresh with
-`verify`, then compare the result against the old manifest with `cmp`.
+compares two manifests, and `algo` describes a single algorithm. Those four
+names are a contract: they keep their spelling, and nothing takes their place.
+(`algo-info` still works today, but it is a longer old spelling with no
+promise behind it.) `verify` answers "did anything change since the record?",
+`cmp` answers "what exactly changed between two runs?", and they chain: refresh
+with `verify`, then compare the result against the old manifest with `cmp`.
 
 It is the spiritual successor of the original
 [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki), but not a feature
@@ -52,7 +54,7 @@ built-in algorithms do not offer at all.
 (This list may lag behind; that repository is the authority on what is
 supported.)
 
-`tsubaki algo-info <name>` (or `tsubaki algo <name>`) shows the digest width,
+`tsubaki algo <name>` shows the digest width,
 the key format and the switches a module accepts; to write one yourself, see
 the [provider contract](docs/PROVIDER-ABI.md).
 
@@ -139,7 +141,7 @@ has been added yet. Correctness rests on the contract tests in
 `tests/check.py` and on two invariants: manifest lines match coreutils, and the
 report keys are frozen. The built-in algorithms all go through OpenSSL; dynamic
 providers are third-party code, so read a module's `Source:` line and its script
-with `tsubaki algo-info` before trusting it.
+with `tsubaki algo` before trusting it.
 
 ## License
 

@@ -12,7 +12,8 @@
 `tsubaki -a`；不够的由 provider 补，见[更多的算法支持](#更多的算法支持)。
 
 四个子命令：`sum` 生成清单，`verify` 按清单重算并报出变了和无法判断的条目，
-`cmp` 比较两份清单，`algo-info`（短别名 `algo`）说明单个算法。`verify` 回答
+`cmp` 比较两份清单，`algo` 说明单个算法。这四个名字是契约：拼法不变，也不会被
+别的东西顶替（`algo-info` 今天仍能用，但它是带不了承诺的旧长拼法）。`verify` 回答
 “和记录相比变了没有”，`cmp` 回答“两次之间具体变了什么”，两者可以接力：先用
 `verify` 刷新，再用 `cmp` 和旧清单细比。
 
@@ -41,7 +42,7 @@
 
 （这里的列表可能不是最新的，具体支持范围以那个仓库的内容为准）
 
-`tsubaki algo-info <名字>`（或 `tsubaki algo <名字>`）能看到宽度、密钥格式和它接受的
+`tsubaki algo <名字>` 能看到宽度、密钥格式和它接受的
 开关；想自己写一个，看 [provider 契约](docs/PROVIDER-ABI.zh-cn.md)。
 
 ## 快速开始
@@ -112,7 +113,7 @@ tsubaki cmp old.txt new.txt          # 比较两份清单，写出 old_to_new.cm
 
 个人项目，单作者维护；暂时没有添加安全审计，也没有 CI 或模糊测试。
 正确性目前靠 `tests/check.py` 的契约测试和两条不变式：清单行与 coreutils 对齐、报告字段已冻结。
-内建算法全部走 OpenSSL；动态 provider 是第三方代码，用之前先用 `tsubaki algo-info` 看它的来源和脚本。
+内建算法全部走 OpenSSL；动态 provider 是第三方代码，用之前先用 `tsubaki algo` 看它的来源和脚本。
 
 ## 许可证
 

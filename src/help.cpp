@@ -30,15 +30,14 @@ Usage:
   {program} sum [options] <algorithm> <file|dir>...
   {program} verify [options] <manifest|->
   {program} cmp [options] <left-manifest> <right-manifest>
-  {program} algo-info <algorithm>   (alias: algo)
+  {program} algo <algorithm>
   {program} --help | --version | --algorithm
 
 Subcommands:
   sum       calculate checksums and write a manifest
   verify    re-check a manifest written by sum
   cmp       compare two manifests
-  algo-info print what an algorithm is and how to key it
-  algo      short alias for algo-info
+  algo      print what an algorithm is and how to key it
 
 Built-in Algorithms:
   none  md5  sha1  sha224  sha256  sha384  sha512  sha3_256  sha3_512
@@ -81,7 +80,7 @@ Examples:
   {program} sum hmac_sha256 . -K key
   {program} verify sums.txt -o -
   {program} cmp old.txt new.txt -o -
-  {program} algo-info sha256
+  {program} algo sha256
 
 Exit status:
   0 ok  1 error  64 usage  66 input  70 startup  73 output
@@ -318,6 +317,7 @@ std::unordered_set<std::string> get_completion()
 #define SUBCOMMAND_COMP(name, str) result.insert(str);
     SUBCOMMAND_LIST(SUBCOMMAND_COMP)
 #undef SUBCOMMAND_COMP
+    result.erase(result.find("algo-info"));
     return result;
 }
 

@@ -44,11 +44,11 @@ module's own source.
 
 | Symbol | Required | Signature | Purpose |
 | --- | --- | --- | --- |
-| `tsubaki_provider_name` | yes | `const char *() noexcept` | the name used on the command line, in `-a` and in `algo-info` |
+| `tsubaki_provider_name` | yes | `const char *() noexcept` | the name used on the command line, in `-a` and in `algo` |
 | `tsubaki_is_keyed` | yes | `bool() noexcept` | whether a key is required |
 | `tsubaki_check_key` | yes | `bool(const char *key, std::size_t length) noexcept` | accept or reject a key |
 | `tsubaki_checksum_file` | yes | `tsubaki_checksum_result(const char *path, const char *key, std::size_t length) noexcept` | compute the digest |
-| `tsubaki_algo_info` | no | `const char *() noexcept` | three lines for `algo-info` |
+| `tsubaki_algo_info` | no | `const char *() noexcept` | three lines for `algo` |
 | `tsubaki_need_more_args` | no | `bool() noexcept` | the switch; absent is equivalent to returning `false` |
 | `tsubaki_arg_definition` | if the switch returns true | `const char *() noexcept` | the argument script |
 | `tsubaki_take_args` | if the switch returns true | `const char *(tsubaki_pass_content *content, std::size_t cnt) noexcept` | receive the parsed values |
@@ -153,7 +153,7 @@ new version of the old one — keeping the name means keeping the old output.
 ## The `algo-info` text
 
 `tsubaki_algo_info` is optional at the ABI level; without the symbol,
-`tsubaki algo-info` prints "No information provided." By policy, though, every
+`tsubaki algo` prints "No information provided." By policy, though, every
 published provider exports it and uses it to say where the module comes from — a
 project page, a repository or a URL — so that a user handed a `.so` can tell what
 it is before running it.
@@ -215,7 +215,7 @@ The rules that follow from how tsubaki parses the command line:
   requirement came from the provider rather than from the program; an
   `explanations` line in the script replaces that label in the printed message.
 - A malformed script is caught when `tsubaki sum` registers it, with status 70.
-  `tsubaki algo-info` prints the script verbatim without parsing it.
+  `tsubaki algo` prints the script verbatim without parsing it.
 - Provider entries are parsed before tsubaki's own greedy arguments, which
   includes the file list, so a provider switch wins over a path — and an
   unbounded positional takes the file names. The names to leave alone and the
@@ -276,9 +276,8 @@ tsubaki parses, and a provider entry claims a token before the file list does.
 
 - Reserved short letters: `h V a K T k t o v e l s f u c`.
 - Reserved long names: `help`, `version`, `algorithm`, `key-file`, `text`,
-  `key`, `thread`, `threads`, `output`, `verbose`, `exclude`, `excludes`,
-  `list`, `lists`, `follow-symlinks`, `force-rescan`, `verify`, `use-algo`,
-  `canonical`.
+  `key`, `thread`, `output`, `verbose`, `exclude`, `list`, `follow-symlinks`,
+  `force-rescan`, `verify`, `use-algo`, `canonical`.
 - A collision fails one of two ways, both silently: a name tsubaki evaluates
   earlier (`-o`, `-k`, `-t`, …) consumes the token first, so the provider sees
   nothing — usually surfacing as `Not enough values for the option:
@@ -441,4 +440,4 @@ extern "C"
 
 Build it with `-std=c++23 -fPIC -shared`, put the result in a directory named in
 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`, and it appears in `tsubaki -a`, in
-`tsubaki algo-info fnv32`, and as `tsubaki sum fnv32 <path>`.
+`tsubaki algo fnv32`, and as `tsubaki sum fnv32 <path>`.

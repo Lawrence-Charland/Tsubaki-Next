@@ -29,7 +29,7 @@ Tsubaki-Next 的运行手册：四个子命令、全部选项、它读写的校�
 tsubaki sum [选项] <算法> <文件|目录>...
 tsubaki verify [选项] <校验和文件|->   （`-` 表示 stdin，需要 -u）
 tsubaki cmp [选项] <左清单> <右清单>
-tsubaki algo-info <算法>   （别名：algo）
+tsubaki algo <算法>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
@@ -37,15 +37,19 @@ tsubaki --completions
 ```
 
 子命令是必需的：`sum` 计算校验和，`verify` 复核 `sum` 写出的结果文件，`cmp` 比较
-两份这样的结果文件，`algo-info`（短别名 `algo`）说明单个算法。只有 `--help`、
-`--version`、`--algorithm`（`-a`）和 `--completions`（`-C`）不需要子命令；
-子命令位置上换成别的词会按未知子命令报错。这四个都在校验之前检查，所以也优先于其它
-参数错误：`tsubaki -a junk` 照样打印算法表并退出 0。同时给出多个时，`--help` 优先于
-`--version`，两者又都优先于 `--algorithm`，而它又优先于 `--completions`。
+两份这样的结果文件，`algo` 说明单个算法。这四个名字是契约：拼法不再变，也不会被
+别的东西顶替。`algo-info` 仍然当作 `algo` 的旧长拼法接受，但不带任何承诺，随时可能
+消失；要用的名字是 `algo`。
+
+只有 `--help`、`--version`、`--algorithm`（`-a`）和 `--completions`（`-C`）不需要
+子命令；子命令位置上换成别的词会按未知子命令报错。这四个通用开关在校验之前检查，
+所以也优先于其它参数错误：`tsubaki -a junk` 照样打印算法表并退出 0。同时给出多个时，
+`--help` 优先于 `--version`，两者又都优先于 `--algorithm`，而它又优先于
+`--completions`。
 
 下文直到 [校验](#校验) 都在讲 `sum`；`verify` 复用同一份校验和文件格式以及
 `-v`、`-t`、`-k`、`-K`、`-o`、`-u` 这几个选项。`cmp` 复用同一份格式，但它要两份文件，
-而且只接受 `-o` 和 `-c`。`algo-info`（或 `algo`）不要选项，也不要文件，只收一个
+而且只接受 `-o` 和 `-c`。`algo` 不要选项，也不要文件，只收一个
 算法名。
 
 `算法` 是位置参数，它后面的输入也是。输入可以是目录、文件，或者 `-`（标准输入），
@@ -98,7 +102,7 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 有 provider 模块被加载时，后面还会跟一张 `ALGORITHM`、`KEYED`、`EXTRA ARGS`、
 `SOURCE` 表，见下一节。
 
-`tsubaki algo-info <算法>`（或 `tsubaki algo <算法>`）把同一批事实按单个名字打出来：
+`tsubaki algo <算法>` 把同一批事实按单个名字打出来：
 一行 `Source:`（内建是 `built-in`，动态算法是提供它的模块路径），然后是摘要宽度、
 密钥格式，以及一小段说明。provider 的名字也能查；模块没导出可选的
 `tsubaki_algo_info()` 时显示“No information provided.”。自己声明了参数的 provider
@@ -121,10 +125,10 @@ provider 也可以直接照抄。
 
 ```sh
 tsubaki -a                  # 加载了哪些，各自来自哪个路径
-tsubaki algo-info blake3    # 宽度、密钥、说明，以及它将占用的开关
+tsubaki algo blake3         # 宽度、密钥、说明，以及它将占用的开关
 ```
 
-`algo-info` 会打印模块路径；provider 声明了参数时，还会把接受的整份脚本原样打出来
+`algo` 会打印模块路径；provider 声明了参数时，还会把接受的整份脚本原样打出来
 ——足以看出路径是不是你想要的那份、它会占用哪些开关。遵守契约的 provider 还会在同一
 段文本里写明自己的项目或网址；上面那行 `Source:` 是 tsubaki 自己加的，只会写路径。
 它是**加载了模块**才回答的，所以它告诉你模块声称什么，而不是它是否可信。
@@ -135,7 +139,7 @@ tsubaki algo-info blake3    # 宽度、密钥、说明，以及它将占用的�
 - **密钥。** 带密钥的 provider 索取密钥的方式与内建密钥算法一致（`needs a key`，
   退出码 64）。
 - **额外的命令行参数。** 需要文件之外参数的算法可以自己声明开关，`tsubaki
-  algo-info <名字>` 会把说明这些开关的脚本原样打印出来。开关写在算法名之后，
+  algo <名字>` 会把说明这些开关的脚本原样打印出来。开关写在算法名之后，
   `verify` 会把不认识的参数转发下去，所以 `verify -u shake128 file.sum -L 128`
   同样可用；provider 的开关先于 `tsubaki` 自己的选项匹配，因此不能复用后者的
   字母。清单只记算法名，不记这些参数：`-L 128` 不会写进清单，`verify` 也不会从
@@ -160,7 +164,7 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 
 `SOURCE` 是模块路径，所以同一个算法的两份旧构建分处两个目录时，一眼就能看出重复。
 `EXTRA ARGS` 为 `YES` 表示模块导出了 `tsubaki_need_more_args()`，有自己的命令行
-参数；具体接受哪些，用 `tsubaki algo-info <名字>` 打印的那份脚本看。行的顺序先按
+参数；具体接受哪些，用 `tsubaki algo <名字>` 打印的那份脚本看。行的顺序先按
 这一列，再按 `KEYED`，最后按名字，所以不需要额外参数的模块排在前面。
 
 ### 选项
@@ -183,8 +187,6 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 | `-l<file>`, `--list=<file>`     | 从 `<file>` 读取 `"<校验和> <路径>"` 清单，可重复                                                                                         |
 | `-s`, `--follow-symlinks`       | 跟随指向目录的符号链接                                                                                                                    |
 | `-f`, `--force-rescan`          | 重算输入列表中已有的校验和                                                                                                                |
-
-别名：`--threads`、`--excludes`、`--lists`。
 
 `verify` 接受 `-v`、`-t`、`-k`、`-K`、`-T`（`--text`）和 `-o`，含义与 `sum` 相同，
 另外用 `-u` 指定算法。它没有算法和文件位置参数，也不接受 `-e`、`-l`、`-s`、`-f`：
@@ -417,10 +419,9 @@ compdef _tsubaki tsubaki
 
 `--` 不能省，因为表里的词以 `-` 开头。
 
-表里没有的东西：四个子命令（它由解析器表推导而来，而子命令不在那些表里）、
-`--verify`（内部开关），以及任何位置上下文——它就是一张平表，在每个位置都全量给出。
-所以 `su<TAB>` 会退回补文件名；`--thread` 和 `--threads` 这种共享前缀的词，要按第二次
-`<TAB>` 才会列出来。
+表里没有的东西：`--verify`（内部开关），以及任何位置上下文——它就是一张平表，
+在每个位置都全量给出。子命令名也在表里，所以在选项之后同样会补出来；`--text` 和
+`--thread` 这种共享前缀的词，要按第二次 `<TAB>` 才会列出来。
 
 ## 输入
 

@@ -1224,6 +1224,37 @@ def test_completion(h: Harness, root: Path) -> None:
         h.bad("62", name, f"rc={r_help.rc} "
                           f"listed={'-C, --completions' in r_help.out}")
 
+    name = "-t/--thread, -e/--exclude and -l/--list take no plural alias"
+    fx = root / "t63"
+    write(fx / "a.txt", b"x\n")
+    empty = root / "empty.list"
+    empty.write_text("", encoding="utf-8")
+    r_singular = h.sum("sha256", fx, "--thread=1", "--list", empty)
+    r_plural = [h.sum("sha256", fx, o) for o in
+                ("--threads=1", "--excludes=none", "--lists=" + str(empty))]
+    gone = all(w not in words for w in
+               ("--threads", "--excludes", "--lists"))
+    kept = all(w in words for w in ("--thread", "--exclude", "--list"))
+    if (gone and kept and r_singular.rc == 0
+            and all(r.rc != 0 for r in r_plural)):
+        h.ok("63", name)
+    else:
+        h.bad("63", name, f"gone={gone} kept={kept} "
+                          f"singular={r_singular.rc} "
+                          f"plural={[r.rc for r in r_plural]}")
+
+    name = "the four subcommands are the contract: sum, verify, cmp and algo work and are advertised"
+    stable = ("sum", "verify", "cmp", "algo")
+    r_algo = h.run("algo", "sha256")
+    if (all(n in words for n in stable)
+            and all(n in r_help.out for n in stable)
+            and r_algo.rc == 0 and "Source:" in r_algo.out):
+        h.ok("64", name)
+    else:
+        h.bad("64", name,
+              f"missing={[n for n in stable if n not in words]} "
+              f"rc={r_algo.rc} out={r_algo.out[:80]!r}")
+
 
 # ---------------------------------------------------------------- runner
 

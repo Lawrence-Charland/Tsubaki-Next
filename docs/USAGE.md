@@ -30,7 +30,7 @@ of the project are in the [README](../README.md).
 tsubaki sum [options] <algorithm> <file|dir>...
 tsubaki verify [options] <checksum-file|->   (- for stdin, needs -u)
 tsubaki cmp [options] <left-list> <right-list>
-tsubaki algo-info <algorithm>   (alias: algo)
+tsubaki algo <algorithm>
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
@@ -38,20 +38,24 @@ tsubaki --completions
 ```
 
 A subcommand is required: `sum` calculates checksums, `verify` re-checks a
-file written by `sum`, `cmp` compares two such files, and `algo-info` (or its
-short alias `algo`) explains one algorithm. `--help`, `--version`,
-`--algorithm` (or `-a`) and `--completions` (or `-C`) are the only invocations
-that do not need one; any other word in the subcommand position is rejected as
-an unknown subcommand.
-Those four are checked before validation, so they also win over every argument
-error: running `tsubaki -a junk` prints the algorithm table and exits 0. When
-several of them are given, `--help` wins over `--version`, both win over
-`--algorithm`, and that one wins over `--completions`.
+file written by `sum`, `cmp` compares two such files, and `algo` explains one
+algorithm. Those four names are the contract: they keep their spelling, and
+nothing is added in their place. `algo-info` is still accepted as an older,
+longer spelling of `algo`, but it comes with no promise and may disappear; the
+name to use is `algo`.
+
+`--help`, `--version`, `--algorithm` (or `-a`) and `--completions` (or `-C`)
+are the only invocations that do not need a subcommand; any other word in the
+subcommand position is rejected as an unknown subcommand. Those four flags are
+checked before validation, so they also win over every argument error: running
+`tsubaki -a junk` prints the algorithm table and exits 0. When several of them
+are given, `--help` wins over `--version`, both win over `--algorithm`, and
+that one wins over `--completions`.
 
 Everything up to [Verifying](#verifying) describes `sum`; `verify` reuses the
 checksum-file format and the `-v`, `-t`, `-k`, `-K`, `-o` and `-u` options. `cmp`
 reuses the same format, but takes two files and only the `-o` and `-c`
-options. `algo-info` (or `algo`) takes no options and no file, only an
+options. `algo` takes no options and no file, only an
 algorithm name.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
@@ -109,7 +113,7 @@ lowercase hexadecimal, and its length is set by the algorithm.
 (`ALGORITHM`, `KEYED`). A second `ALGORITHM`, `KEYED`, `EXTRA ARGS`, `SOURCE`
 table follows when provider modules were loaded; see below.
 
-`tsubaki algo-info <algorithm>` (or `tsubaki algo <algorithm>`) prints the same
+`tsubaki algo <algorithm>` prints the same
 facts for one name: a `Source:` line (`built-in`, or the path of the module
 that supplied it), the digest width, the key format, and a short note. It
 accepts provider names as well, and falls back to "No information provided."
@@ -137,10 +141,10 @@ A module you did not build yourself is worth a look before it goes into
 
 ```sh
 tsubaki -a                  # everything loaded, and the path each came from
-tsubaki algo-info blake3    # width, key, note, and the switches it claims
+tsubaki algo blake3         # width, key, note, and the switches it claims
 ```
 
-`algo-info` prints the module's path and, when the provider declares arguments,
+`algo` prints the module's path and, when the provider declares arguments,
 the whole script it accepts — enough to see whether the path is the copy you
 meant and which switches it will claim. A provider that follows the contract
 also names its own project or URL in that text; the `Source:` line above it is
@@ -154,7 +158,7 @@ answer, so it tells you what the module claims, not whether it can be trusted.
 - **Keys.** A keyed provider is asked for a key like any built-in keyed
   algorithm (`needs a key`, exit status 64).
 - **Extra command-line arguments.** An algorithm that needs more than a file
-  name can declare its own switches, and `tsubaki algo-info <name>` prints the
+  name can declare its own switches, and `tsubaki algo <name>` prints the
   script that documents them. The switches go after the algorithm name, and
   `verify` forwards whatever it does not recognise, so
   `verify -u shake128 file.sum -L 128` works too; a provider's switches are
@@ -185,7 +189,7 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 `SOURCE` is the module path, which makes a stale duplicate easy to spot when two
 directories both hold a build of the same algorithm. `EXTRA ARGS` is `YES` for a
 module that exports `tsubaki_need_more_args()`, so it takes command-line
-arguments of its own; `tsubaki algo-info <name>` prints the script that names
+arguments of its own; `tsubaki algo <name>` prints the script that names
 them. Rows are ordered by that column first, then by `KEYED`, then by name, so
 the modules that take no arguments come first.
 
@@ -209,8 +213,6 @@ the modules that take no arguments come first.
 | `-l<file>`, `--list=<file>`    | read a `"<checksum> <path>"` listing from `<file>`; repeatable        |
 | `-s`, `--follow-symlinks`      | follow symbolic links to directories                                 |
 | `-f`, `--force-rescan`         | recompute checksums already listed in the input                      |
-
-`--threads`, `--excludes` and `--lists` are accepted as aliases.
 
 `verify` accepts `-v`, `-t`, `-k`, `-K`, `-T` (`--text`) and `-o` with the same
 meanings, plus `-u` to name the algorithm. It takes no algorithm or file
@@ -488,12 +490,11 @@ compdef _tsubaki tsubaki
 
 The `--` is required, because the words begin with `-`.
 
-What the list leaves out: the four subcommands, since it is built from the
-parser tables and the subcommands are not in them; `--verify`, which is
-internal; and any positional context, because this is one flat list offered at
-every position. So `su<TAB>` falls back to filenames, and prefixes shared by
-several words, such as `--thread` and `--threads`, insert nothing until a
-second `<TAB>` lists them.
+What the list leaves out: `--verify`, which is internal, and any positional
+context, because this is one flat list offered at every position. Subcommand
+names are in it too, so they also complete once an option has started the
+line. Prefixes shared by several words, such as `--text` and `--thread`,
+insert nothing until a second `<TAB>` lists them.
 
 ## Inputs
 

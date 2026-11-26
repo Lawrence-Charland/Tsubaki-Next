@@ -28,8 +28,8 @@ once both are loaded:
   argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> compare ──> out
 ```
 
-`algo-info` (also spelled `algo`) has no pipeline at all. It resolves one name
-and prints it:
+`algo` (with `algo-info` still accepted as an older spelling, no promise)
+has no pipeline at all. It resolves one name and prints it:
 
 ```
   argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
@@ -278,7 +278,7 @@ the loading:
   `dlsym()` for the remaining required `tsubaki_*` symbols declared in
   `include/dynamic_provider_header.hpp`, plus the optional
   `tsubaki_algo_info()`: if that lookup fails the pointer becomes
-  `no_algo_info()`, which is what `algo-info` prints instead. `provider_msg` records how far that
+  `no_algo_info()`, which is what `algo` prints instead. `provider_msg` records how far that
   got; anything but `success` is printed and dropped. The handle is never
   closed, so a module lives as long as the process.
 - `provider_mapper` is keyed by the name the module reports and filled with

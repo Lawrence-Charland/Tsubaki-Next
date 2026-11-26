@@ -196,8 +196,8 @@ static inline ap_instance def_args()
                 {
                     {ap_defkey::group, cmdline_group::sum},
                     {ap_defkey::group, cmdline_group::verify},
-                    {ap_defkey::explanations,"-t or --thread(s)"},
-                    {ap_defkey::long_name,"thread,threads"},
+                    {ap_defkey::explanations,"-t or --thread"},
+                    {ap_defkey::long_name,"thread"},
                     {ap_defkey::short_name,"t"},
                     {ap_defkey::max_value_count,"1"},
                 }
@@ -232,8 +232,8 @@ static inline ap_instance def_args()
                 ap_type::option,
                 {
                     {ap_defkey::group, cmdline_group::sum_greedy},
-                    {ap_defkey::explanations,"-e or --exclude(s)"},
-                    {ap_defkey::long_name,"exclude,excludes"},
+                    {ap_defkey::explanations,"-e or --exclude"},
+                    {ap_defkey::long_name,"exclude"},
                     {ap_defkey::short_name,"e"},
                 }
             ),
@@ -242,8 +242,8 @@ static inline ap_instance def_args()
                 ap_type::option,
                 {
                     {ap_defkey::group, cmdline_group::sum_greedy},
-                    {ap_defkey::explanations,"-l or --list(s)"},
-                    {ap_defkey::long_name,"list,lists"},
+                    {ap_defkey::explanations,"-l or --list"},
+                    {ap_defkey::long_name,"list"},
                     {ap_defkey::short_name,"l"},
                 }
             ),
