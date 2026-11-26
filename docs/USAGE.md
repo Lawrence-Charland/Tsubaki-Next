@@ -448,9 +448,23 @@ complete -o default -W "$(tsubaki -C)" tsubaki
 The quotes are part of the command. Without them the shell splits the output
 into one argument per word, `complete -W` keeps only the first of them, and
 nothing but a single algorithm name ends up completing. `-o default` keeps
-filename completion alive, which is what `sum` and `cmp` mostly take. The
-substitution runs once, when the shell reads that line, so a provider installed
-afterwards shows up in the next shell.
+filename completion alive, which is what `sum` and `cmp` mostly take.
+
+Wrapped in a function, the same line is also cheap to refresh:
+
+```sh
+tsubaki_completion() {
+    complete -o default -W "$(tsubaki -C)" tsubaki
+}
+tsubaki_completion
+```
+
+The call on the last line runs the body once per shell, so the list is a
+snapshot: run `tsubaki_completion` again after installing a provider and that
+provider is in the list without a new shell. Export
+`TSUBAKI_DYNAMIC_PROVIDER_PATHS` (see [Dynamic
+algorithms](#dynamic-algorithms)) before the call, because the scan walks that
+path and nothing else.
 
 zsh has no `complete`; `compadd` and `_files` do the same job:
 

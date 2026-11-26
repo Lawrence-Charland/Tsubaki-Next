@@ -382,8 +382,21 @@ complete -o default -W "$(tsubaki -C)" tsubaki
 
 引号是命令的一部分。少了它，shell 会把输出按空格切成一个个参数，`complete -W` 只留
 其中一个，结果只有某一个算法名补得出来。`-o default` 让文件名补全继续生效，而 `sum`
-和 `cmp` 收的绝大多数参数正是路径。这条命令在 shell 读到时执行一次，所以之后再装的
-provider 要到下一个 shell 才出现。
+和 `cmp` 收的绝大多数参数正是路径。
+
+包成函数就随时能刷新：
+
+```sh
+tsubaki_completion() {
+    complete -o default -W "$(tsubaki -C)" tsubaki
+}
+tsubaki_completion
+```
+
+函数体在最后一行的调用处执行，每个 shell 一次，所以词表是一份快照：装好新 provider
+后再跑一遍 `tsubaki_completion`，不用开新 shell 就能把它补进去。
+`TSUBAKI_DYNAMIC_PROVIDER_PATHS`（见[动态算法](#动态算法)）要在调用之前导出，
+因为扫描走的就是这条路径，别处不看。
 
 zsh 没有 `complete`，用 `compadd` 加 `_files` 顶上同样的位置：
 
