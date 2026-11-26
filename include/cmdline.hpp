@@ -56,6 +56,7 @@ inline constexpr const char *sum = "sum";
 inline constexpr const char *verify = "verify";
 inline constexpr const char *cmp = "cmp";
 inline constexpr const char *algo_info = "algo-info";
+inline constexpr const char *algo = "algo";
 } // namespace subcommands
 
 using namespace argparser;

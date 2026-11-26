@@ -28,7 +28,8 @@ once both are loaded:
   argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> compare ──> out
 ```
 
-`algo-info` has no pipeline at all. It resolves one name and prints it:
+`algo-info` (also spelled `algo`) has no pipeline at all. It resolves one name
+and prints it:
 
 ```
   argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
@@ -68,7 +69,8 @@ plus `--help`, `--version`, `--algorithm` and `--completions` — from `def_args
 in `include/cmdline.hpp`. The four flags are handled before validation, so they
 need no subcommand and win over argument errors. After `fine()` validates
 `general`, `subcmd` selects one of `sum_main()`, `verify_main()`,
-`cmp_main()` or `algo_info_core()`; anything else exits 64. The dispatch sits in a try/catch that maps
+`cmp_main()` or `algo_info_core()` (`algo` and `algo-info` both land there);
+anything else exits 64. The dispatch sits in a try/catch that maps
 an escaped exception to 255.
 
 `sum_main(cmdline, internal)` evaluates the `sum` group (`sum_int` too when

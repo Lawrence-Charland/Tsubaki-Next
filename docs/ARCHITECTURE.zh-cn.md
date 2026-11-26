@@ -25,7 +25,7 @@
   argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> 比较 ──> 输出
 ```
 
-`algo-info` 没有流水线。它只解析一个名字然后打印：
+`algo-info`（也写作 `algo`）没有流水线。它只解析一个名字然后打印：
 
 ```
   argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
@@ -63,7 +63,7 @@
 `general` 组——`subcmd` 位置参数加上 `--help`、`--version`、`--algorithm`、
 `--completions`。四个标志在校验之前处理，所以不需要子命令，也优先于参数错误。`fine()` 校验完 `general` 后，
 `subcmd` 选择 `sum_main()`、`verify_main()`、`cmp_main()` 或
-`algo_info_core()`；其它值退出 64。分发包在
+`algo_info_core()`（`algo` 和 `algo-info` 都落到这里）；其它值退出 64。分发包在
 try/catch 里，逃出的异常映射成 255。
 
 `sum_main(cmdline, internal)` 评估 `sum` 组（`internal` 为真时再加上 `sum_int`，

@@ -71,7 +71,8 @@ int main(int argc, char **argv)
             return verify_main(cmdline);
         else if (subcommand == subcommands::cmp)
             return cmp_main(cmdline);
-        else if (subcommand == subcommands::algo_info)
+        else if (subcommand == subcommands::algo_info ||
+                 subcommand == subcommands::algo)
             return algo_info_core(cmdline);
         else
         {

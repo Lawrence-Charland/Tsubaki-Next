@@ -30,7 +30,7 @@ Usage:
   {program} sum [options] <algorithm> <file|dir>...
   {program} verify [options] <manifest|->
   {program} cmp [options] <left-manifest> <right-manifest>
-  {program} algo-info <algorithm>
+  {program} algo-info <algorithm>   (alias: algo)
   {program} --help | --version | --algorithm
 
 Subcommands:
@@ -38,6 +38,7 @@ Subcommands:
   verify    re-check a manifest written by sum
   cmp       compare two manifests
   algo-info print what an algorithm is and how to key it
+  algo      short alias for algo-info
 
 Built-in Algorithms:
   none  md5  sha1  sha224  sha256  sha384  sha512  sha3_256  sha3_512

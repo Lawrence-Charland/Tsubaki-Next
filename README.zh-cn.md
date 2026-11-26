@@ -12,9 +12,9 @@
 `tsubaki -a`；不够的由 provider 补，见[更多的算法支持](#更多的算法支持)。
 
 四个子命令：`sum` 生成清单，`verify` 按清单重算并报出变了和无法判断的条目，
-`cmp` 比较两份清单，`algo-info` 说明单个算法。`verify` 回答“和记录相比变了
-没有”，`cmp` 回答“两次之间具体变了什么”，两者可以接力：先用 `verify` 刷新，
-再用 `cmp` 和旧清单细比。
+`cmp` 比较两份清单，`algo-info`（短别名 `algo`）说明单个算法。`verify` 回答
+“和记录相比变了没有”，`cmp` 回答“两次之间具体变了什么”，两者可以接力：先用
+`verify` 刷新，再用 `cmp` 和旧清单细比。
 
 它是旧版 [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki) 的精神续作，但
 不是功能超集：缺什么见[与旧版 Tsubaki 的关系](#与旧版-tsubaki-的关系)。
@@ -41,8 +41,8 @@
 
 （这里的列表可能不是最新的，具体支持范围以那个仓库的内容为准）
 
-`tsubaki algo-info <名字>` 能看到宽度、密钥格式和它接受的开关；想自己写一个，
-看 [provider 契约](docs/PROVIDER-ABI.zh-cn.md)。
+`tsubaki algo-info <名字>`（或 `tsubaki algo <名字>`）能看到宽度、密钥格式和它接受的
+开关；想自己写一个，看 [provider 契约](docs/PROVIDER-ABI.zh-cn.md)。
 
 ## 快速开始
 

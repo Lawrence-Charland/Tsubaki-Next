@@ -29,7 +29,7 @@ Tsubaki-Next 的运行手册：四个子命令、全部选项、它读写的校�
 tsubaki sum [选项] <算法> <文件|目录>...
 tsubaki verify [选项] <校验和文件|->   （`-` 表示 stdin，需要 -u）
 tsubaki cmp [选项] <左清单> <右清单>
-tsubaki algo-info <算法>
+tsubaki algo-info <算法>   （别名：algo）
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
@@ -37,15 +37,16 @@ tsubaki --completions
 ```
 
 子命令是必需的：`sum` 计算校验和，`verify` 复核 `sum` 写出的结果文件，`cmp` 比较
-两份这样的结果文件，`algo-info` 说明单个算法。只有 `--help`、`--version`、
-`--algorithm`（`-a`）和 `--completions`（`-C`）不需要子命令；
+两份这样的结果文件，`algo-info`（短别名 `algo`）说明单个算法。只有 `--help`、
+`--version`、`--algorithm`（`-a`）和 `--completions`（`-C`）不需要子命令；
 子命令位置上换成别的词会按未知子命令报错。这四个都在校验之前检查，所以也优先于其它
 参数错误：`tsubaki -a junk` 照样打印算法表并退出 0。同时给出多个时，`--help` 优先于
 `--version`，两者又都优先于 `--algorithm`，而它又优先于 `--completions`。
 
 下文直到 [校验](#校验) 都在讲 `sum`；`verify` 复用同一份校验和文件格式以及
 `-v`、`-t`、`-k`、`-K`、`-o`、`-u` 这几个选项。`cmp` 复用同一份格式，但它要两份文件，
-而且只接受 `-o` 和 `-c`。`algo-info` 不要选项，也不要文件，只收一个算法名。
+而且只接受 `-o` 和 `-c`。`algo-info`（或 `algo`）不要选项，也不要文件，只收一个
+算法名。
 
 `算法` 是位置参数，它后面的输入也是。输入可以是目录、文件，或者 `-`（标准输入），
 可以混着写。
@@ -97,12 +98,12 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 有 provider 模块被加载时，后面还会跟一张 `ALGORITHM`、`KEYED`、`EXTRA ARGS`、
 `SOURCE` 表，见下一节。
 
-`tsubaki algo-info <算法>` 把同一批事实按单个名字打出来：一行 `Source:`（内建是
-`built-in`，动态算法是提供它的模块路径），然后是摘要宽度、密钥格式，以及一小段
-说明。provider 的名字也能查；模块没导出可选的 `tsubaki_algo_info()` 时显示
-“No information provided.”。自己声明了参数的 provider（见下文）还会把它的
-ArgParser 脚本原样打印在 “ArgParser script:” 之下，模块接受哪些开关，直接从模块
-本身就能看出来。
+`tsubaki algo-info <算法>`（或 `tsubaki algo <算法>`）把同一批事实按单个名字打出来：
+一行 `Source:`（内建是 `built-in`，动态算法是提供它的模块路径），然后是摘要宽度、
+密钥格式，以及一小段说明。provider 的名字也能查；模块没导出可选的
+`tsubaki_algo_info()` 时显示“No information provided.”。自己声明了参数的 provider
+（见下文）还会把它的 ArgParser 脚本原样打印在 “ArgParser script:” 之下，模块接受
+哪些开关，直接从模块本身就能看出来。
 
 ### 动态算法
 

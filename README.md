@@ -16,10 +16,10 @@ provider, see [More algorithms](#more-algorithms).
 
 Four subcommands: `sum` generates a manifest, `verify` re-hashes the paths a
 manifest names and reports what changed and what it could not decide, `cmp`
-compares two manifests, and `algo-info` describes a single algorithm. `verify`
-answers "did anything change since the record?", `cmp` answers "what exactly
-changed between two runs?", and they chain: refresh with `verify`, then compare
-the result against the old manifest with `cmp`.
+compares two manifests, and `algo-info` (short alias `algo`) describes a single
+algorithm. `verify` answers "did anything change since the record?", `cmp`
+answers "what exactly changed between two runs?", and they chain: refresh with
+`verify`, then compare the result against the old manifest with `cmp`.
 
 It is the spiritual successor of the original
 [Tsubaki](https://github.com/Lawrence-Charland/Tsubaki), but not a feature
@@ -52,9 +52,9 @@ built-in algorithms do not offer at all.
 (This list may lag behind; that repository is the authority on what is
 supported.)
 
-`tsubaki algo-info <name>` shows the digest width, the key format and the
-switches a module accepts; to write one yourself, see the
-[provider contract](docs/PROVIDER-ABI.md).
+`tsubaki algo-info <name>` (or `tsubaki algo <name>`) shows the digest width,
+the key format and the switches a module accepts; to write one yourself, see
+the [provider contract](docs/PROVIDER-ABI.md).
 
 ## Quick start
 

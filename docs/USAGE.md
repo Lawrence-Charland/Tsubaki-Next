@@ -30,7 +30,7 @@ of the project are in the [README](../README.md).
 tsubaki sum [options] <algorithm> <file|dir>...
 tsubaki verify [options] <checksum-file|->   (- for stdin, needs -u)
 tsubaki cmp [options] <left-list> <right-list>
-tsubaki algo-info <algorithm>
+tsubaki algo-info <algorithm>   (alias: algo)
 tsubaki --help
 tsubaki --version
 tsubaki --algorithm
@@ -38,10 +38,11 @@ tsubaki --completions
 ```
 
 A subcommand is required: `sum` calculates checksums, `verify` re-checks a
-file written by `sum`, `cmp` compares two such files, and `algo-info` explains
-one algorithm. `--help`, `--version`, `--algorithm` (or `-a`) and
-`--completions` (or `-C`) are the only invocations that do not need one; any
-other word in the subcommand position is rejected as an unknown subcommand.
+file written by `sum`, `cmp` compares two such files, and `algo-info` (or its
+short alias `algo`) explains one algorithm. `--help`, `--version`,
+`--algorithm` (or `-a`) and `--completions` (or `-C`) are the only invocations
+that do not need one; any other word in the subcommand position is rejected as
+an unknown subcommand.
 Those four are checked before validation, so they also win over every argument
 error: running `tsubaki -a junk` prints the algorithm table and exits 0. When
 several of them are given, `--help` wins over `--version`, both win over
@@ -50,7 +51,8 @@ several of them are given, `--help` wins over `--version`, both win over
 Everything up to [Verifying](#verifying) describes `sum`; `verify` reuses the
 checksum-file format and the `-v`, `-t`, `-k`, `-K`, `-o` and `-u` options. `cmp`
 reuses the same format, but takes two files and only the `-o` and `-c`
-options. `algo-info` takes no options and no file, only an algorithm name.
+options. `algo-info` (or `algo`) takes no options and no file, only an
+algorithm name.
 
 `algorithm` is a positional, and so is every input that follows it. An input is
 a directory, a file, or `-` for stdin, and the kinds can be mixed in one
@@ -107,13 +109,14 @@ lowercase hexadecimal, and its length is set by the algorithm.
 (`ALGORITHM`, `KEYED`). A second `ALGORITHM`, `KEYED`, `EXTRA ARGS`, `SOURCE`
 table follows when provider modules were loaded; see below.
 
-`tsubaki algo-info <algorithm>` prints the same facts for one name: a `Source:`
-line (`built-in`, or the path of the module that supplied it), the digest width,
-the key format, and a short note. It accepts provider names as well, and falls
-back to "No information provided." for a module that does not export the
-optional `tsubaki_algo_info()`. A provider that declares its own arguments
-(below) also gets its ArgParser script printed verbatim, under an `ArgParser
-script:` line, so the switches it accepts can be read off the module itself.
+`tsubaki algo-info <algorithm>` (or `tsubaki algo <algorithm>`) prints the same
+facts for one name: a `Source:` line (`built-in`, or the path of the module
+that supplied it), the digest width, the key format, and a short note. It
+accepts provider names as well, and falls back to "No information provided."
+for a module that does not export the optional `tsubaki_algo_info()`. A
+provider that declares its own arguments (below) also gets its ArgParser
+script printed verbatim, under an `ArgParser script:` line, so the switches it
+accepts can be read off the module itself.
 
 ### Dynamic algorithms
 
