@@ -77,7 +77,8 @@ add_executable(tsubaki
     src/verify_core.cpp
     src/cmp_core.cpp
     src/dpframework.cpp
-    src/algo_info_core.cpp)
+    src/algo_info_core.cpp
+    src/entrance.cpp)
 
     # ---- build provenance for `tsubaki -V` ----
 set(TSUBAKI_GIT_COMMIT "unknown")

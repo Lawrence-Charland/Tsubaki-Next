@@ -6,10 +6,17 @@
 
 #include "argparser.hpp"
 
+#include <string>
+#include <vector>
+
 namespace tsubaki
 {
+int tsubaki_entrance(const std::vector<std::string> &args);
+
 int sum_main(argparser::ap_instance &cmdline, bool internal = false);
+
 int verify_main(argparser::ap_instance &cmdline);
+
 int cmp_main(argparser::ap_instance &cmdline);
 } // namespace tsubaki
 

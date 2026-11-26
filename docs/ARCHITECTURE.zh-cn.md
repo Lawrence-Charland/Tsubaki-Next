@@ -5,40 +5,6 @@
 本文讲的是 tsubaki 本身。provider 模块必须遵守的契约见
 [PROVIDER-ABI.zh-cn.md](PROVIDER-ABI.zh-cn.md)。
 
-## 总览
-
-`sum` 和 `verify` 是一条拉取式流水线：生产者交出路径，汇流把多条流合并起来，工作
-线程负责计算，每条结果由算它的线程写一行。
-
-```
-  argv ──> main ──> cmdline ──> sum_core ──> dirscanner      ─┐
-                                         ├─> listscanner     ─┼─> fanin ─> work_manager ─> 输出
-                                         └─> cached_taskstream ┘                ├─> printer (stderr)
-                                                                                 └─> work_result ─> 报告块
-```
-
-中间没有"文件列表"这一层：谁取到一条路径，谁就立刻开算，所以输出顺序是完成顺序。
-
-`cmp` 不走这条流水线。它把两份清单读进内存，两边都到齐之后再比较：
-
-```
-  argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> 比较 ──> 输出
-```
-
-`algo`（`algo-info` 仍作为旧拼法接受，不作承诺）没有流水线。它只解析一个名字然后打印：
-
-```
-  argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
-                                               └─> dpf_instance ──> provider::algo_info
-                                                                    └─> provider::arg_def
-```
-
-`provider::algo_info` 对应模块的 `tsubaki_algo_info()`；`provider::arg_def` 对应
-`tsubaki_arg_definition()`，原样打印在 “ArgParser script:” 之下，且只有
-`tsubaki_need_more_args()` 说是时才会去要。
-
-四个驱动都在同一个可执行文件里：加一个功能是加一个子命令，而不是加一个二进制。
-
 ## 目录
 
 - [启动与分发](#启动与分发)
@@ -59,12 +25,14 @@
 
 ## 启动与分发
 
-`main()`（`src/main.cpp`）用 `include/cmdline.hpp` 里 `def_args()` 的定义解析
-`general` 组——`subcmd` 位置参数加上 `--help`、`--version`、`--algorithm`、
-`--completions`。四个标志在校验之前处理，所以不需要子命令，也优先于参数错误。`fine()` 校验完 `general` 后，
-`subcmd` 选择 `sum_main()`、`verify_main()`、`cmp_main()` 或
-`algo_info_core()`（`algo` 和 `algo-info` 都落到这里）；其它值退出 64。分发包在
-try/catch 里，逃出的异常映射成 255。
+`main()`（`src/main.cpp`）只把 `tsubaki_entrance()` 包在 try/catch 里，逃出的
+异常映射成 255。`tsubaki_entrance()`（`src/entrance.cpp`）用
+`include/cmdline.hpp` 里 `def_args()` 的定义解析 `general` 组——`subcmd`
+位置参数加上 `--help`、`--version`、`--algorithm`、`--completions`。四个
+标志在校验之前处理，所以不需要子命令，也优先于参数错误。
+`fine()` 校验完 `general` 后，`subcmd` 选择 `sum_main()`、`verify_main()`、
+`cmp_main()` 或 `algo_info_core()`（`algo` 和 `algo-info` 都落到这里）；其它值
+退出 64。
 
 `sum_main(cmdline, internal)` 评估 `sum` 组（`internal` 为真时再加上 `sum_int`，
 `verify` 就是这样传入隐藏标志的），校验条目，读取算法/密钥/线程数/输出，把每个输入
@@ -343,8 +311,8 @@ hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Uns
 
 ## 退出码
 
-这些码定义在 `include/exit_codes.hpp`，由 `main()`、`sum_main()`、`verify_main()`、
-`cmp_main()` 共用：
+这些码定义在 `include/exit_codes.hpp`，由 `main()`、`tsubaki_entrance()`、
+`sum_main()`、`verify_main()`、`cmp_main()` 共用：
 
 | 宏 | 值 | 何时返回 |
 | --- | --- | --- |
@@ -379,9 +347,9 @@ tsubaki sum sha256 . -e build -l old.txt
 
 ## 扩展点
 
-- **新增子命令**：加一个 `subcommands` 常量、一个 `cmdline_group`、`main()` 里的
-  一个分支，以及一个像 `sum_main()` 的驱动。`cmp` 是最小的例子：复用了
-  `listscanner`，但没有工作线程池。
+- **新增子命令**：加一个 `subcommands` 常量、一个 `cmdline_group`、
+  `tsubaki_entrance()` 里的一个分支，以及一个像 `sum_main()` 的驱动。`cmp` 是最小
+  的例子：复用了 `listscanner`，但没有工作线程池。
 - **新增输入源**：从 `basic_taskstream` 派生，实现 `pop_raw()`；需要自己的语法就
   在 `def_args()` 里加条目。
 - **换输出端**：`work_manager` 是唯一的消费者，换一个 `std::ostream` 或整个替换。
@@ -456,8 +424,9 @@ FreeBSD 和其它 POSIX 预设则交给系统默认编译器。`linux-gcc-san` �
 
 | 路径 | 内容 |
 | --- | --- |
-| `src/main.cpp` | 子命令分发、`general` 参数组、最后的异常兜底 |
-| `include/core_functions.hpp` | `sum_main()`、`verify_main()` 与 `cmp_main()` 的声明 |
+| `src/main.cpp` | 调用 `tsubaki_entrance()`，最后的异常兜底 |
+| `src/entrance.cpp` | 子命令分发、`general` 参数组、提前处理的标志 |
+| `include/core_functions.hpp` | `tsubaki_entrance()`、`sum_main()`、`verify_main()` 与 `cmp_main()` 的声明 |
 | `include/exit_codes.hpp` | 四个驱动共用的退出码宏 |
 | `src/sum_core.cpp` | `sum` 参数组的检查、provider 参数声明及其后的贪婪阶段、启动流程、流的组装 |
 | `src/verify_core.cpp` | `verify` 参数组、`-u` 覆盖、头部查找、内部 `sum` 调用 |

@@ -12,11 +12,18 @@ fan-in merges them, workers hash them, and each worker writes its result as one
 line.
 
 ```
-  argv ──> main ──> cmdline ──> sum_core ──> dirscanner      ─┐
-                                         ├─> listscanner     ─┼─> fanin ─> work_manager ─> out
-                                         └─> cached_taskstream ┘                ├─> printer (stderr)
-                                                                                 └─> work_result ─> report
+argv --> main --> entrance --> cmdline --> sum_core --> dirscanner-----+
+                                           |--> listscanner------------+--> fanin --> work_manager --> out
+                                           |--> cached_taskstream------+
+                                                                                      |
+                                                                                      +--> printer (stderr)
+                                                                                      +--> work_result --> report
+                                                                                      +--> checksum_api --> digest / MAC / provider
 ```
+
+`sum_main()` builds one `checksum_api` from the algorithm and key and hands it
+to `work_manager`; every worker hashes through `calc()`, which routes to a plain
+digest, a MAC or a provider.
 
 No intermediate "file list" object exists: a path is hashed as soon as a worker
 takes it, so output order is completion order.
@@ -25,16 +32,16 @@ takes it, so output order is completion order.
 once both are loaded:
 
 ```
-  argv ──> main ──> cmdline ──> cmp_core ──> listscanner ×2 ──> entries ──> compare ──> out
+argv --> main --> entrance --> cmdline --> cmp_core --> listscanner x2 --> entries --> compare --> out
 ```
 
 `algo` (with `algo-info` still accepted as an older spelling, no promise)
 has no pipeline at all. It resolves one name and prints it:
 
 ```
-  argv ──> main ──> cmdline ──> algo_info_core ──> get_info_builtin()
-                                               └─> dpf_instance ──> provider::algo_info
-                                                                    └─> provider::arg_def
+argv --> main --> entrance --> cmdline --> algo_info_core --> get_info_builtin()
+                                                          \--> dpf_instance --> provider::algo_info
+                                                                                \--> provider::arg_def
 ```
 
 `provider::algo_info` is the module's `tsubaki_algo_info()`; `provider::arg_def`
@@ -64,14 +71,15 @@ binary.
 
 ## Startup and dispatch
 
-`main()` (`src/main.cpp`) parses the `general` group — the `subcmd` positional
-plus `--help`, `--version`, `--algorithm` and `--completions` — from `def_args()`
-in `include/cmdline.hpp`. The four flags are handled before validation, so they
+`main()` (`src/main.cpp`) only wraps `tsubaki_entrance()` in a try/catch that
+maps an escaped exception to 255. `tsubaki_entrance()` (`src/entrance.cpp`)
+parses the `general` group — the `subcmd` positional plus `--help`,
+`--version`, `--algorithm` and `--completions` — from `def_args()` in
+`include/cmdline.hpp`. The four flags are handled before validation, so they
 need no subcommand and win over argument errors. After `fine()` validates
-`general`, `subcmd` selects one of `sum_main()`, `verify_main()`,
-`cmp_main()` or `algo_info_core()` (`algo` and `algo-info` both land there);
-anything else exits 64. The dispatch sits in a try/catch that maps
-an escaped exception to 255.
+`general`, `subcmd` selects one of `sum_main()`, `verify_main()`, `cmp_main()`
+or `algo_info_core()` (`algo` and `algo-info` both land there); anything else
+exits 64.
 
 `sum_main(cmdline, internal)` evaluates the `sum` group (`sum_int` too when
 `internal` is set, which is how `verify` passes its hidden flag), validates the
@@ -416,7 +424,7 @@ exits 73, while `SIGPIPE` keeps its default action (141 in a shell).
 ## Exit codes
 
 The codes live in `include/exit_codes.hpp` and are shared by `main()`,
-`sum_main()`, `verify_main()` and `cmp_main()`:
+`tsubaki_entrance()`, `sum_main()`, `verify_main()` and `cmp_main()`:
 
 | Macro | Value | Returned when |
 | --- | --- | --- |
@@ -453,8 +461,8 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 ## Extension points
 
 - **New subcommand**: add a `subcommands` constant, a `cmdline_group`, a branch
-  in `main()`, and a driver like `sum_main()`. `cmp` is the minimal example: it
-  reuses `listscanner` but no worker pool.
+  in `tsubaki_entrance()`, and a driver like `sum_main()`. `cmp` is the minimal
+  example: it reuses `listscanner` but no worker pool.
 - **New input source**: derive from `basic_taskstream`, implement `pop_raw()`,
   and add an entry to `def_args()` if it needs its own syntax.
 - **New output sink**: `work_manager` is the only consumer; hand it a different
@@ -541,8 +549,9 @@ time (UTC+8) so the printed time does not depend on the build host's zone.
 
 | Path | Contents |
 | --- | --- |
-| `src/main.cpp` | subcommand dispatch, `general` argument group, last-resort exception handler |
-| `include/core_functions.hpp` | `sum_main()`, `verify_main()` and `cmp_main()` declarations |
+| `src/main.cpp` | calls `tsubaki_entrance()`, last-resort exception handler |
+| `src/entrance.cpp` | subcommand dispatch, `general` argument group, early flags |
+| `include/core_functions.hpp` | `tsubaki_entrance()`, `sum_main()`, `verify_main()` and `cmp_main()` declarations |
 | `include/exit_codes.hpp` | the exit-code macros shared by the four drivers |
 | `src/sum_core.cpp` | `sum` argument group checks, provider argument declaration, the greedy stage that follows it, startup sequence, stream construction |
 | `src/verify_core.cpp` | `verify` argument group, `-u` override, header lookup, internal `sum` invocation |
