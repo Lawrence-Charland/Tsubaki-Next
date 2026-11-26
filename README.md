@@ -113,6 +113,9 @@ UndefinedBehaviorSanitizer to the Debug build for local runs.
   has to export
 - [Architecture](docs/ARCHITECTURE.md): module layout, threading model, data flow
 
+Where these documents and the program disagree, the documents are what counts,
+not the program's actual behavior; the author reserves the right to change them.
+
 ## Relationship to the original Tsubaki
 
 The original was written in C++17 against OpenSSL and packed three modes into

@@ -93,6 +93,9 @@ tsubaki cmp old.txt new.txt          # 比较两份清单，写出 old_to_new.cm
 - [provider 契约](docs/PROVIDER-ABI.zh-cn.md)：写一个动态算法模块要导出什么
 - [架构](docs/ARCHITECTURE.zh-cn.md)：模块划分、线程模型、数据流
 
+文档与程序实际行为不一致时，以文档的解释为准，而不是程序的实际行为；作者保留
+修改文档的权利。
+
 ## 与旧版 Tsubaki 的关系
 
 旧版用 C++17 和 OpenSSL，一个二进制里装着三种模式——计算校验和、查找重复文件、
