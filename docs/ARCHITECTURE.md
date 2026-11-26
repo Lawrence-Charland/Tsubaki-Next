@@ -93,9 +93,8 @@ code: 130 when interrupted, 1 when an error was recorded, 0 otherwise.
 - It rebuilds an internal `sum` command line — the resolved algorithm, `-l
   <input>`, `--force-rescan` and the hidden `--verify` flag, plus `-t`, `-k`,
   `-K`, `-o`, `-v` as given — and calls `sum_main(instance, true)`. `-u` is not
-  forwarded because it is already resolved. Without `-o` the output is
-  `<input>.verify`, or `stdin.verify` for a `-` input; an `-o` naming the input
-  is refused (64).
+  forwarded because it is already resolved. The refreshed listing goes to stdout
+  unless `-o` names a file; an `-o` naming the input is refused (64).
 - `listscanner` fills `task_token::sum` from each `<checksum> <path>` line.
   Workers compare case-insensitively: an empty or `<NONE>` token goes to
   `unsure`, a mismatch to `changed`. A path the run does not hash — interrupted,
@@ -109,10 +108,10 @@ shares nothing with the pipeline but `listscanner`, and could live in a separate
 binary; it stays in the same target only to avoid a second thing to maintain.
 
 - It evaluates the `cmp` group (`--canonical`, `to_compare`, `-o`) and chooses
-  the sink first: stdout for `-o -`, otherwise the named file, or
-  `<left-stem>_to_<right-stem>.cmp` in `.` when `-o` is absent (announced on
-  stderr). An output that cannot be opened exits 73, and one naming either
-  input is refused (64): both lists are read after the sink is opened.
+  the sink first: stdout when `-o` is absent or `-`, otherwise the named file
+  (announced on stderr). An output that cannot be opened exits 73, and one
+  naming either input is refused (64): both lists are read after the sink is
+  opened.
 - Each list goes through `listscanner` with `rescan = true` and
   `trust = true`: checksums are taken from the listing, the file-type filter is
   off because a path may have been deleted, and a line without a checksum
@@ -395,11 +394,10 @@ the list scanners and the report; concurrent lines go through
 directly and starts with `# tsubaki comparison result`.
 
 stderr carries everything outside the listing: argument and input problems,
-warnings, the default-output notices of `verify` and `cmp`, a second copy of the
-report when the results go to a file (`print(std::clog, false)`), and the final
-write-failure message. The result stream is flushed and checked at the end: a
-failed flush exits 73, while `SIGPIPE` keeps its default action (141 in a
-shell).
+warnings, the notice naming an `-o` file, a second copy of the report when the
+results go to a file (`print(std::clog, false)`), and the final write-failure
+message. The result stream is flushed and checked at the end: a failed flush
+exits 73, while `SIGPIPE` keeps its default action (141 in a shell).
 
 ## Concurrency model
 

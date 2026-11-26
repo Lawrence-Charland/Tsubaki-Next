@@ -82,9 +82,8 @@ try/catch 里，逃出的异常映射成 255。
   是 `none` 退出 64；`-u none` 则是允许的，只是什么哈希都不算。
 - 它重新拼出内部 `sum` 命令行——已确定的算法、`-l <输入>`、`--force-rescan` 和隐藏
   的 `--verify` 标志，加上按原样转发的 `-t`、`-k`、`-K`、`-o`、`-v`——再调用
-  `sum_main(instance, true)`。`-u` 不会被转发，因为它在这之前就已经解开。不给 `-o`
-  时输出为 `<输入>.verify`，输入是 `-` 时为 `stdin.verify`；`-o` 指向输入文件会被拒绝
-  （64）。
+  `sum_main(instance, true)`。`-u` 不会被转发，因为它在这之前就已经解开。刷新后的
+  清单打到 stdout，除非用 `-o` 指定文件；`-o` 指向输入文件会被拒绝（64）。
 - `listscanner` 从每条 `<校验和> <路径>` 行填入 `task_token::sum`。工作线程忽略
   大小写地比较：`sum` 为空或该行是 `<NONE>` 的记入 `unsure`，不相同的记入
   `changed`。没有被真正计算哈希的路径——被中断、计算失败或算法为 `none`——同样记入
@@ -95,9 +94,8 @@ try/catch 里，逃出的异常映射成 255。
 `cmp_main()` 完全不计算哈希，两份清单都读完之后才下结论。除 `listscanner` 之外，
 它与流水线没有共用代码，本可单开一个二进制；留在这里只是不想多一份维护成本。
 
-- 它评估 `cmp` 组（`--canonical`、`to_compare`、`-o`），先定输出端：`-o -` 用
-  stdout，否则用指定文件；没给 `-o` 时是 `.` 下的
-  `<左文件名去扩展名>_to_<右文件名去扩展名>.cmp`，并在 stderr 上提示。输出文件打
+- 它评估 `cmp` 组（`--canonical`、`to_compare`、`-o`），先定输出端：没给 `-o` 或
+  给的是 `-` 时用 stdout，否则用指定文件并在 stderr 上提示。输出文件打
   不开时退出 73；指向任意一份输入都会被拒绝（64），因为两份清单是在输出端打开之后
   才读的。
 - 每份清单都经 `rescan = true`、`trust = true` 的 `listscanner` 读入：校验和来自
@@ -325,10 +323,10 @@ hashed、failed、not hashed、耗时，校验模式下再加 `Changed` 和 `Uns
 `# tsubaki checksum result` 头。`cmp_core` 直接往自己的输出端写，开头是
 `# tsubaki comparison result`。
 
-不属于清单本身的东西都写往 stderr：参数和输入问题、警告、`verify` 与 `cmp` 的默认
-输出提示、结果写往文件时报告的第二份拷贝（`print(std::clog, false)`），以及最后写
-失败时的提示。结果流在结束时刷出并检查：刷出失败退出 73；`SIGPIPE` 保持默认动作
-（shell 看到 141）。
+不属于清单本身的东西都写往 stderr：参数和输入问题、警告、写了 `-o` 文件时的文件名
+提示、结果写往文件时报告的第二份拷贝（`print(std::clog, false)`），以及最后写失败
+时的提示。结果流在结束时刷出并检查：刷出失败退出 73；`SIGPIPE` 保持默认动作（shell
+看到 141）。
 
 ## 并发模型
 

@@ -110,18 +110,11 @@ int cmp_main(argparser::ap_instance &cmdline)
         // Decide where to output
         {
             auto &content = cmdline.entry(cmdline_entry::output).content;
-            if (!content.empty() && content.at(0) == "-")
+            if (content.empty() || content.at(0) == "-")
                 output = &std::cout;
             else
             {
-                path output_filepath;
-                if (content.empty()) // L_to_R.cmp
-                    output_filepath =
-                        path(".") /
-                        path(path(L_src).filename().stem().string() + "_to_" +
-                             path(R_src).filename().stem().string() + ".cmp");
-                else
-                    output_filepath = path(content.at(0));
+                path output_filepath = path(content.at(0));
                 // Both lists are read after the sink is opened, so an output
                 // naming either of them would truncate it first.
                 for (const std::string *src : {&L_src, &R_src})

@@ -58,7 +58,7 @@ Options (sum, verify):
   -k<key>, --key=<key>        key for keyed algorithms
   -K<file>, --key-file=<file> key file, "-" for stdin
   -T, --text                  read a key file as text: CRLF to LF, trim endings
-  -o<file>, --output=<file>   output file, "-" for stdout
+  -o<file>, --output=<file>   output file, "-" for stdout (the default)
 
 Options (sum only):
   -e<path>, --exclude=<path>  exclude a path (repeatable)
@@ -68,7 +68,7 @@ Options (sum only):
 
 Options (cmp only):
   -c, --canonical             compare canonical paths
-  -o<file>, --output=<file>   output file, "-" for stdout
+  -o<file>, --output=<file>   output file, "-" for stdout (the default)
 
 Option forms:
   -ksecret   -k secret        --key=secret   --key secret
@@ -78,8 +78,8 @@ Examples:
   {program} sum sha256 .
   {program} sum sha256 . -e build -l old.txt
   {program} sum hmac_sha256 . -K key
-  {program} verify sums.txt -o -
-  {program} cmp old.txt new.txt -o -
+  {program} verify sums.txt
+  {program} cmp old.txt new.txt
   {program} algo sha256
 
 Exit status:

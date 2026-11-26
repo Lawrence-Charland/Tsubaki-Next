@@ -87,14 +87,8 @@ int verify_main(argparser::ap_instance &cmdline)
     }
     {
         auto &content = cmdline.entry(cmdline_entry::output).content;
-        if (content.empty())
-        {
-            output = path((input == "-" ? "stdin" : input))
-                         .concat(".verify")
-                         .string();
-            std::cerr << "The output file will be \"" << output << "\"."
-                      << std::endl;
-        }
+        if (content.empty() || content.at(0) == "-")
+            output = "-";
         else
             output = content.at(0);
     }

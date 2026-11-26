@@ -511,19 +511,21 @@ def test_verify(h: Harness, root: Path) -> None:
     manifest = root / "sums.txt"
     h.sum("sha256", a, b, "-o", manifest)
 
-    name = "unchanged: Changed/Unsure/Errors all 0, exit 0, .verify written by default"
+    name = ("unchanged: Changed/Unsure/Errors all 0, exit 0, and the default "
+            "output is stdout")
     r = h.verify(manifest, "-o", "-")
     r_default = h.verify(manifest)
     produced = Path(str(manifest) + ".verify")
-    default_report = produced.read_text(encoding="utf-8") if produced.exists() else ""
     if (r.rc == 0 and field(r.out, "Changed") == "0"
             and field(r.out, "Unsure") == "0"
             and field(r.out, "Errors") == "0"
-            and r_default.rc == 0 and produced.exists()
-            and field(default_report, "Changed") == "0"):
+            and r_default.rc == 0
+            and field(r_default.out, "Changed") == "0"
+            and not produced.exists()):
         h.ok("22", name)
     else:
         h.bad("22", name, f"rc={r.rc} changed={field(r.out, 'Changed')} "
+                          f"default_changed={field(r_default.out, 'Changed')} "
                           f"default_created={produced.exists()}")
 
     name = ("a modified file: Changed 1, exit still 0, the output holds the "
@@ -674,15 +676,18 @@ def test_cmp(h: Harness, root: Path) -> None:
                      f"{added} /p/added\n{moved} /p/moved-here\n",
                      encoding="utf-8")
 
-    name = "same path: equal checksums are matched, different ones modified"
-    r = h.cmp(left, right, "-o", "-")
+    name = ("same path: equal checksums are matched, different ones modified, "
+            "with the result on stdout and no file written")
+    r = h.cmp(left, right, cwd=fx)
     if (r.rc == 0 and "[=] /p/same" in r.out
             and "[!] /p/changed" in r.out
             and "[!] /p/same" not in r.out
-            and "[=] /p/changed" not in r.out):
+            and "[=] /p/changed" not in r.out
+            and not (fx / "left_to_right.cmp").exists()):
         h.ok("31", name)
     else:
-        h.bad("31", name, f"rc={r.rc} out={r.out!r}")
+        h.bad("31", name, f"rc={r.rc} out={r.out!r} "
+                          f"created={(fx / 'left_to_right.cmp').exists()}")
 
     name = "same checksum elsewhere: one group of L and R paths"
     r = h.cmp(left, right, "-o", "-")
@@ -1053,20 +1058,17 @@ def test_verify_streams(h: Harness, root: Path) -> None:
     else:
         h.bad("45", name, f"rc={r.rc} err={r.err!r}")
 
-    name = 'a "-" manifest with -u is verified into stdin.verify'
+    name = 'a "-" manifest with -u is verified to stdout, writing no file'
     cwd = fx / "cwd"
     cwd.mkdir()
     r = h.verify("-", "-u", "sha256", stdin_data=manifest_text, cwd=cwd)
-    produced = cwd / "stdin.verify"
-    report = produced.read_text(encoding="utf-8") if produced.exists() else ""
-    if (r.rc == 0 and field(report, "Changed") == "0"
-            and field(report, "Unsure") == "0"
-            and want in report
-            and 'The output file will be "stdin.verify"' in r.err):
+    if (r.rc == 0 and field(r.out, "Changed") == "0"
+            and field(r.out, "Unsure") == "0"
+            and want in r.out and not any(cwd.iterdir())):
         h.ok("46", name)
     else:
-        h.bad("46", name, f"rc={r.rc} created={produced.exists()} "
-                          f"changed={field(report, 'Changed')}")
+        h.bad("46", name, f"rc={r.rc} files={[p.name for p in cwd.iterdir()]} "
+                          f"changed={field(r.out, 'Changed')}")
 
     name = "a directory is refused as a manifest, not read as one"
     r = h.verify(fx)

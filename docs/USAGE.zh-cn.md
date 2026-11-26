@@ -180,7 +180,7 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 | `-k<key>`, `--key=<key>`        | 密钥算法的密钥；普通算法会警告并忽略                                                                                                      |
 | `-K<file>`, `--key-file=<file>` | 从 `<file>` 读密钥（`-` 表示 stdin），字节原样；普通算法忽略                                                                              |
 | `-T`, `--text`                  | 把密钥文件（或 `-K -` 的 stdin）当文本读：CRLF 折成 LF、尾部行尾去掉，孤立 CR 保留；普通算法忽略                                          |
-| `-o<file>`, `--output=<file>`   | 结果写入 `<file>`（新建或截断），而不是 stdout（`sum`）、`<校验和文件>.verify`（`verify`）或 `<左>_to_<右>.cmp`（`cmp`）；`-` 表示 stdout |
+| `-o<file>`, `--output=<file>`   | 结果写入 `<file>`（新建或截断），而不是 stdout；`-` 就是 stdout，也是默认值                                                      |
 | `-u<algo>`, `--use-algo=<algo>` | 用 `<algo>` 校验，而不是清单里的 `Algorithm:` 头（仅 `verify`）                                                                           |
 | `-c`, `--canonical`             | 比较前把两边路径变成绝对路径、解析软链接并规整分隔符，仅 `cmp` 使用                                                                       |
 | `-e<path>`, `--exclude=<path>`  | 遍历目录时跳过 `<path>` 及其下所有内容，可重复。                                                                                          |
@@ -259,8 +259,7 @@ HMAC 不限制长度。
 `verify` 重新读取 `sum` 写出的校验和文件，并重算其中列出的每一条路径：
 
 ```sh
-tsubaki verify sums.txt                 # 写出 sums.txt.verify
-tsubaki verify sums.txt -o -            # 把刷新后的校验和打到 stdout
+tsubaki verify sums.txt                 # 把刷新后的校验和打到 stdout
 tsubaki verify sums.txt -o new.txt      # 写到 new.txt
 tsubaki verify sums.txt -u sha256       # 不用文件头，改用 sha256
 cat sums.txt | tsubaki verify - -u sha256   # 从 stdin 读清单
@@ -268,7 +267,7 @@ cat sums.txt | tsubaki verify - -u sha256   # 从 stdin 读清单
 
 清单可以写成 `-`，表示从 stdin 读。`Algorithm:` 头没法在不消耗后续路径数据的前提下先
 读出来，所以 `-` 清单必须配 `-u`，否则退出 64；同一条 stdin 也只能指定一次，`-` 清单
-再配 `-K -` 会被拒绝。不给 `-o` 时输出按输入命名，输入是 stdin 时就是 `stdin.verify`。
+再配 `-K -` 会被拒绝。刷新后的清单打到 stdout，除非用 `-o` 指定文件。
 
 算法取自文件里的 `# Algorithm:` 头，除非用 `-u`（`--use-algo`）指定。强制指定的
 算法会在 stderr 上说明，并完全取代文件头，所以 `-u` 也能校验完全没有头的清单，或者
@@ -306,8 +305,7 @@ _changed_ 表示文件里记录的校验和与重算结果不同；_unsure_ 表�
 `cmp` 读取两份由 `sum` 写出的结果文件，报告它们之间的差异：
 
 ```sh
-tsubaki cmp old.txt new.txt               # 写出 old_to_new.cmp
-tsubaki cmp old.txt new.txt -o -          # 把比较结果打到 stdout
+tsubaki cmp old.txt new.txt               # 把比较结果打到 stdout
 tsubaki cmp old.txt new.txt -o diff.cmp   # 写到 diff.cmp
 ```
 
@@ -363,10 +361,9 @@ tsubaki cmp old.txt new.txt -o diff.cmp   # 写到 diff.cmp
 规范化要求路径存在：已删除的文件没法规范化，所以会保留未被规范化的路径并参与比较，
 同时记录一条错误。
 
-不给 `-o` 时，结果写到当前目录下的 `<左文件名去扩展名>_to_<右文件名去扩展名>.cmp`
-（`old.txt` 和 `new.txt` 得到 `old_to_new.cmp`），并在 stderr 上提示这个文件名。
-`-o -` 写往 stdout。`-o` 不能指向任何一份输入（退出码 64），因为两份清单都是在输出
-打开之后才读的。各节之间重复出现的 `# L = ..., R = ...` 行标明两份输入；
+结果打到 stdout，除非用 `-o` 指定文件；指定文件时会在 stderr 上提示文件名。`-o`
+不能指向任何一份输入（退出码 64），因为两份清单都是在输出打开之后才读的。各节之间
+重复出现的 `# L = ..., R = ...` 行标明两份输入；
 开头还会往 stderr 打一份，这样结果写进文件时也能在终端上看到比的是哪两份。
 
 `cmp` 不做任何哈希、遍历或扫描：它只读两个文件，所以下文的“中断”处理不适用于它，

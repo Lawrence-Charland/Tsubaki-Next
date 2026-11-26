@@ -82,14 +82,14 @@ A first run:
 
 ```sh
 tsubaki sum sha256 . -o sums.txt     # write a manifest
-tsubaki verify sums.txt              # re-hash, writing sums.txt.verify
-tsubaki cmp old.txt new.txt          # compare them, writing old_to_new.cmp
+tsubaki verify sums.txt              # re-hash, printing the result
+tsubaki cmp old.txt new.txt          # compare them, printing the differences
 ```
 
 The output of `sum` is the manifest, and both `verify` and `cmp` consume it.
-`-o -` writes results to stdout, `-v` shows live progress on stderr. Options go
-after the inputs: a separated value keeps taking plain arguments until the next
-switch, `-e` and `-l` especially.
+Results go to stdout unless `-o` names a file; `-v` shows live progress on
+stderr. Options go after the inputs: a separated value keeps taking plain
+arguments until the next switch, `-e` and `-l` especially.
 
 ## Supported platforms
 

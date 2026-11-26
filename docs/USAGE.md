@@ -206,7 +206,7 @@ the modules that take no arguments come first.
 | `-k<key>`, `--key=<key>`        | secret key for the keyed algorithms; ignored with a warning by the others                                                                                             |
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin), byte for byte; ignored by plain digests                                                                                   |
 | `-T`, `--text`                  | read the key file (or `-K -` stdin) as text: CRLF folds to LF, the trailing line ending goes, a lone CR stays; ignored by plain digests                               |
-| `-o<file>`, `--output=<file>`   | write results to `<file>`, created or truncated, instead of stdout (sum), `<checksum-file>.verify` (verify) or `<left>_to_<right>.cmp` (cmp); `-` means stdout        |
+| `-o<file>`, `--output=<file>`   | write results to `<file>`, created or truncated, instead of stdout; `-` is stdout and the default                                                                     |
 | `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only)                                                                                       |
 | `-c`, `--canonical`             | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only)                                                                       |
 | `-e<path>`, `--exclude=<path>`  | skip `<path>` and everything below it when walking a directory; repeatable                                                                                            |
@@ -302,8 +302,7 @@ the report block it travels with.
 names:
 
 ```sh
-tsubaki verify sums.txt                 # writes sums.txt.verify
-tsubaki verify sums.txt -o -            # prints the refreshed checksums
+tsubaki verify sums.txt                 # prints the refreshed checksums
 tsubaki verify sums.txt -o new.txt      # writes new.txt
 tsubaki verify sums.txt -u sha256       # uses sha256 instead of the header
 cat sums.txt | tsubaki verify - -u sha256   # reads the listing from stdin
@@ -312,8 +311,8 @@ cat sums.txt | tsubaki verify - -u sha256   # reads the listing from stdin
 The listing may be `-` for stdin. The `Algorithm:` header cannot be read without
 consuming the stream that the paths still have to come from, so a `-` listing
 requires `-u` and exits 64 without it; stdin may also be named only once, so
-`-K -` is refused alongside a `-` listing. Without `-o` the output is named
-after the input, which for stdin is `stdin.verify`.
+`-K -` is refused alongside a `-` listing. The refreshed listing goes to stdout
+unless `-o` names a file.
 
 The algorithm comes from the file's `# Algorithm:` header unless `-u` (or
 `--use-algo`) names one. A forced name is announced on stderr and replaces the
@@ -360,8 +359,7 @@ truncated before it is read.
 `cmp` reads two result files written by `sum` and reports how they differ:
 
 ```sh
-tsubaki cmp old.txt new.txt               # writes old_to_new.cmp
-tsubaki cmp old.txt new.txt -o -          # prints the comparison
+tsubaki cmp old.txt new.txt               # prints the comparison
 tsubaki cmp old.txt new.txt -o diff.cmp   # writes diff.cmp
 ```
 
@@ -427,12 +425,11 @@ differently spelled routes to the same file match. Canonicalization needs the
 path to exist: a deleted file cannot be canonicalized, so it will be compared
 with an uncanonicalized path, with an error reported.
 
-Without `-o`, the result goes to `<left-stem>_to_<right-stem>.cmp` in the
-current directory (`old.txt` and `new.txt` give `old_to_new.cmp`), and a notice
-on stderr names that file. `-o -` writes to stdout. `-o` must not name either
-input (exit 64), because both lists are read after the output is opened. The
-`# L = ..., R = ...` lines repeated between sections name the two inputs; an
-initial copy goes to stderr so it stays visible when the result goes to a file.
+The result goes to stdout unless `-o` names a file, and then a notice on stderr
+names that file. `-o` must not name either input (exit 64), because both lists
+are read after the output is opened. The `# L = ..., R = ...` lines repeated
+between sections name the two inputs; an initial copy goes to stderr so it stays
+visible when the result goes to a file.
 
 `cmp` never hashes, walks or scans anything: it reads two files, so the
 interrupt handling described below does not apply to it and a `Ctrl-C` simply

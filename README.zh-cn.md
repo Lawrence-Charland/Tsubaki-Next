@@ -66,13 +66,13 @@ cmake --build --preset linux-gcc-release
 
 ```sh
 tsubaki sum sha256 . -o sums.txt     # 生成清单
-tsubaki verify sums.txt              # 重算，写出 sums.txt.verify
-tsubaki cmp old.txt new.txt          # 比较两份清单，写出 old_to_new.cmp
+tsubaki verify sums.txt              # 重算，结果打到 stdout
+tsubaki cmp old.txt new.txt          # 比较两份清单，差异打到 stdout
 ```
 
-`sum` 的输出就是清单，`verify` 和 `cmp` 都吃这份清单。`-o -` 把结果打到 stdout，
-`-v` 在 stderr 上显示实时进度。选项写在输入之后：分离写出的值会一直取到下一个
-开关为止，`-e` 和 `-l` 尤其如此。
+`sum` 的输出就是清单，`verify` 和 `cmp` 都吃这份清单。除非用 `-o` 指定文件，
+结果都打到 stdout；`-v` 在 stderr 上显示实时进度。选项写在输入之后：分离写出的值
+会一直取到下一个开关为止，`-e` 和 `-l` 尤其如此。
 
 ## 支持的平台
 
