@@ -243,6 +243,12 @@ Only two things break with convention:
   argument and is reported as a missing file, so `--exlude=build` shows up in
   the error block.
 
+A switch nobody defined is not an option, and the program does not try to guess
+which one was meant. That is what makes the second bullet hurt: the typo passes
+parsing and comes back as a missing file only once the report block is printed.
+Word-list completion ([Shell completion](#shell-completion)) puts the correct
+spelling in front of you before that can happen.
+
 ### Keyed hashes
 
 A key comes from one of two places, never both:
