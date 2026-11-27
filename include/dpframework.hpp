@@ -29,6 +29,10 @@ const char *no_algo_info() noexcept;
 
 bool dont_need_args() noexcept;
 
+bool not_keyed() noexcept;
+
+bool fake_check_key(const char *, std::size_t) noexcept;
+
 enum class provider_msg
 {
     unknown,
@@ -62,11 +66,16 @@ class dpf_instance // [D]ynamic [P]rovider [F]ramework
   private:
     std::vector<std::string> search_paths;
     std::unordered_map<std::string, provider> provider_mapper;
+    dpf_instance();
 
   public:
     const provider not_found;
+    inline static const dpf_instance &ins()
+    {
+        const static dpf_instance result;
+        return result;
+    }
 
-    dpf_instance();
     dpf_instance(const dpf_instance &) = delete;
     dpf_instance &operator=(const dpf_instance &) = delete;
 

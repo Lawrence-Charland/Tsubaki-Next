@@ -60,9 +60,13 @@ extern "C"
     // prints its own above this text.
     const char *tsubaki_algo_info() noexcept;
 
+    // Optional. Leaving this symbol out is exactly equivalent to exporting it
+    // and returning false: the provider is unkeyed and the checker below is
+    // never looked up.
     bool tsubaki_is_keyed() noexcept;
 
-    // `key` is a byte string of `length` bytes, not a C string.
+    // `key` is a byte string of `length` bytes, not a C string. Required when
+    // tsubaki_is_keyed() returns true.
     bool tsubaki_check_key(const char *key, std::size_t length) noexcept;
 
     // `length` is 0 for a provider that ignores the key.

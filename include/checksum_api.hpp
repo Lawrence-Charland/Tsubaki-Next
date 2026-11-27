@@ -32,8 +32,7 @@ class checksum_api
     std::string display_algo_name;
     std::string key;
     checksum_error err = checksum_error::none;
-    inline static dpf_instance dpf;
-    provider pro = dpf.not_found;
+    provider pro = dpf_instance::ins().not_found;
 
   public:
     checksum_api() = default;
