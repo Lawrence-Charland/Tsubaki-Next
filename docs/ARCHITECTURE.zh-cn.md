@@ -5,6 +5,48 @@
 本文讲的是 tsubaki 本身。provider 模块必须遵守的契约见
 [PROVIDER-ABI.zh-cn.md](PROVIDER-ABI.zh-cn.md)。
 
+## 概览
+
+`sum` 和 `verify` 是一条拉取式流水线：生产者交出路径，汇流把它们合并，工作线程
+计算校验和，每个结果由工作线程写成一行。
+
+```
+argv --> main --> entrance --> cmdline --> sum_core --> dirscanner-----+
+                                           |--> listscanner------------+--> fanin --> work_manager --> out
+                                           |--> cached_taskstream------+
+                                                                                      |
+                                                                                      +--> printer (stderr)
+                                                                                      +--> work_result --> report
+                                                                                      +--> checksum_api --> digest / MAC / provider
+```
+
+`sum_main()` 用算法和密钥构造一个 `checksum_api` 交给 `work_manager`；每个工作线程
+都经 `calc()` 计算，由它分派到普通摘要、MAC 或者 provider。
+
+中间没有“文件列表”这种对象：路径一被工作线程取走就开始算，所以输出顺序就是完成
+顺序。
+
+`cmp` 不走这条流水线，它把两份清单读进内存，都读完了才下结论：
+
+```
+argv --> main --> entrance --> cmdline --> cmp_core --> listscanner x2 --> entries --> compare --> out
+```
+
+`algo`（`algo-info` 仍作为旧拼法接受，不作承诺）根本没有流水线，只解析一个名字再
+打印出来：
+
+```
+argv --> main --> entrance --> cmdline --> algo_info_core --> get_info_builtin()
+                                                          \--> dpf_instance --> provider::algo_info
+                                                                                \--> provider::arg_def
+```
+
+`provider::algo_info` 是模块的 `tsubaki_algo_info()`；`provider::arg_def` 是它的
+`tsubaki_arg_definition()`，原样印在 `ArgParser script:` 那一行下面，而且只在
+`tsubaki_need_more_args()` 回答“是”的时候才去问。
+
+四个驱动都在同一个可执行文件里：一个功能是一个子命令，不是第二个二进制。
+
 ## 目录
 
 - [启动与分发](#启动与分发)
