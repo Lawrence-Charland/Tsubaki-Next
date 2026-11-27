@@ -199,8 +199,7 @@ int algo_info_core(argparser::ap_instance &cmdline)
         std::cout << get_info_builtin(if_builtin) << std::endl;
         return TSUBAKI_SUCCESS;
     }
-    dpf_instance dpf;
-    auto find_pro = dpf.find_provider(algo);
+    auto find_pro = dpf_instance::ins().find_provider(algo);
     if (find_pro.error != provider_msg::success)
     {
         std::cerr << "Error: invalid algorithm: \"" << algo << "\"."

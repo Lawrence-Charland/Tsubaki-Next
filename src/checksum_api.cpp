@@ -51,14 +51,14 @@ const std::string &checksum_api::name() const
 bool checksum_api::set_algo(const std::string &name)
 {
     algo = str_to_alg(name);
-    pro = dpf.not_found;
+    pro = dpf_instance::ins().not_found;
     if (algo != algorithm::error)
     {
         display_algo_name = alg_to_str(algo);
         err = checksum_error::none;
         return true;
     }
-    pro = dpf.find_provider(name);
+    pro = dpf_instance::ins().find_provider(name);
     if (pro.error != provider_msg::success)
     {
         err = checksum_error::unknown_algorithm;

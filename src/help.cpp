@@ -132,8 +132,7 @@ void list_algorithm(std::ostream &os)
                << (is_keyed(str_to_alg(it)) ? "YES" : "NO") << '\n';
     os << "(" << mapper.size() - 1 << " built-in algorithms in total)"
        << std::endl;
-    dpf_instance dpf;
-    const auto &providers = dpf.show_mapper();
+    const auto &providers = dpf_instance::ins().show_mapper();
     if (providers.empty())
         return;
     os << std::endl << "---------- Dynamic providers ----------" << std::endl;
@@ -294,8 +293,7 @@ std::unordered_set<std::string> get_completion()
     // Must exist, or it is unexpected error.
     result.erase(result.find("--verify"));
     result.insert(mapper.begin(), mapper.end());
-    dpf_instance dpf;
-    auto dynamic_mapper = dpf.show_mapper();
+    auto dynamic_mapper = dpf_instance::ins().show_mapper();
     for (auto &look : dynamic_mapper)
     {
         result.insert(look.first);

@@ -27,6 +27,16 @@ bool dont_need_args() noexcept
     return false;
 }
 
+bool not_keyed() noexcept
+{
+    return false;
+}
+
+bool fake_check_key(const char *, std::size_t) noexcept
+{
+    return true;
+}
+
 provider::provider(const std::filesystem::path &path) : display_path(path)
 {
     handle = dlopen(display_path.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -38,43 +48,52 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
     dlerror();
     name = reinterpret_cast<decltype(name)>(dlsym(handle, TSUBAKI_SYMBOL_NAME));
     if (const char *err = dlerror())
-    {
+    { // missing name is unacceptable
         error = provider_msg::dlsym_fail;
         return;
     }
     if (str_to_alg(name()) != algorithm::error)
-    {
+    { // shadowing a built-in name is unacceptable
         error = provider_msg::refused;
         return;
     }
     algo_info = reinterpret_cast<decltype(algo_info)>(
         dlsym(handle, TSUBAKI_SYMBOL_ALGO_INFO));
     if (const char *err = dlerror())
+        // no info is acceptable
         algo_info = no_algo_info;
     is_keyed = reinterpret_cast<decltype(is_keyed)>(
         dlsym(handle, TSUBAKI_SYMBOL_IS_KEYED));
     if (const char *err = dlerror())
+        // default to unkeyed
+        goto no_key;
+    if (is_keyed() == false)
     {
-        error = provider_msg::dlsym_fail;
-        return;
+    no_key:
+        is_keyed = not_keyed;
+        check_key = fake_check_key;
     }
-    check_key = reinterpret_cast<decltype(check_key)>(
-        dlsym(handle, TSUBAKI_SYMBOL_CHECK_KEY));
-    if (const char *err = dlerror())
+    else
     {
-        error = provider_msg::dlsym_fail;
-        return;
+        check_key = reinterpret_cast<decltype(check_key)>(
+            dlsym(handle, TSUBAKI_SYMBOL_CHECK_KEY));
+        if (const char *err = dlerror())
+        { // missing ckecker is unacceptable
+            error = provider_msg::dlsym_fail;
+            return;
+        }
     }
     implement = reinterpret_cast<decltype(implement)>(
         dlsym(handle, TSUBAKI_SYMBOL_IMPLEMENT));
     if (const char *err = dlerror())
-    {
+    { // no implement
         error = provider_msg::dlsym_fail;
         return;
     }
     need_args = reinterpret_cast<decltype(need_args)>(
         dlsym(handle, TSUBAKI_SYMBOL_NEED_ARGS));
     if (const char *err = dlerror())
+        // default to no args
         goto no_args;
     if (need_args() == false)
     {
