@@ -115,7 +115,7 @@ tsubaki cmp old.txt new.txt          # 比较两份清单，差异打到 stdout
 ## 状态
 
 个人项目，单作者维护；暂时没有添加安全审计，也没有 CI 或模糊测试。
-正确性目前靠 `tests/check.py` 的契约测试和两条不变式：清单行与 coreutils 对齐、报告字段已冻结。
+正确性目前靠 `tests/` 下三个黑盒套件，由 `tests/check.py` 一口气跑完：`general.py` 的契约测试、`abi.py` 的 provider ABI 测试（需要 C++ 编译器）、`differential.py` 对 coreutils / OpenSSL 的差分测试。另有两条不变式：清单行与 coreutils 对齐、报告字段已冻结。
 内建算法全部走 OpenSSL；动态 provider 是第三方代码，用之前先用 `tsubaki algo` 看它的来源和脚本。
 
 ## 许可证

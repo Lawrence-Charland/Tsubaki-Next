@@ -6,7 +6,7 @@
 Every case hashes the same bytes twice — once with tsubaki, once with a
 reference implementation — and compares the hexadecimal digests. Only built-in
 algorithms are covered, and only the digest itself is compared: the listing
-format, the report block and the option handling are check.py's business.
+format, the report block and the option handling are general.py's business.
 
     ./tests/differential.py
     TSUBAKI=/usr/bin/tsubaki ./tests/differential.py   # name the binary
@@ -32,7 +32,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from check import resolve_binary
+from harness import resolve_binary
 
 # The empty input, one byte, and both sides of the 64- and 128-byte block
 # boundaries, then inputs larger than the 1 MiB copy chunk.

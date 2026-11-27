@@ -232,7 +232,8 @@ OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要映�
 
 `algorithm::dynamic` 是哨兵而不是表里的一行：`mapper` 里没有它，`alg_to_str()` 会抛
 异常，报告里显示的名字由 provider 自己给出。加载逻辑在 `dpf_instance`
-（`include/dpframework.hpp`）里：
+（`include/dpframework.hpp`）里，构造函数是私有的：唯一的入口是
+`dpf_instance::ins()`，它在首次调用时构造对象，之后一直交出同一个。
 
 - 构造函数按 `:` 切分 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，丢掉空段，然后用
   `dirscanner` 逐个遍历，所以扫描是递归的，且不跟随指向目录的软链接。路径不存在或
@@ -240,10 +241,10 @@ OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要映�
 - 后缀恰好是 `.so` 的文件才会变成 `provider`：先 `dlopen()`（`RTLD_NOW |
   RTLD_LOCAL`），再 `dlsym()` 取 `tsubaki_provider_name()`，拿它自报的名字去问
   `str_to_alg()`。自报的名字若是内建算法，就在这一步被拒掉，其余符号根本不会去查，
-  所以即使这个 `.so` 先被加载，也抢不走 `sha256`。活下来的模块继续为
-  `include/dynamic_provider_header.hpp` 里声明的其余必需 `tsubaki_*` 符号
-  `dlsym()`，外加可选的 `tsubaki_algo_info()`：查不到时指针就指向
-  `no_algo_info()`，`algo` 打印的正是它。
+  所以即使这个 `.so` 先被加载，也抢不走 `sha256`。活下来的模块继续为其余下的每个
+  符号 `dlsym()`；头文件里标为可选的符号缺失时，指针换成同一文件里的默认函数
+  （`no_algo_info()`、`not_keyed()`、`fake_check_key()`、`dont_need_args()`），
+  之后无论哪种情况程序调的都是同一个函数。哪些符号必需由头文件决定，不在这一节。
   `provider_msg` 记下走到哪一步；只要不是 `success` 就打印出来并丢弃。句柄永不
   关闭，模块与进程同寿。
 - `provider_mapper` 以模块自报的名字为键，用 `emplace()` 填充，所以重名时保留先
@@ -274,12 +275,14 @@ OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要映�
   provider 契约里对此有警告。`verify` 把不认识的位置参数原样追加到内部 `sum`
   命令行的末尾，所以 `verify -u alg 名字 -L 128` 也能到达 provider。
 
-`checksum_api` 把 `dpf_instance` 存成 `inline static`，所以整个进程只扫一次——第一
-个 `checksum_api` 构造时扫，之后每个都复用那张表：`sum` 与 `verify` 共用一次扫描，
-尽管 `verify` 会构造两个 `checksum_api`（自己那个加上内部 `sum` 的那个）；`cmp` 一个
-都不构造，因此从不扫描。`src/help.cpp` 里的 `list_algorithm()` 和
-`get_completion()` 是例外：`--algorithm` 和 `--completions` 各自会造一个局部
-`dpf_instance`。`set_algo()` 先试 `str_to_alg()` 再问
+`dpf_instance::ins()` 交出的是同一个函数内静态对象，所以扫描从第一个调用者开始，之后
+每个调用者都复用那张表：`sum` 与 `verify` 共用一次扫描，尽管 `verify` 会构造两个
+`checksum_api`（自己那个加上内部 `sum` 的那个）；`-a` 和 `-C` 也复用它，不再各自造
+一个。加载失败因此每个模块只打印一次，而不是每次查找一次；`--help`、`--version` 和
+根本不需要 provider 的 `cmp` 则完全不碰 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`。选成员函数
+而不是命名空间作用域对象，正是为了让这件事成立：扫描会调 `str_to_alg()`，而它读的是
+`include/checksum.hpp` 里的 `mapper`，惰性构造的静态对象不可能跑在那个 vector 初始化
+之前。`set_algo()` 先试 `str_to_alg()` 再问
 `find_provider()`，所以按名字查找同样碰不到内建名字对应的 provider。对
 provider 来说，`keyed()` 问 `tsubaki_is_keyed()`，`set_key()` 问
 `tsubaki_check_key()` 而不是 `check_key_validity()`，`calc()` 调
@@ -453,7 +456,7 @@ FreeBSD 和其它 POSIX 预设则交给系统默认编译器。`linux-gcc-san` �
 | `tsubaki::work_result` | class | — | `run()` 返回的值快照，带 `print()`；不引用 manager |
 | `tsubaki::checksum_api` | class | — | 解析字面算法名、持有密钥，回答 `hashing()` / `keyed()` / `name()`，把 `calc()` 分到摘要路径、MAC 路径或 provider |
 | `tsubaki::checksum_error` | enum class | — | `checksum_api` 不可用的原因：`none`、`unknown_algorithm`、`missing_key`、`invalid_key` |
-| `tsubaki::dpf_instance` | class | — | 构造时扫描一次 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，把 provider 名字映射到已加载模块 |
+| `tsubaki::dpf_instance` | class | — | `ins()` 首次调用时构造唯一实例，在那里扫描 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，把 provider 名字映射到已加载模块 |
 | `tsubaki::provider` | struct | — | 一个已经 `dlopen` 的模块：句柄、已经解析到的符号，以及停在哪个 `provider_msg` |
 | `tsubaki::provider_msg` | enum class | — | `success`、`dlopen_fail`、`dlsym_fail`、`refused`、`unknown`：模块走到了哪一步 |
 | `tsubaki::task_token` | struct | — | 一条任务：路径加上清单里读到的校验和（重扫模式之外为空） |
@@ -483,7 +486,7 @@ FreeBSD 和其它 POSIX 预设则交给系统默认编译器。`linux-gcc-san` �
 | `src/checksum.cpp` | OpenSSL 那一侧：`digest_for()`、`mac_for()`、`stream_file()`、`checksum_file()`、`checksum_file_key()` |
 | `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` 与 `checksum_api`：名字解析、密钥处理、经 `check_args()` 声明 provider 参数、`calc()` 分派 |
 | `include/dpframework.hpp`, `src/dpframework.cpp` | `provider_msg`、`provider`（一次 `dlopen`/`dlsym`）与 `dpf_instance`（环境变量扫描） |
-| `include/dynamic_provider_header.hpp` | provider 编译时对照的 ABI：四个必需的 `extern "C"` 符号，外加一个可选的 `tsubaki_algo_info()` |
+| `include/dynamic_provider_header.hpp` | provider 编译时对照的 ABI：导出的符号与两个结构体；哪些是可选符号见 [PROVIDER-ABI.zh-cn.md](PROVIDER-ABI.zh-cn.md) |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、注释查找、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |

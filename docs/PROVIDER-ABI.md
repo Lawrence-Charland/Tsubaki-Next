@@ -18,6 +18,10 @@ registers a provider's arguments — see
 [ARCHITECTURE.md](ARCHITECTURE.md#dynamic-providers). For the user-facing side
 of installing providers, see [USAGE.md](USAGE.md#dynamic-algorithms).
 
+The part of this contract a running process can observe — which symbols may be
+missing, what the loader rejects, how a failure becomes an `Error:` line and an
+exit status — is checked by `tests/abi.py`, which builds modules on the spot.
+
 ## Contents
 
 - [Symbols](#symbols)
@@ -45,8 +49,8 @@ module's own source.
 | Symbol | Required | Signature | Purpose |
 | --- | --- | --- | --- |
 | `tsubaki_provider_name` | yes | `const char *() noexcept` | the name used on the command line, in `-a` and in `algo` |
-| `tsubaki_is_keyed` | yes | `bool() noexcept` | whether a key is required |
-| `tsubaki_check_key` | yes | `bool(const char *key, std::size_t length) noexcept` | accept or reject a key |
+| `tsubaki_is_keyed` | no | `bool() noexcept` | the key switch; absent is equivalent to returning `false` |
+| `tsubaki_check_key` | if the key switch returns true | `bool(const char *key, std::size_t length) noexcept` | accept or reject a key |
 | `tsubaki_checksum_file` | yes | `tsubaki_checksum_result(const char *path, const char *key, std::size_t length) noexcept` | compute the digest |
 | `tsubaki_algo_info` | no | `const char *() noexcept` | three lines for `algo` |
 | `tsubaki_need_more_args` | no | `bool() noexcept` | the switch; absent is equivalent to returning `false` |
@@ -59,6 +63,12 @@ arguments, the other two symbols are never looked up, and exporting them anyway
 is harmless. Only when it returns `true` does the trio become binding — a module
 that then omits `tsubaki_arg_definition` or `tsubaki_take_args` fails the load,
 like any other missing required symbol.
+
+`tsubaki_is_keyed` is the key switch, with the same rules: leaving it out is
+exactly the same as exporting it and returning `false`, in which case the
+provider is unkeyed, `tsubaki_check_key` is never looked up, and exporting that
+symbol anyway is harmless. Only a `true` return makes `tsubaki_check_key`
+binding, and a module that then omits it fails the load.
 
 ## Data types
 
@@ -127,11 +137,13 @@ own library.
 
 ## Keys
 
-`tsubaki_is_keyed` decides whether the algorithm needs a key. A keyed provider is
-asked for one like a built-in keyed algorithm (`needs a key`, exit status 64),
-and `tsubaki_check_key` decides whether the key is acceptable; a plain provider
-is never asked and should accept anything. tsubaki asks about a non-empty key
-only.
+`tsubaki_is_keyed` decides whether the algorithm needs a key; without the
+symbol the provider is unkeyed. A keyed provider is asked for one like a
+built-in keyed algorithm (`needs a key`, exit status 64), and
+`tsubaki_check_key` — required once `tsubaki_is_keyed` returns `true` — decides
+whether the key is acceptable. An unkeyed provider is never asked, its
+`tsubaki_check_key` is never looked up, and it need not export one. tsubaki asks
+about a non-empty key only.
 
 A key is a byte string, not a C string: it is not NUL terminated and may contain
 NUL bytes, and `length` is the only length there is. `tsubaki_checksum_file`
@@ -337,8 +349,11 @@ From 2.1.3 onwards tsubaki makes a moderate backward-compatibility commitment.
 Across 2.x, the symbols above keep their names, signatures and meaning, and both
 structures keep their layout, so a module built against 2.1.3 keeps loading.
 New capabilities arrive the way optional symbols already do: a module that does
-not export them simply does not get the feature. A digest name keeps its meaning
-for the same reason — an algorithm whose output has to change gets a new name.
+not export them simply does not get the feature. A relaxation runs the same way
+in reverse: a symbol that used to be required may become optional, because every
+module built to the old contract still exports it. A digest name keeps its
+meaning for the same reason — an algorithm whose output has to change gets a new
+name.
 
 That commitment is not a formal guarantee. It does not cover builds across
 architectures, calling conventions or glibc generations, and it protects no
@@ -374,7 +389,10 @@ something the pinned library decides.
 
 ## Minimal module
 
-A complete module for a 32-bit FNV-1a digest, useful as a starting point:
+A complete module for a 32-bit FNV-1a digest, useful as a starting point. It
+omits `tsubaki_is_keyed` and `tsubaki_check_key` because FNV-1a takes no key: an
+absent `tsubaki_is_keyed` means unkeyed. A keyed algorithm exports it returning
+`true`, and must then also export `tsubaki_check_key`.
 
 ```cpp
 #include "dynamic_provider_header.hpp"
@@ -396,10 +414,6 @@ extern "C"
                "Note:       Example from the Tsubaki-Next docs.\n"
                "Origin:     https://github.com/Lawrence-Charland/Tsubaki-Next";
     }
-
-    bool tsubaki_is_keyed() noexcept { return false; }
-
-    bool tsubaki_check_key(const char *, std::size_t) noexcept { return true; }
 
     tsubaki_checksum_result tsubaki_checksum_file(const char *path,
                                                   const char *,

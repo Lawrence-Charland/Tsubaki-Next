@@ -140,9 +140,11 @@ April* — purely personal preference — and has nothing to do with checksummin
 ## Status
 
 A single-author project; there has been no security audit, and no CI or fuzzing
-has been added yet. Correctness rests on the contract tests in
-`tests/check.py` and on two invariants: manifest lines match coreutils, and the
-report keys are frozen. The built-in algorithms all go through OpenSSL; dynamic
+has been added yet. Correctness rests on three black-box suites under `tests/`,
+which `tests/check.py` runs in one go: the contract tests in `general.py`, the
+provider ABI tests in `abi.py` (they need a C++ compiler) and the differential
+tests in `differential.py` against coreutils and OpenSSL. Two invariants stand
+behind them: manifest lines match coreutils, and the report keys are frozen. The built-in algorithms all go through OpenSSL; dynamic
 providers are third-party code, so read a module's `Source:` line and its script
 with `tsubaki algo` before trusting it.
 

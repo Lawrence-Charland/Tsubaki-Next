@@ -14,6 +14,9 @@ tsubaki 这一侧——加载器怎么遍历目录、解析符号、注册 provi
 [ARCHITECTURE.zh-cn.md](ARCHITECTURE.zh-cn.md#动态-provider)；安装 provider 的用户
 视角见 [USAGE.zh-cn.md](USAGE.zh-cn.md#动态算法)。
 
+这份契约里，一个运行中的进程能观察到的部分——哪些符号可以缺、加载器拒掉什么、失败
+怎么变成 `Error:` 行和退出码——由 `tests/abi.py` 逐个现场编译模块来验证。
+
 ## 目录
 
 - [符号](#符号)
@@ -40,8 +43,8 @@ tsubaki 这一侧——加载器怎么遍历目录、解析符号、注册 provi
 | 符号 | 必需 | 签名 | 用途 |
 | --- | --- | --- | --- |
 | `tsubaki_provider_name` | 是 | `const char *() noexcept` | 命令行、`-a` 与 `algo` 里用的名字 |
-| `tsubaki_is_keyed` | 是 | `bool() noexcept` | 是否要求密钥 |
-| `tsubaki_check_key` | 是 | `bool(const char *key, std::size_t length) noexcept` | 接受或拒绝一个密钥 |
+| `tsubaki_is_keyed` | 否 | `bool() noexcept` | 密钥开关；不导出与导出后返回 `false` 完全等价 |
+| `tsubaki_check_key` | 密钥开关返回 true 时 | `bool(const char *key, std::size_t length) noexcept` | 接受或拒绝一个密钥 |
 | `tsubaki_checksum_file` | 是 | `tsubaki_checksum_result(const char *path, const char *key, std::size_t length) noexcept` | 计算摘要 |
 | `tsubaki_algo_info` | 否 | `const char *() noexcept` | 给 `algo` 的三行说明 |
 | `tsubaki_need_more_args` | 否 | `bool() noexcept` | 开关；不导出与导出后返回 `false` 完全等价 |
@@ -53,6 +56,11 @@ tsubaki 这一侧——加载器怎么遍历目录、解析符号、注册 provi
 没有影响。只有它返回 `true` 时这组三符号才具有约束力——此时缺了
 `tsubaki_arg_definition` 或 `tsubaki_take_args`，加载就会失败，和缺任何必需符号
 一样。
+
+`tsubaki_is_keyed` 是密钥开关，规则相同：不导出这个符号，与导出它并返回 `false`
+完全等价——此时 provider 不带密钥，`tsubaki_check_key` 根本不会被查找；即使导出了
+那个符号也没有影响。只有它返回 `true` 时 `tsubaki_check_key` 才具有约束力，此时
+缺了这个符号，加载就会失败。
 
 ## 数据类型
 
@@ -113,9 +121,11 @@ struct tsubaki_pass_content
 
 ## 密钥
 
-`tsubaki_is_keyed` 决定算法是否需要密钥。带密钥的 provider 索取密钥的方式与内建密钥
-算法一致（`needs a key`，退出码 64），由 `tsubaki_check_key` 判断密钥是否可用；不带
-密钥的 provider 永远不会被询问，应当来者不拒。tsubaki 只会拿非空密钥来问。
+`tsubaki_is_keyed` 决定算法是否需要密钥；没有这个符号就表示 provider 不带密钥。
+带密钥的 provider 索取密钥的方式与内建密钥算法一致（`needs a key`，退出码 64），由
+`tsubaki_check_key`——`tsubaki_is_keyed` 返回 `true` 后它才成为必需——判断密钥是否
+可用。不带密钥的 provider 永远不会被询问，它的 `tsubaki_check_key` 也不会被查找，
+因此不必导出。tsubaki 只会拿非空密钥来问。
 
 密钥是字节串，不是 C 字符串：它不以 NUL 结尾，里面可以有 NUL 字节，长度只有
 `length` 这一个来源。`tsubaki_checksum_file` 收到的是同一个字节串；忽略密钥的
@@ -279,7 +289,8 @@ provider 条目又先于文件列表认领 token。
 
 从 2.1.3 起，tsubaki 对向下兼容作出适度承诺：2.x 期间，上面这些符号的名称、签名与
 含义保持不变，两个结构体的布局保持不变，所以对着 2.1.3 编译的模块能继续加载。新增
-能力沿用可选符号那一套——模块不导出就不启用该能力，不会因此加载失败。算法名字的
+能力沿用可选符号那一套——模块不导出就不启用该能力，不会因此加载失败。放宽也走同一
+方向：原本必需的符号可以变成可选，因为按旧契约编译的模块本来就导出了它。算法名字的
 含义同理不变：输出必须改变的算法要换新名字。
 
 这不是形式化保证：跨架构、跨调用约定、跨 glibc 代的构建不在承诺范围内，违反上述
@@ -308,7 +319,10 @@ tsubaki 自己的整合决定（见[额外的命令行参数](#额外的命令�
 
 ## 最小模块
 
-下面是一个完整的 32 位 FNV-1a 摘要模块，可以当作起点：
+下面是一个完整的 32 位 FNV-1a 摘要模块，可以当作起点。它没有导出
+`tsubaki_is_keyed` 和 `tsubaki_check_key`，因为 FNV-1a 不需要密钥：没有
+`tsubaki_is_keyed` 就表示不带密钥。带密钥的算法要导出它并返回 `true`，此时还必须
+一并导出 `tsubaki_check_key`。
 
 ```cpp
 #include "dynamic_provider_header.hpp"
@@ -330,10 +344,6 @@ extern "C"
                "Note:       Example from the Tsubaki-Next docs.\n"
                "Origin:     https://github.com/Lawrence-Charland/Tsubaki-Next";
     }
-
-    bool tsubaki_is_keyed() noexcept { return false; }
-
-    bool tsubaki_check_key(const char *, std::size_t) noexcept { return true; }
 
     tsubaki_checksum_result tsubaki_checksum_file(const char *path,
                                                   const char *,

@@ -270,7 +270,9 @@ the argument script, build requirements, compatibility — is
 `algorithm::dynamic` is a sentinel, not a table row: `mapper` has no entry for
 it, so `alg_to_str()` would throw and the name shown in the report comes from
 the provider instead. `dpf_instance` (`include/dpframework.hpp`) does
-the loading:
+the loading, and its constructor is private: `dpf_instance::ins()` is the only
+way in, and it builds the object on first use and hands out the same one after
+that.
 
 - The constructor splits `TSUBAKI_DYNAMIC_PROVIDER_PATHS` on `:`, drops empty
   segments, and walks each one with `dirscanner`, so the scan is recursive and
@@ -282,12 +284,13 @@ the loading:
   whose answer is checked against `str_to_alg()`. A module reporting a built-in
   name is refused at that point, before the other symbols are looked up, so a
   `.so` cannot shadow `sha256` even when it loads first. What survives gets
-  `dlsym()` for the remaining required `tsubaki_*` symbols declared in
-  `include/dynamic_provider_header.hpp`, plus the optional
-  `tsubaki_algo_info()`: if that lookup fails the pointer becomes
-  `no_algo_info()`, which is what `algo` prints instead. `provider_msg` records how far that
-  got; anything but `success` is printed and dropped. The handle is never
-  closed, so a module lives as long as the process.
+  `dlsym()` for every other symbol; when one the header lists as optional is
+  missing, the pointer becomes a default shim in the same file
+  (`no_algo_info()`, `not_keyed()`, `fake_check_key()`, `dont_need_args()`), so
+  the rest of the program calls one function either way. Which symbols are
+  required is the header's business, not this section's. `provider_msg` records
+  how far that got; anything but `success` is printed and dropped. The handle is
+  never closed, so a module lives as long as the process.
 - `provider_mapper` is keyed by the name the module reports and filled with
   `emplace()`, so a duplicate keeps whichever module claimed the name first —
   the environment variable's order, then the walk order inside each directory.
@@ -326,13 +329,17 @@ the loading:
   appends the positionals it does not understand to the internal `sum` command
   line as they are, so `verify -u alg name -L 128` reaches the provider.
 
-`checksum_api` holds its `dpf_instance` as `inline static`, so the process scans
-once, when the first `checksum_api` is constructed, and every later one reuses
-that map: `sum` and `verify` share a single scan even though `verify` builds two
-`checksum_api` objects (its own and the one inside the internal `sum`), and
-`cmp` builds none, so it never scans. `list_algorithm()` and
-`get_completion()` in `src/help.cpp` are the exception: `--algorithm` and
-`--completions` each construct a local `dpf_instance` of their own.
+`dpf_instance::ins()` hands out one function-local static, so the scan starts at
+the first caller and every later one reuses the same map: `sum` and `verify`
+share a single scan even though `verify` builds two `checksum_api` objects (its
+own and the one inside the internal `sum`), and `-a` and `-C` reuse it too
+instead of building one of their own. That is also why a loader failure is
+printed once per module and not once per lookup, and why `--help`, `--version`
+and `cmp` — which never need a provider — never touch
+`TSUBAKI_DYNAMIC_PROVIDER_PATHS`. A member rather than a namespace-scope object
+is what makes this safe: the scan calls `str_to_alg()`, which reads `mapper` in
+`include/checksum.hpp`, and a lazily built static cannot run before that vector
+is initialized.
 `set_algo()` tries `str_to_alg()` before `find_provider()`, so name lookup
 cannot reach a provider for a built-in name either. For a provider,
 `keyed()` asks `tsubaki_is_keyed()`, `set_key()` asks `tsubaki_check_key()`
@@ -536,7 +543,7 @@ time (UTC+8) so the printed time does not depend on the build host's zone.
 | `tsubaki::work_result` | class | — | value snapshot returned by `run()`, with `print()`; it holds no reference to the manager |
 | `tsubaki::checksum_api` | class | — | resolves a literal algorithm name, holds the key, answers `hashing()` / `keyed()` / `name()`, declares a provider's extra arguments through `check_args()`, and routes `calc()` to the digest path, the MAC path or a provider |
 | `tsubaki::checksum_error` | enum class | — | why a `checksum_api` is unusable: `none`, `unknown_algorithm`, `missing_key`, `invalid_key` |
-| `tsubaki::dpf_instance` | class | — | scans `TSUBAKI_DYNAMIC_PROVIDER_PATHS` once at construction and maps provider names to loaded modules |
+| `tsubaki::dpf_instance` | class | — | `ins()` builds the one instance on first use; scanning `TSUBAKI_DYNAMIC_PROVIDER_PATHS` there maps provider names to loaded modules |
 | `tsubaki::provider` | struct | — | one `dlopen`ed module: its handle, the symbols resolved so far, and the `provider_msg` of the step that stopped it |
 | `tsubaki::provider_msg` | enum class | — | `success`, `dlopen_fail`, `dlsym_fail`, `refused` or `unknown`: how far a module got |
 | `tsubaki::task_token` | struct | — | the path a worker processes plus the checksum read from the listing, empty outside rescan mode |
@@ -566,7 +573,7 @@ time (UTC+8) so the printed time does not depend on the build host's zone.
 | `src/checksum.cpp` | the OpenSSL side: `digest_for()`, `mac_for()`, `stream_file()`, `checksum_file()` and `checksum_file_key()` |
 | `include/checksum_api.hpp`, `src/checksum_api.cpp` | `checksum_error` and `checksum_api`: name resolution, key handling, provider argument declaration through `check_args()`, `calc()` routing |
 | `include/dpframework.hpp`, `src/dpframework.cpp` | `provider_msg`, `provider` (one `dlopen`/`dlsym` load) and `dpf_instance` (the environment scan) |
-| `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: four required `extern "C"` symbols, an optional `tsubaki_algo_info()`, and an optional trio that declares extra command-line arguments |
+| `include/dynamic_provider_header.hpp` | the ABI a provider compiles against: the exported symbols and the two structures; [PROVIDER-ABI.md](PROVIDER-ABI.md) says which are optional |
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |
