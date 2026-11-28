@@ -23,9 +23,9 @@
 
 程序本体只提供 20 种内建算法——10 种摘要加 10 种密钥哈希，名单见
 [算法](docs/USAGE.zh-cn.md#算法)。不够用时不必改代码：算法可以由 provider 补上，
-一个 provider 就是一个 `.so`，一个 `.so` 提供一个算法，所在目录写进
-`TSUBAKI_DYNAMIC_PROVIDER_PATHS` 之后就能当算法名用（详见
-[动态算法](docs/USAGE.zh-cn.md#动态算法)）。
+一个 provider 就是一个模块（POSIX 上是 `.so`，Windows 上是 `.dll`），一个模块
+提供一个算法，所在目录写进 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 之后就能当算法名用
+（详见[动态算法](docs/USAGE.zh-cn.md#动态算法)）。
 
 现成的 provider 在本项目的附属工程
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)：
@@ -81,10 +81,15 @@ tsubaki cmp old.txt new.txt          # 比较两份清单，差异打到 stdout
 | macOS 12+ | `macos-debug`、`macos-release` | Xcode 16+，Apple 工具链，自动找 Homebrew 的 `openssl@3` |
 | FreeBSD 13+ | `freebsd-debug`、`freebsd-release` | 系统 clang；`pkg install openssl3` |
 | 其它 POSIX（NetBSD、OpenBSD、Solaris 等） | `posix-debug`、`posix-release` | 要 OpenSSL 3.0+，LibreSSL 不行 |
-| 原生 Windows | — | 不支持，也不打算支持；用 WSL 或 Cygwin |
+| Windows 10+ | `windows-x86_64-debug`、`windows-x86_64-release` | 在 Linux 上交叉编译，需要 MinGW-w64 和对应目标的静态 libcrypto |
 
 另有 `linux-clang-debug`，唯一的非 GCC Linux 预设，用来看编译器警告。
 `linux-gcc-san` 在 Debug 构建上开着 ASan 和 UBSan，只用于本机跑。
+
+两个 Windows 预设从 POSIX 宿主交叉编译，需要 `x86_64-w64-mingw32-g++`，以及
+`scripts/build-static-openssl.sh <版本> windows-x86_64` 写到
+`res/openssl-static-for-tsubaki-windows-x86_64` 的 `libcrypto.a`。不提供 Windows
+预编译二进制；交叉构建时运行时是静态链接的，exe 只依赖系统 DLL。
 
 ## 文档
 
@@ -99,7 +104,7 @@ tsubaki cmp old.txt new.txt          # 比较两份清单，差异打到 stdout
 
 旧版用 C++17 和 OpenSSL，一个二进制里装着三种模式——计算校验和、查找重复文件、
 比较两份结果，仓库现已归档。重写后模式变成子命令，清单变成能回喂的中间产物，
-算法从编译期列表变成可加载的 `.so`。
+算法从编译期列表变成可加载的模块。
 
 也有取舍：去重模式不再单列，重复文件从 `cmp` 的 `[D]` 分组看；按大小过滤、
 `--test` 预演、`--balance` 排序没有保留；纯路径列表要写成 `<NONE> <路径>` 或

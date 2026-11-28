@@ -207,7 +207,8 @@ int algo_info_core(argparser::ap_instance &cmdline)
                   << std::endl;
         return TSUBAKI_INVALID_OPERATION;
     }
-    std::cout << "Source:     " << from_fs_path(find_pro.display_path) << std::endl;
+    std::cout << "Source:     " << from_fs_path(find_pro.display_path)
+              << std::endl;
     std::cout << find_pro.algo_info() << std::endl;
     if (!find_pro.need_args())
         return TSUBAKI_SUCCESS;

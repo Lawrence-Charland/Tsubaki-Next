@@ -46,8 +46,8 @@ dirscanner::dirscanner(const std::filesystem::path &dir,
         }
         if (ec)
         {
-            errors.emplace_back(ec,
-                                "checking whether " + from_fs_path(it) + " exists");
+            errors.emplace_back(
+                ec, "checking whether " + from_fs_path(it) + " exists");
             continue;
         }
         excludes.push_back(it);
@@ -65,7 +65,8 @@ bool dirscanner::find_excludes()
         if (equivalent(ex, current, ec))
             return true;
         if (ec)
-            errors.emplace_back(ec, "checking whether " + from_fs_path(current) +
+            errors.emplace_back(ec, "checking whether " +
+                                        from_fs_path(current) +
                                         " matches exclude " + from_fs_path(ex));
     }
     return false;

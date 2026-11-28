@@ -6,8 +6,8 @@
 #include "cmdline.hpp"
 #include "core_functions.hpp"
 #include "exit_codes.hpp"
-#include "utilities.hpp"
 #include "help.hpp"
+#include "utilities.hpp"
 
 #include <filesystem>
 #include <iostream>

@@ -66,7 +66,11 @@ Options (sum only):
   -l<file>, --list=<file>     read a "<checksum> <path>" listing (repeatable)
   -s, --follow-symlinks       follow directory symlinks
   -f, --force-rescan          recompute listed checksums
-
+)HELP"
+#if defined(_WIN32)
+    "      --crlf                  write the output file with CRLF line endings\n"
+#endif
+    R"HELP(
 Options (cmp only):
   -c, --canonical             compare canonical paths
   -o<file>, --output=<file>   output file, "-" for stdout (the default)

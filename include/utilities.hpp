@@ -25,8 +25,7 @@ void trim_str(std::string &target);
 std::vector<std::string> get_env_arr(const std::string &env_name,
                                      char separator);
 
-// The program speaks UTF-8 internally; the Windows filesystem speaks UTF-16.
-// Every conversion between the two goes through these two functions.
+// The only two places UTF-8 text and filesystem paths are exchanged.
 std::filesystem::path to_fs_path(const std::string &text);
 
 std::string from_fs_path(const std::filesystem::path &p);

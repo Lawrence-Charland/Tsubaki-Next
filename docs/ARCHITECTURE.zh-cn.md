@@ -234,14 +234,16 @@ OpenSSL 的调用都在 `src/checksum.cpp`：`digest_for()` 把普通摘要映�
 （`include/dpframework.hpp`）里，构造函数是私有的：唯一的入口是
 `dpf_instance::ins()`，它在首次调用时构造对象，之后一直交出同一个。
 
-- 构造函数按 `:` 切分 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，丢掉空段，然后用
-  `dirscanner` 逐个遍历，所以扫描是递归的，且不跟随指向目录的软链接。路径不存在或
-  不是目录时 `dirscanner` 抛 `std::invalid_argument`，构造函数按路径接住、打印并继续。
-- 后缀恰好是 `.so` 的文件才会变成 `provider`：先 `dlopen()`（`RTLD_NOW |
-  RTLD_LOCAL`），再 `dlsym()` 取 `tsubaki_provider_name()`，拿它自报的名字去问
+- 构造函数按 `:`（Windows 上是 `;`）切分 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，
+  丢掉空段，然后用 `dirscanner` 逐个遍历，所以扫描是递归的，且不跟随指向目录的
+  软链接。路径不存在或不是目录时 `dirscanner` 抛 `std::invalid_argument`，
+  构造函数按路径接住、打印并继续。
+- 后缀是 `.so`（Windows 上是 `.dll`）的文件才会变成 `provider`：先 `dlopen()`
+  （`RTLD_NOW | RTLD_LOCAL`）或者 `LoadLibraryW()`，再用 `dlsym()` 或
+  `GetProcAddress()` 取 `tsubaki_provider_name()`，拿它自报的名字去问
   `str_to_alg()`。自报的名字若是内建算法，就在这一步被拒掉，其余符号根本不会去查，
-  所以即使这个 `.so` 先被加载，也抢不走 `sha256`。活下来的模块继续为其余下的每个
-  符号 `dlsym()`；头文件里标为可选的符号缺失时，指针换成同一文件里的默认函数
+  所以即使这个模块先被加载，也抢不走 `sha256`。活下来的模块继续解析其余下的每个
+  符号；头文件里标为可选的符号缺失时，指针换成同一文件里的默认函数
   （`no_algo_info()`、`not_keyed()`、`fake_check_key()`、`dont_need_args()`），
   之后无论哪种情况程序调的都是同一个函数。哪些符号必需由头文件决定，不在这一节。
   `provider_msg` 记下走到哪一步；只要不是 `success` 就打印出来并丢弃。句柄永不
@@ -411,11 +413,12 @@ tsubaki sum sha256 . -e build -l old.txt
 ## 构建系统
 
 `CMakeLists.txt` 接受 CMake 3.10，`CMakePresets.json` 要求 3.28；README 里写的是
-预设那条路，3.10 这个下限只在手工配置时才用得上。目标只支持 POSIX：源码用到
-`dlfcn.h`（动态 provider）、`unistd.h` 和 `fcntl.h`（读文件）、`pthread.h`
-（工作线程）和 `sys/ioctl.h`（终端宽度），以及带 `O_CLOEXEC` 的
-`::open()`/`::read()`。所以原生 Windows 一配置就给出明确的 `FATAL_ERROR`，
-Cygwin 能通过。OpenSSL 的下限是 3.0，因为 `EVP_MAC` 和
+预设那条路，3.10 这个下限只在手工配置时才用得上。POSIX 调用都收在 `_WIN32` 分支
+后面：`dlfcn.h` 换成 `LoadLibraryW`/`GetProcAddress`，`unistd.h` 和 `fcntl.h`
+换成带 `_O_BINARY` 的 `_wopen`/`_read`/`_close`，`sys/ioctl.h` 换成
+`GetConsoleScreenBufferInfo`。`wmain` 拿到 UTF-16 命令行后转成 UTF-8，程序内部
+一律用 UTF-8；路径只在文件系统边界上转回 UTF-16，清单里的路径在所有平台上都写成
+正斜杠。OpenSSL 的下限是 3.0，因为 `EVP_MAC` 和
 `<openssl/core_names.h>` 是无条件使用的；`FindOpenSSL` 找到 LibreSSL 时会直接
 报错，而不是拖到第一个 include 才失败。macOS 需要 Xcode 16 及以上，因为 libc++
 从那一版起才提供 `std::expected`。

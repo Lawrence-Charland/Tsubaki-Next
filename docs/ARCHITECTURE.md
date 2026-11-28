@@ -273,17 +273,18 @@ the loading, and its constructor is private: `dpf_instance::ins()` is the only
 way in, and it builds the object on first use and hands out the same one after
 that.
 
-- The constructor splits `TSUBAKI_DYNAMIC_PROVIDER_PATHS` on `:`, drops empty
-  segments, and walks each one with `dirscanner`, so the scan is recursive and
-  does not follow symlinked directories. `dirscanner` rejects a path that does
+- The constructor splits `TSUBAKI_DYNAMIC_PROVIDER_PATHS` on `:` (`;` on
+  Windows), drops empty segments, and walks each one with `dirscanner`, so the
+  scan is recursive and does not follow symlinked directories. `dirscanner` rejects a path that does
   not exist or is not a directory with `std::invalid_argument`; the constructor
   catches it per path, prints it and moves on.
-- Every file whose extension is exactly `.so` becomes a `provider`: `dlopen()`
-  with `RTLD_NOW | RTLD_LOCAL`, then `dlsym()` for `tsubaki_provider_name()`,
-  whose answer is checked against `str_to_alg()`. A module reporting a built-in
-  name is refused at that point, before the other symbols are looked up, so a
-  `.so` cannot shadow `sha256` even when it loads first. What survives gets
-  `dlsym()` for every other symbol; when one the header lists as optional is
+- Every file whose extension is `.so` (`.dll` on Windows) becomes a `provider`:
+  `dlopen()` with `RTLD_NOW | RTLD_LOCAL`, or `LoadLibraryW()`, then `dlsym()`
+  or `GetProcAddress()` for `tsubaki_provider_name()`, whose answer is checked
+  against `str_to_alg()`. A module reporting a built-in name is refused at that
+  point, before the other symbols are looked up, so a module cannot shadow
+  `sha256` even when it loads first. What survives gets resolved for every other
+  symbol; when one the header lists as optional is
   missing, the pointer becomes a default shim in the same file
   (`no_algo_info()`, `not_keyed()`, `fake_check_key()`, `dont_need_args()`), so
   the rest of the program calls one function either way. Which symbols are
@@ -489,11 +490,13 @@ sorts it twice and writes the sections; no task stream or worker is involved.
 
 `CMakeLists.txt` accepts CMake 3.10 and `CMakePresets.json` requires 3.28; the
 presets are what the README documents, and the older floor only matters when
-configuring by hand. The target is POSIX-only: the sources include `dlfcn.h`
-(dynamic providers), `unistd.h` and `fcntl.h` (file reads), `pthread.h`
-(workers) and `sys/ioctl.h` (terminal width), and use `::open()`/`::read()` with
-`O_CLOEXEC`. A native Windows configure therefore stops immediately with an
-explicit `FATAL_ERROR`, while Cygwin passes. OpenSSL 3.0 is the floor because
+configuring by hand. The POSIX calls sit behind `_WIN32` branches: `dlfcn.h`
+becomes `LoadLibraryW`/`GetProcAddress`, `unistd.h` and `fcntl.h` become
+`_wopen`/`_read`/`_close` with `_O_BINARY`, and `sys/ioctl.h` becomes
+`GetConsoleScreenBufferInfo`. `wmain` takes the UTF-16 command line and converts
+it to UTF-8, the encoding used everywhere inside; a path crosses back to UTF-16
+only at the filesystem boundary, and a manifest path is written with forward
+slashes on every platform. OpenSSL 3.0 is the floor because
 `EVP_MAC` and `<openssl/core_names.h>` are used unconditionally, and a LibreSSL
 `FindOpenSSL` result is rejected with a message instead of failing at the first
 include. macOS needs Xcode 16 or newer, because libc++ provides `std::expected`

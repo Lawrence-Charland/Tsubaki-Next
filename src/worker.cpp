@@ -53,7 +53,8 @@ void work_result::print(std::ostream &os, bool in_details)
             {
                 os << "#\n# Changed files:" << std::endl;
                 for (auto &files : changed)
-                    os << "# " << shown_name(from_fs_path(files.p)) << std::endl;
+                    os << "# " << shown_name(from_fs_path(files.p))
+                       << std::endl;
                 os << "#\n";
             }
         }
@@ -64,7 +65,8 @@ void work_result::print(std::ostream &os, bool in_details)
             {
                 os << "#\n# Unsure files:" << std::endl;
                 for (auto &files : unsure)
-                    os << "# " << shown_name(from_fs_path(files.p)) << std::endl;
+                    os << "# " << shown_name(from_fs_path(files.p))
+                       << std::endl;
                 os << "#\n";
             }
         }

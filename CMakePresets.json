@@ -127,6 +127,33 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+
+    {
+      "name": "windows-x86_64-debug",
+      "displayName": "Windows x86_64 Debug (cross, MinGW-w64)",
+      "description": "Cross build from a POSIX host. Needs x86_64-w64-mingw32-g++ and the libcrypto that scripts/build-static-openssl.sh windows-x86_64 produces.",
+      "inherits": "base",
+      "condition": { "type": "not", "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" } },
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Windows",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
+        "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki-windows-x86_64"
+      }
+    },
+    {
+      "name": "windows-x86_64-release",
+      "displayName": "Windows x86_64 Release (cross, MinGW-w64)",
+      "description": "Cross build from a POSIX host. Needs x86_64-w64-mingw32-g++ and the libcrypto that scripts/build-static-openssl.sh windows-x86_64 produces.",
+      "inherits": "base",
+      "condition": { "type": "not", "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" } },
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Windows",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
+        "OPENSSL_ROOT_DIR": "${sourceDir}/res/openssl-static-for-tsubaki-windows-x86_64"
+      }
     }
   ],
   "buildPresets": [
@@ -193,6 +220,16 @@
           "list": ["Linux", "Windows", "Darwin", "FreeBSD"]
         }
       }
+    },
+    {
+      "name": "windows-x86_64-debug",
+      "configurePreset": "windows-x86_64-debug",
+      "condition": { "type": "not", "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" } }
+    },
+    {
+      "name": "windows-x86_64-release",
+      "configurePreset": "windows-x86_64-release",
+      "condition": { "type": "not", "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" } }
     }
   ]
 }

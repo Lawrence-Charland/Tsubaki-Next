@@ -2,8 +2,9 @@
 
 [中文](PROVIDER-ABI.zh-cn.md)
 
-Tsubaki loads algorithms that are not built in from shared objects. This
-document is the contract such a module has to keep: what it exports, what may
+Tsubaki loads algorithms that are not built in from shared modules (`.so` on
+POSIX, `.dll` on Windows). This document is the contract such a module has to
+keep: what it exports, what may
 cross the boundary, how a digest and a failure are reported, how extra
 command-line arguments are declared, what a build has to look like, and what
 stability is promised in return.
@@ -155,8 +156,8 @@ provider's own business to reject through `tsubaki_check_key`.
 
 `tsubaki_provider_name` returns a non-null, stable string. It must not name a
 built-in algorithm: while loading, tsubaki compares it against its own list and
-refuses the module there, before resolving the other symbols, so a `.so` cannot
-shadow `sha256`.
+refuses the module there, before resolving the other symbols, so a module
+cannot shadow `sha256`.
 
 The name is the contract. A manifest records the name and nothing else about the
 algorithm, so a digest whose length or meaning changes needs a new name, not a
@@ -167,8 +168,8 @@ new version of the old one — keeping the name means keeping the old output.
 `tsubaki_algo_info` is optional at the ABI level; without the symbol,
 `tsubaki algo` prints "No information provided." By policy, though, every
 published provider exports it and uses it to say where the module comes from — a
-project page, a repository or a URL — so that a user handed a `.so` can tell what
-it is before running it.
+project page, a repository or a URL — so that a user handed a module can tell
+what it is before running it.
 
 A module that exports it returns a static, human-readable description in the same
 shape the built-in algorithms use:
@@ -316,21 +317,25 @@ in `tsubaki_take_args` and return a message (exit 64).
 
 ## Building a module
 
-- C++23, compiled as a position-independent (`-fPIC`) shared object, for the
-  same architecture and calling convention as tsubaki, against
-  `dynamic_provider_header.hpp`.
+- C++23, compiled as a position-independent (`-fPIC`) shared object for the same
+  architecture and calling convention as tsubaki, against
+  `dynamic_provider_header.hpp`. On Windows the same sources build as a `.dll`
+  with `-shared`; no `dllexport` is needed, because MinGW exports every
+  `extern "C"` symbol.
 - The module is self-contained: tsubaki exports no symbols to it and hands it no
   runtime to borrow. A statically linked tsubaki still loads modules through the
-  system C library, so the module has to be built against the same glibc
-  generation tsubaki was linked with.
-- One project may emit several `.so` files, one per algorithm name, sharing the
+  system C library, so on POSIX the module has to be built against the same
+  glibc generation tsubaki was linked with. The Windows build is statically
+  linked too, and a module there only has to match the UCRT the system ships.
+- One project may emit several modules, one per algorithm name, sharing the
   header and the file loop. Put each in a directory listed in
-  `TSUBAKI_DYNAMIC_PROVIDER_PATHS`; the walk is recursive and only files whose
-  extension is exactly `.so` are loaded, so `libx.so.1` is skipped.
+  `TSUBAKI_DYNAMIC_PROVIDER_PATHS`, which is `:` separated on POSIX and `;` on
+  Windows; the walk is recursive and only files whose extension matches are
+  loaded, so `libx.so.1` is skipped.
 
 ## How the loader treats a module
 
-- A path that is not a readable directory, a `.so` that cannot be loaded, or a
+- A path that is not a readable directory, a module that cannot be loaded, or a
   missing symbol each prints one `Error:` line on stderr and is skipped; none of
   them changes the exit status.
 - A module reporting a built-in name is refused at load, before the remaining

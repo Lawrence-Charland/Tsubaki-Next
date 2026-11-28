@@ -30,10 +30,10 @@ superset: what is missing is listed under
 
 The program itself ships 20 built-in algorithms — 10 digests and 10 keyed
 hashes; the list is under [Algorithms](docs/USAGE.md#algorithms). More do not
-need a code change: a provider supplies them, one `.so` per provider and one
-algorithm per `.so`, and a directory listed in
-`TSUBAKI_DYNAMIC_PROVIDER_PATHS` makes its names usable as algorithm names (see
-[Dynamic algorithms](docs/USAGE.md#dynamic-algorithms)).
+need a code change: a provider supplies them, one module per provider and one
+algorithm per module (`.so` on POSIX, `.dll` on Windows), and a directory
+listed in `TSUBAKI_DYNAMIC_PROVIDER_PATHS` makes its names usable as algorithm
+names (see [Dynamic algorithms](docs/USAGE.md#dynamic-algorithms)).
 
 Ready-made providers live in the companion project
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers):
@@ -97,11 +97,18 @@ arguments until the next switch, `-e` and `-l` especially.
 | macOS 12+ | `macos-debug`, `macos-release` | Xcode 16+, Apple toolchain, Homebrew's `openssl@3` found automatically |
 | FreeBSD 13+ | `freebsd-debug`, `freebsd-release` | base clang; `pkg install openssl3` |
 | other POSIX (NetBSD, OpenBSD, Solaris, ...) | `posix-debug`, `posix-release` | needs OpenSSL 3.0+; LibreSSL has no `EVP_MAC` |
-| native Windows | — | not supported and not planned; use WSL or Cygwin |
+| Windows 10+ | `windows-x86_64-debug`, `windows-x86_64-release` | cross-built from Linux with MinGW-w64; needs a static libcrypto for the target |
 
 `linux-clang-debug` is the single non-GCC Linux preset, kept as a second opinion
 on compiler warnings. `linux-gcc-san` adds AddressSanitizer and
 UndefinedBehaviorSanitizer to the Debug build for local runs.
+
+The two Windows presets cross-compile from a POSIX host and need
+`x86_64-w64-mingw32-g++` plus the `libcrypto.a` that
+`scripts/build-static-openssl.sh <version> windows-x86_64` writes to
+`res/openssl-static-for-tsubaki-windows-x86_64`. There is no prebuilt Windows
+binary; the cross build links the runtime statically, so the exe needs only the
+system DLLs.
 
 ## Documentation
 
@@ -120,7 +127,7 @@ The original was written in C++17 against OpenSSL and packed three modes into
 one binary — computing checksums, finding duplicates, and comparing two result
 files; that repository is now archived. The rewrite turned modes into
 subcommands, the manifest into an intermediate that can be fed back, and
-algorithms from a compile-time list into loadable `.so` modules.
+algorithms from a compile-time list into loadable modules.
 
 Some things were dropped: there is no separate deduplication mode — duplicates
 surface through `cmp`'s `[D]` groups; size filtering, `--test` dry runs and

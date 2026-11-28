@@ -86,8 +86,7 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                     std::cerr << chk_args.value() << std::endl;
                     std::cerr << "The argument requirement belongs to \""
                               << api.name() << "\". You can try \"" << program
-                              << " algo " << api.name() << "\"."
-                              << std::endl;
+                              << " algo " << api.name() << "\"." << std::endl;
                     return TSUBAKI_INVALID_OPERATION;
                 }
             }
@@ -133,7 +132,8 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
                     std::istream *is_key = &std::cin;
                     if (!from_stdin)
                     {
-                        ifs_key_file.open(key_file_cont.at(0));
+                        ifs_key_file.open(key_file_cont.at(0),
+                                          std::ios::binary);
                         is_key = &ifs_key_file;
                     }
                     auto key_read = get_file_content(
@@ -208,10 +208,23 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
         {
             auto &content = cmdline.entry(cmdline_entry::output).content;
             if (content.empty() || content.at(0) == "-")
+            {
                 out = &std::cout;
+#if defined(_WIN32)
+                if (cmdline.entry(cmdline_entry::crlf).repetition)
+                    std::cerr << "Warning: --crlf has no effect when the "
+                                 "output is stdout."
+                              << std::endl;
+#endif
+            }
             else
             {
-                fout.open(content.at(0));
+#if defined(_WIN32)
+                if (cmdline.entry(cmdline_entry::crlf).repetition)
+                    fout.open(content.at(0));
+                else
+#endif
+                    fout.open(content.at(0), std::ios::binary);
                 if (!fout.good())
                 {
                     std::cerr << "Error: cannot open \"" + content.at(0) +

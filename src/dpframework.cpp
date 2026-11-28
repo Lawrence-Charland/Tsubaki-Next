@@ -7,8 +7,6 @@
 #include "dirscanner.hpp"
 #include "utilities.hpp"
 
-#include <algorithm>
-#include <cctype>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -19,6 +17,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <algorithm>
+#include <cctype>
 #include <windows.h>
 #else
 #include <dlfcn.h>
@@ -49,8 +49,7 @@ void *find_symbol(void *module, const char *name)
 }
 #endif
 
-// Windows filesystems are case insensitive, and the extension arrives with the
-// case it was created with; elsewhere the match stays exact.
+// Windows filesystems are case insensitive; elsewhere the match stays exact.
 bool has_provider_extension(const std::filesystem::path &p)
 {
 #if defined(_WIN32)
@@ -172,7 +171,8 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
 
 dpf_instance::dpf_instance()
 {
-    search_paths = get_env_arr(TSUBAKI_PROVIDERS_ENV_NAME, search_path_separator);
+    search_paths =
+        get_env_arr(TSUBAKI_PROVIDERS_ENV_NAME, search_path_separator);
     for (auto &path : search_paths)
     {
         try
@@ -186,27 +186,28 @@ dpf_instance::dpf_instance()
                 if (!has_provider_extension(target.value().p))
                     continue;
                 provider so_open(target.value().p);
+                const std::string shown =
+                    from_fs_path(target.value().p);
                 switch (so_open.error)
                 {
                 case provider_msg::success:
                     provider_mapper.emplace(so_open.name(), std::move(so_open));
                     break;
                 case provider_msg::dlopen_fail:
-                    std::cerr << "Error: dlopen failed for \""
-                              << from_fs_path(target.value().p) << "\"" << std::endl;
+                    std::cerr << "Error: dlopen failed for \"" << shown
+                              << "\"" << std::endl;
                     break;
                 case provider_msg::dlsym_fail:
-                    std::cerr << "Error: dlsym failed for \""
-                              << from_fs_path(target.value().p) << "\"" << std::endl;
+                    std::cerr << "Error: dlsym failed for \"" << shown
+                              << "\"" << std::endl;
                     break;
                 case provider_msg::refused:
-                    std::cerr << "Error: refused to load \""
-                              << from_fs_path(target.value().p) << "\"" << std::endl;
+                    std::cerr << "Error: refused to load \"" << shown << "\""
+                              << std::endl;
                     break;
                 default:
-                    std::cerr << "Error: failed to load provider \""
-                              << from_fs_path(target.value().p) << "\"."
-                              << std::endl;
+                    std::cerr << "Error: failed to load provider \"" << shown
+                              << "\"." << std::endl;
                     break;
                 }
             }

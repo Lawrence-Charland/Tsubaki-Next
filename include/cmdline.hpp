@@ -51,7 +51,8 @@ namespace tsubaki
     X(use_algo)                                                                \
     X(to_compare)                                                              \
     X(canonical)                                                               \
-    X(algo_to_info)
+    X(algo_to_info)                                                            \
+    X(crlf)
 
 namespace cmdline_group
 {
@@ -100,9 +101,11 @@ static inline void error_prompt(std::ostream &os, ap_instance &cmdline,
         }() << std::endl;
     }
     if (hint)
-        os << "Try '"
-           << from_fs_path(to_fs_path(std::string(cmdline.argv_zero())).filename())
-           << " --help' for more information." << std::endl;
+    {
+        const std::string self = from_fs_path(
+            to_fs_path(std::string(cmdline.argv_zero())).filename());
+        os << "Try '" << self << " --help' for more information." << std::endl;
+    }
 }
 
 static inline ap_instance def_args()
@@ -237,6 +240,18 @@ static inline ap_instance def_args()
                     {ap_defkey::max_repetition,"1"},
                 }
             ),
+            #if defined (_WIN32)
+            ap_entry(
+                cmdline_entry::crlf,
+                ap_type::flag,
+                {
+                    {ap_defkey::group, cmdline_group::sum},
+                    {ap_defkey::explanations,"--crlf"},
+                    {ap_defkey::long_name,"crlf"},
+                    {ap_defkey::max_repetition,"1"},
+                }
+            ),
+            #endif
             ap_entry( // Handled in src/sum_core.cpp
                 cmdline_entry::excludes,
                 ap_type::option,

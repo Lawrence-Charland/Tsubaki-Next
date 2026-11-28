@@ -122,9 +122,10 @@ accepts can be read off the module itself.
 
 ### Dynamic algorithms
 
-An algorithm that is not built in can come from a shared object. List the
-directories in `TSUBAKI_DYNAMIC_PROVIDER_PATHS`, separated by `:`; each one is
-walked recursively and every file whose extension is exactly `.so` is loaded
+An algorithm that is not built in can come from a shared module: `.so` on
+POSIX, `.dll` on Windows. List the directories in
+`TSUBAKI_DYNAMIC_PROVIDER_PATHS`, separated by `:` (`;` on Windows); each one is
+walked recursively and every file whose extension matches is loaded
 (`libx.so.1` is skipped). Empty segments are ignored.
 
 Ready-made providers live in
@@ -152,7 +153,7 @@ answer, so it tells you what the module claims, not whether it can be trusted.
 - **Where the name works.** Everywhere an algorithm name is accepted, `verify`
   `-u` included. A built-in name always wins: a module that reports one is
   refused while it loads, with an error naming the file, and never reaches the
-  table, so a `.so` cannot shadow `sha256`.
+  table, so a module cannot shadow `sha256`.
 - **Keys.** A keyed provider is asked for a key like any built-in keyed
   algorithm (`needs a key`, exit status 64).
 - **Extra command-line arguments.** An algorithm that needs more than a file
@@ -165,7 +166,7 @@ answer, so it tells you what the module claims, not whether it can be trusted.
   it, and `verify` cannot infer it. Rechecking means writing the same parameters
   again on the `verify` command line; leaving them out or changing them makes the
   module hash with other settings, and every entry then reads as changed.
-- **What goes wrong.** A path that is not a readable directory, a `.so` that
+- **What goes wrong.** A path that is not a readable directory, a module that
   cannot be loaded, a missing symbol: each prints one `Error:` line on stderr
   and is skipped, and none of them changes the exit status. Modules stay loaded
   for the life of the process; nothing unloads them.
@@ -205,6 +206,7 @@ the modules that take no arguments come first.
 | `-K<file>`, `--key-file=<file>` | read the key from `<file>` (`-` for stdin), byte for byte; ignored by plain digests                                                                                   |
 | `-T`, `--text`                  | read the key file (or `-K -` stdin) as text: CRLF folds to LF, the trailing line ending goes, a lone CR stays; ignored by plain digests                               |
 | `-o<file>`, `--output=<file>`   | write results to `<file>`, created or truncated, instead of stdout; `-` is stdout and the default                                                                     |
+| `--crlf` (sum only, Windows)    | write the output file with CRLF line endings instead of LF; ignored when the output is stdout                                                                         |
 | `-u<algo>`, `--use-algo=<algo>` | verify with `<algo>` instead of the listing's `Algorithm:` header (verify only)                                                                                       |
 | `-c`, `--canonical`             | make both paths absolute, resolve symlinks and normalize separators before comparing (cmp only)                                                                       |
 | `-e<path>`, `--exclude=<path>`  | skip `<path>` and everything below it when walking a directory; repeatable                                                                                            |
@@ -573,7 +575,8 @@ well. Such a stream can block or never end; see Interrupt. A socket cannot be
 read, so naming one is an error. A directory walk, by contrast, yields regular
 files only: a device, a FIFO or a socket met while walking is skipped without
 so much as an error entry, and `sum sha256 ~` therefore cannot stall on a pipe
-somebody left behind.
+somebody left behind. Windows has no `/dev`, so those names are ordinary paths
+there, and a named pipe is opened like any other path.
 
 Duplicate entries are not merged: the same path named twice is processed twice.
 
@@ -591,7 +594,14 @@ a `# tsubaki checksum result` header, then one line per file:
 ```
 
 The two fields are separated by two spaces, as in a coreutils listing; a `*`
-binary marker is accepted on input but never written.
+binary marker is accepted on input but never written. Paths are written as
+UTF-8 and always use `/` as the separator: on Windows a native `\` becomes `/`,
+the way coreutils writes a path there, so one listing reads the same on both
+platforms.
+
+The line ending is LF on every platform. On Windows only, `sum --crlf` asks for
+CRLF instead, and then only for a file named with `-o`: results on stdout stay
+LF, because what happens to them after that is the shell's business.
 
 (`cmp` writes `# tsubaki comparison result` and its own sections instead; see
 [Comparing](#comparing).)

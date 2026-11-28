@@ -110,9 +110,10 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 
 ### 动态算法
 
-不在内建清单里的算法可以由动态库（shared object）提供。把目录写进
-`TSUBAKI_DYNAMIC_PROVIDER_PATHS`，用 `:` 分隔；每个目录会被递归遍历，扩展名恰好是
-`.so` 的文件才会被加载（`libx.so.1` 会被跳过）。空段直接忽略。
+不在内建清单里的算法可以由动态库提供：POSIX 上是 `.so`，Windows 上是 `.dll`。
+把目录写进 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`，用 `:` 分隔（Windows 上是 `;`）；
+每个目录会被递归遍历，扩展名匹配的文件才会被加载（`libx.so.1` 会被跳过）。空段
+直接忽略。
 
 现成的 provider 在
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
@@ -134,7 +135,7 @@ tsubaki algo blake3         # 宽度、密钥、说明，以及它将占用的�
 
 - **名字能用在哪。** 所有接受算法名的地方，包括 `verify` 的 `-u`。内建名字永远
   优先：模块自报的名字若是内建算法，加载时就被拒掉并打印出文件名，根本进不了表，
-  所以 `.so` 抢不走 `sha256`。
+  所以模块抢不走 `sha256`。
 - **密钥。** 带密钥的 provider 索取密钥的方式与内建密钥算法一致（`needs a key`，
   退出码 64）。
 - **额外的命令行参数。** 需要文件之外参数的算法可以自己声明开关，`tsubaki
@@ -144,7 +145,7 @@ algo <名字>` 会把说明这些开关的脚本原样打印出来。开关写�
   字母。清单只记算法名，不记这些参数：`-L 128` 不会写进清单，`verify` 也不会从
   清单推断出来。复核得在命令行上原样再给一遍；漏给或给错，模块就按默认值另算
   一份，所有条目都会变成 changed。
-- **出错会怎样。** 路径不是可读目录、某个 `.so` 加载不了、少了符号：各打一行
+- **出错会怎样。** 路径不是可读目录、某个模块加载不了、少了符号：各打一行
   `Error:` 到 stderr 然后跳过，都不改变退出码。模块与进程同寿，没有任何地方会卸载
   它们。
 
@@ -180,6 +181,7 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 | `-K<file>`, `--key-file=<file>` | 从 `<file>` 读密钥（`-` 表示 stdin），字节原样；普通算法忽略                                                                              |
 | `-T`, `--text`                  | 把密钥文件（或 `-K -` 的 stdin）当文本读：CRLF 折成 LF、尾部行尾去掉，孤立 CR 保留；普通算法忽略                                          |
 | `-o<file>`, `--output=<file>`   | 结果写入 `<file>`（新建或截断），而不是 stdout；`-` 就是 stdout，也是默认值                                                      |
+| `--crlf`（仅 Windows 的 `sum`） | 输出文件用 CRLF 换行而不是 LF；输出到 stdout 时无效                                                                                       |
 | `-u<algo>`, `--use-algo=<algo>` | 用 `<algo>` 校验，而不是清单里的 `Algorithm:` 头（仅 `verify`）                                                                           |
 | `-c`, `--canonical`             | 比较前把两边路径变成绝对路径、解析软链接并规整分隔符，仅 `cmp` 使用                                                                       |
 | `-e<path>`, `--exclude=<path>`  | 遍历目录时跳过 `<path>` 及其下所有内容，可重复。                                                                                          |
@@ -482,7 +484,8 @@ coreutils 用两个空格、或空格加 `*`（`sha256sum --binary` 的二进制
 的是空内容，`/dev/stdin` 算管道送来的东西，进程替换的 `/dev/fd/N` 也能用。这类流
 可能阻塞或者永远不结束，见“中断”。socket 读不出内容，显式给出就是错误。目录遍历
 则相反，只交出普通文件：遍历中遇到的设备、FIFO 或 socket 会被静默跳过，连一条错误
-都不记，所以 `sum sha256 ~` 不会卡在别人留下的管道上。
+都不记，所以 `sum sha256 ~` 不会卡在别人留下的管道上。Windows 上没有 `/dev`，那些
+名字在那里就是普通路径，命名管道也按普通路径打开。
 
 路径不做去重：同一个路径写两次就处理两次。
 
@@ -499,7 +502,12 @@ coreutils 用两个空格、或空格加 `*`（`sha256sum --binary` 的二进制
 ```
 
 两个字段之间是两个空格，与 coreutils 清单一致；`*` 二进制标记只在输入时接受，
-永远不会写出来。
+永远不会写出来。路径一律以 UTF-8 写出，目录分隔符一律是 `/`：Windows 上原生的
+`\` 会换成 `/`，与 coreutils 在 Windows 上的写法一致，所以同一份清单在两个平台
+上读起来一样。
+
+换行在所有平台上都是 LF。只有 Windows 构建提供 `sum --crlf`，而且只作用于 `-o`
+指定的文件；输出到 stdout 时仍然是 LF，因为之后的字节由 shell 决定。
 
 （`cmp` 写的是 `# tsubaki comparison result` 和它自己的各节，见
 [比较](#比较)。）

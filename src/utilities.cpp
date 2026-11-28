@@ -48,44 +48,14 @@ void trim_str(std::string &target)
         target.end());
 }
 
-#if defined(_WIN32)
-namespace
-{
-std::string wide_to_utf8(const wchar_t *text)
-{
-    if (text == nullptr)
-        return {};
-    const int length = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0,
-                                           nullptr, nullptr);
-    if (length <= 1)
-        return {};
-    std::string result(static_cast<std::size_t>(length - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text, -1, result.data(), length - 1,
-                        nullptr, nullptr);
-    return result;
-}
-
-std::wstring utf8_to_wide(const std::string &text)
-{
-    if (text.empty())
-        return {};
-    const int length =
-        MultiByteToWideChar(CP_UTF8, 0, text.c_str(),
-                            static_cast<int>(text.size()), nullptr, 0);
-    if (length <= 0)
-        return {};
-    std::wstring result(static_cast<std::size_t>(length), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(),
-                        static_cast<int>(text.size()), result.data(), length);
-    return result;
-}
-} // namespace
-#endif
-
+// The program speaks UTF-8, Windows keeps paths as UTF-16. POSIX names are
+// bytes, so they are not run through the UTF-8 constructor.
 std::filesystem::path to_fs_path(const std::string &text)
 {
 #if defined(_WIN32)
-    return std::filesystem::path(utf8_to_wide(text));
+    return std::filesystem::path(
+        std::u8string(reinterpret_cast<const char8_t *>(text.data()),
+                      text.size()));
 #else
     return std::filesystem::path(text);
 #endif
@@ -94,20 +64,25 @@ std::filesystem::path to_fs_path(const std::string &text)
 std::string from_fs_path(const std::filesystem::path &p)
 {
 #if defined(_WIN32)
-    return wide_to_utf8(p.wstring().c_str());
+    // Generic separators, as coreutils writes them on Windows.
+    const std::u8string text = p.generic_u8string();
+    return std::string(reinterpret_cast<const char *>(text.data()),
+                       text.size());
 #else
     return p.string();
 #endif
 }
-
 
 std::vector<std::string> get_env_arr(const std::string &env_name,
                                      char separator)
 {
     std::vector<std::string> result;
 #if defined(_WIN32)
-    const std::wstring wide_name = utf8_to_wide(env_name);
-    const std::string value = wide_to_utf8(_wgetenv(wide_name.c_str()));
+    // Names here are literals, so a plain widening is enough.
+    const std::wstring wide_name(env_name.begin(), env_name.end());
+    const wchar_t *raw = _wgetenv(wide_name.c_str());
+    const std::string value = raw ? from_fs_path(std::filesystem::path(raw))
+                                  : std::string();
 #else
     const char *raw = std::getenv(env_name.c_str());
     const std::string value = raw ? raw : "";
@@ -231,15 +206,7 @@ std::optional<task_token> parse_line(const std::string &line)
 void write_line(const std::string &sum, const std::filesystem::path &p,
                 std::ostream &os)
 {
-    // Manifest paths keep forward slashes on every platform, the way coreutils
-    // writes them on Windows, so a listing is readable by both.
-#if defined(_WIN32)
-    const std::u8string generic = p.generic_u8string();
-    const std::string name(reinterpret_cast<const char *>(generic.data()),
-                           generic.size());
-#else
-    const std::string name = p.string();
-#endif
+    const std::string name = from_fs_path(p);
     if (name.find_first_of("\n\r\\") != std::string::npos)
     {
         // Escaped: a leading backslash marks the line.

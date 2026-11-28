@@ -9,6 +9,7 @@
 #include "dpframework.hpp"
 #include "dynamic_provider_header.hpp"
 #include "exit_codes.hpp"
+#include "utilities.hpp"
 
 #include <expected>
 #include <iostream>
@@ -166,7 +167,8 @@ checksum_api::calc(const std::filesystem::path &target) const
     if (pro.implement == nullptr)
         return std::unexpected(
             std::make_error_code(std::errc::operation_not_supported));
-    auto result = pro.implement(target.c_str(), key.c_str(), key.size());
+    auto result =
+        pro.implement(from_fs_path(target).c_str(), key.c_str(), key.size());
     auto ec = std::make_error_code(static_cast<std::errc>(result.errcode));
     if (ec)
         return std::unexpected(ec);
