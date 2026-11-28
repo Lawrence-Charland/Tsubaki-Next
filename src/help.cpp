@@ -16,6 +16,7 @@
 #include <openssl/crypto.h>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 #include <utility>
@@ -23,7 +24,7 @@
 
 namespace tsubaki
 {
-const std::string help_body =
+const constexpr std::string_view help_body =
     R"HELP(Tsubaki-Next {version} - Generate, verify and compare checksum manifests
 
 Usage:
@@ -113,8 +114,8 @@ std::string replace_placeholder(const std::string &body, const std::string &key,
 void print_help(std::ostream &os, const std::string &program)
 {
     os << replace_placeholder(
-        replace_placeholder(help_body, "{program}", program), "{version}",
-        version);
+        replace_placeholder(std::string(help_body), "{program}", program),
+        "{version}", version);
 }
 
 void list_algorithm(std::ostream &os)
