@@ -68,7 +68,8 @@ Options (sum only):
   -f, --force-rescan          recompute listed checksums
 )HELP"
 #if defined(_WIN32)
-    "      --crlf                  write the output file with CRLF line endings\n"
+    "      --crlf                  write the output file with CRLF line "
+    "endings\n"
 #endif
     R"HELP(
 Options (cmp only):
@@ -180,81 +181,86 @@ std::string get_compiler_info()
 #endif
 }
 
-void show_version(std::ostream &os)
+namespace
 {
-    // First line stays machine-parseable: "<name> <version>".
-    os << "Tsubaki " << version << '\n';
-
-#if defined(TSUBAKI_GIT_COMMIT)
-    const std::string commit = TSUBAKI_GIT_COMMIT;
-#else
-    const std::string commit = "unknown";
-#endif
-
-    std::string config;
-#if defined(NDEBUG)
-    config = "release";
-#else
-    config = "debug";
-#endif
-#if defined(__OPTIMIZE__)
-    config += ", optimized";
-#else
-    config += ", unoptimized";
-#endif
-
-    std::string cxxstd;
-#if __cplusplus >= 202302L
-    cxxstd = "C++23";
-#elif __cplusplus >= 202002L
-    cxxstd = "C++20";
-#elif __cplusplus >= 201703L
-    cxxstd = "C++17";
-#else
-    cxxstd = "C++" + std::to_string(__cplusplus);
-#endif
-
-    std::string platform;
+std::string platform_prober()
+{
+    std::string result;
 #if defined(__APPLE__)
-    platform = "macOS";
+    result = "macOS";
 #elif defined(__linux__)
-    platform = "Linux";
+    result = "Linux";
 #elif defined(__FreeBSD__)
-    platform = "FreeBSD";
+    result = "FreeBSD";
+#elif defined(__NetBSD__)
+    result = "NetBSD";
+#elif defined(__OpenBSD__)
+    result = "OpenBSD";
+#elif defined(__DragonFly__)
+    result = "DragonFly";
+#elif defined(__illumos__)
+    result = "illumos";
+#elif defined(__sun)
+    result = "Solaris";
+#elif defined(__CYGWIN__)
+    result = "Cygwin";
 #elif defined(_WIN32)
-    platform = "Windows";
+    result = "Windows";
 #else
-    platform = "Unknown OS";
+    result = "Unknown OS";
 #endif
-    platform += " (";
+    result += " (";
 #if defined(__x86_64__) || defined(_M_X64)
-    platform += "x86_64";
+    result += "x86_64";
 #elif defined(__aarch64__) || defined(_M_ARM64)
-    platform += "arm64";
-#elif defined(__i386__) || defined(_M_IX86)
-    platform += "x86";
-#elif defined(__arm__) || defined(_M_ARM)
-    platform += "arm";
+#if defined(__APPLE__) || defined(_WIN32)
+    result += "arm64";
 #else
-    platform += "unknown arch";
+    result += "aarch64";
+#endif
+#elif defined(__riscv) && defined(__riscv_xlen) && __riscv_xlen == 64
+    result += "riscv64";
+#elif defined(__loongarch64) ||                                                \
+    (defined(__loongarch__) && defined(__loongarch_lp64))
+    result += "loongarch64";
+#elif defined(__powerpc64__) && defined(__BYTE_ORDER__) &&                     \
+    __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    result += "ppc64le";
+#elif defined(__powerpc64__) && defined(__BYTE_ORDER__) &&                     \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    result += "ppc64";
+#elif defined(__i386__) || defined(_M_IX86)
+    result += "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+#if (defined(__ARM_ARCH) && __ARM_ARCH >= 7) || defined(_M_ARM)
+    result += "armv7l";
+#else
+    result += "arm";
+#endif
+#else
+    result += "unknown arch";
 #endif
 #if defined(__GLIBC__)
-    platform += ", glibc " + std::to_string(__GLIBC__) + '.' +
-                std::to_string(__GLIBC_MINOR__);
-#elif defined(__MUSL__)
-    platform += ", musl";
+    result += ", glibc " + std::to_string(__GLIBC__) + '.' +
+              std::to_string(__GLIBC_MINOR__);
+#elif defined(__linux__) && !defined(__ANDROID__) && !defined(__UCLIBC__)
+    // musl defines no self-identifying macro; glibc-free Linux is musl here.
+    result += ", musl";
 #endif
-    platform += ')';
+    result += ')';
+    return result;
+}
 
-    // Runtime CPU dispatch underlies checksum throughput, so report it.
-    std::string features;
+std::string cpu_feature_prober()
+{
+    std::string result;
 #if (defined(__x86_64__) || defined(__i386__)) &&                              \
     (defined(__GNUC__) || defined(__clang__))
-    const auto add = [&features](const char *name)
+    const auto add = [&result](const char *name)
     {
-        if (!features.empty())
-            features += ' ';
-        features += name;
+        if (!result.empty())
+            result += ' ';
+        result += name;
     };
     // __builtin_cpu_supports() only accepts string literals.
     if (__builtin_cpu_supports("aes"))
@@ -266,28 +272,88 @@ void show_version(std::ostream &os)
     if (__builtin_cpu_supports("avx512f"))
         add("avx512f");
 #endif
-    if (features.empty())
-        features = "not reported";
+    if (result.empty())
+        result = "not reported";
+    return result;
+}
 
-    std::string openssl;
-#if defined(OPENSSL_FULL_VERSION_STRING)
-    openssl = OpenSSL_version(OPENSSL_FULL_VERSION_STRING);
+std::string cxxstd_prober()
+{
+    std::string result;
+#if __cplusplus >= 202302L
+    result = "C++23";
+#elif __cplusplus >= 202002L
+    result = "C++20";
+#elif __cplusplus >= 201703L
+    result = "C++17";
 #else
-    openssl = OpenSSL_version(OPENSSL_VERSION_STRING);
+    result = "C++" + std::to_string(__cplusplus);
 #endif
+    return result;
+}
 
-    os << "     Commit:         " << commit << std::endl;
-    os << "     C++ Standard:   " << cxxstd << std::endl;
+std::string build_config_prober()
+{
+    std::string result;
+#if defined(NDEBUG)
+    result = "release";
+#else
+    result = "debug";
+#endif
+#if defined(__OPTIMIZE__)
+    result += ", optimized";
+#else
+    result += ", unoptimized";
+#endif
+    return result;
+}
+
+std::string openssl_ver_prober()
+{
+    std::string result;
+#if defined(OPENSSL_FULL_VERSION_STRING)
+    result = OpenSSL_version(OPENSSL_FULL_VERSION_STRING);
+#else
+    result = OpenSSL_version(OPENSSL_VERSION_STRING);
+#endif
+    return result;
+}
+
+std::string build_time_prober()
+{
+#if defined(TSUBAKI_BUILD_TIMESTAMP)
+    std::string result = TSUBAKI_BUILD_TIMESTAMP;
+#else
+    std::string result = "unknown";
+#endif
+    return result;
+}
+
+std::string commit_prober()
+{
+#if defined(TSUBAKI_GIT_COMMIT)
+    const std::string result = TSUBAKI_GIT_COMMIT;
+#else
+    const std::string result = "unknown";
+#endif
+    return result;
+}
+} // namespace
+
+void show_version(std::ostream &os)
+{
+    // First line stays machine-parseable: "<name> <version>".
+    os << "Tsubaki " << version << '\n';
+    os << "     Commit:         " << commit_prober() << std::endl;
+    os << "     C++ Standard:   " << cxxstd_prober() << std::endl;
     os << "     Compiler:       " << get_compiler_info() << std::endl;
-    os << "     Build config:   " << config << std::endl;
-    os << "     OpenSSL:        " << openssl << std::endl;
-    os << "     Platform:       " << platform << std::endl;
-    os << "     CPU features:   " << features << std::endl;
+    os << "     Build config:   " << build_config_prober() << std::endl;
+    os << "     OpenSSL:        " << openssl_ver_prober() << std::endl;
+    os << "     Platform:       " << platform_prober() << std::endl;
+    os << "     CPU features:   " << cpu_feature_prober() << std::endl;
     os << "     CPU threads:    "
        << std::to_string(std::thread::hardware_concurrency()) << std::endl;
-#if defined(TSUBAKI_BUILD_TIMESTAMP)
-    os << "     Build time:     " << TSUBAKI_BUILD_TIMESTAMP << std::endl;
-#endif
+    os << "     Build time:     " << build_time_prober() << std::endl;
     os << "     License:        GPL-2.0-only" << std::endl;
     os << "     Homepage:       "
           "https://github.com/Lawrence-Charland/Tsubaki-Next"

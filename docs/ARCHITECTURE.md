@@ -579,5 +579,5 @@ time (UTC+8) so the printed time does not depend on the build host's zone.
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` and `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | string helpers, key reading, comment lookup, terminal width, fd guard |
 | `include/cmdline.hpp` | argument entry definitions |
-| `include/help.hpp`, `src/help.cpp` | help text, the `--algorithm` table and the completion word list |
+| `include/help.hpp`, `src/help.cpp` | help text, the `--algorithm` table, the completion word list and the `--version` output |
 | `LC-ArgParser` (fetched) | standalone argument parser, compiled in as a source file |

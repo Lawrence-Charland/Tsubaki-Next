@@ -17,6 +17,7 @@ Tsubaki-Next 的运行手册：四个子命令、全部选项、它读写的校�
   - [校验](#校验)
   - [比较](#比较)
   - [Shell 补全](#shell-补全)
+  - [版本输出](#版本输出)
 - [输入](#输入)
 - [输出](#输出)
   - [报告字段](#报告字段)
@@ -176,7 +177,7 @@ cshake128          NO     YES         /home/user/lib/tsubaki/cshake128.so
 | 选项                            | 含义                                                                                                                                      |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `-h`, `--help`                  | 打印帮助后退出                                                                                                                            |
-| `-V`, `--version`               | 打印版本后退出                                                                                                                            |
+| `-V`, `--version`               | 打印版本后退出，格式见[版本输出](#版本输出)                                                                                               |
 | `-a`, `--algorithm`             | 打印算法列表、每个是否带密钥、provider 是否接受额外参数，以及它来自哪个模块，然后退出                                                     |
 | `-C`, `--completions`           | 打印一行供 shell 补全用的词表，然后退出；不需要子命令                                                                                     |
 | `-v`, `--verbose`               | 在 stderr 上显示实时进度                                                                                                                  |
@@ -424,6 +425,23 @@ compdef _tsubaki tsubaki
 表里没有的东西：`--verify`（内部开关），以及任何位置上下文——它就是一张平表，
 在每个位置都全量给出。子命令名也在表里，所以在选项之后同样会补出来；`--text` 和
 `--thread` 这种共享前缀的词，要按第二次 `<TAB>` 才会列出来。
+
+### 版本输出
+
+`-V`（或 `--version`）不需要子命令，也不碰任何文件。要解析的是第一行
+`<名称> <版本>`，例如 `Tsubaki 2.3.0`；其余各行是 `键: 值` 形式的构建诊断信息：
+`Commit`、`C++ Standard`、`Compiler`、`Build config`、`OpenSSL`、`Platform`、
+`CPU features`、`CPU threads`、`Build time`、`License` 和 `Homepage`。
+
+这些键名和[报告字段](#报告字段)一样是固定的：不改名、不删除、不换含义，新键可以
+加到块里。键的顺序属于排版而不是承诺，有固定位置的只有第一行。`Platform` 写成
+`<系统> (<架构>[, libc])`。在受支持的平台上，系统是 `macOS`、`Linux`、`FreeBSD`、
+`NetBSD`、`OpenBSD`、`DragonFly`、`illumos`、`Solaris`、`Cygwin`、`Windows`
+之一；架构沿用发行包的命名，即 `x86_64`、`aarch64`、`armv7l`、`riscv64`、
+`loongarch64`、`ppc64le`，只有 macOS 和 Windows 上叫 `arm64`。glibc 构建追加
+`glibc <主>.<次>`，不带 glibc 的 Linux 构建追加 `musl`。`CPU features` 列出与
+哈希相关的 x86 分派标志（`aes`、`avx2`、`sha`、`avx512f`）；编译器没法询问 CPU
+时写成 `not reported`。
 
 ## 输入
 

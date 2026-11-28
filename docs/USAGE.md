@@ -18,6 +18,7 @@ of the project are in the [README](../README.md).
   - [Verifying](#verifying)
   - [Comparing](#comparing)
   - [Shell completion](#shell-completion)
+  - [Version output](#version-output)
 - [Inputs](#inputs)
 - [Output](#output)
   - [Report keys](#report-keys)
@@ -203,7 +204,7 @@ the modules that take no arguments come first.
 | Option                          | Meaning                                                                                                                                                               |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-h`, `--help`                  | print help and exit                                                                                                                                                   |
-| `-V`, `--version`               | print the version and exit                                                                                                                                            |
+| `-V`, `--version`               | print the version and exit, in the form described under [Version output](#version-output)                                                                             |
 | `-a`, `--algorithm`             | print the algorithms, whether each one is keyed, whether a provider takes extra arguments, and for a provider the module it came from, then exit; needs no subcommand |
 | `-C`, `--completions`           | print words for shell completion, then exit; needs no subcommand                                                                                                      |
 | `-v`, `--verbose`               | live progress indicator on stderr                                                                                                                                     |
@@ -498,6 +499,28 @@ context, because this is one flat list offered at every position. Subcommand
 names are in it too, so they also complete once an option has started the
 line. Prefixes shared by several words, such as `--text` and `--thread`,
 insert nothing until a second `<TAB>` lists them.
+
+### Version output
+
+`-V` (or `--version`) needs no subcommand and no files. The first line,
+`<name> <version>`, is the part to parse; for example `Tsubaki 2.3.0`. What
+follows is a block of `Key: value` lines for diagnosing a build: `Commit`,
+`C++ Standard`, `Compiler`, `Build config`, `OpenSSL`, `Platform`,
+`CPU features`, `CPU threads`, `Build time`, `License` and `Homepage`.
+
+Those key names are fixed in the same way as the [report
+keys](#report-keys): they are not renamed, removed or given another meaning,
+and new keys may be added to the block. Their order is formatting rather than
+contract, and only the first line has a fixed position. `Platform` reads
+`<system> (<architecture>[, libc])`. On the supported platforms the system is
+one of `macOS`, `Linux`, `FreeBSD`, `NetBSD`, `OpenBSD`, `DragonFly`,
+`illumos`, `Solaris`, `Cygwin` or `Windows`, and the architecture carries the
+release artifact name — `x86_64`, `aarch64`, `armv7l`, `riscv64`,
+`loongarch64`, `ppc64le` — except `arm64` on macOS and Windows. A glibc build
+appends `glibc <major>.<minor>`, a Linux build without glibc appends `musl`.
+`CPU features` lists the x86 dispatch flags that matter to hashing (`aes`,
+`avx2`, `sha`, `avx512f`); where the compiler cannot ask the CPU, it reads
+`not reported`.
 
 ## Inputs
 

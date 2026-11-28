@@ -249,10 +249,19 @@ def test_subcommands_and_exit_codes(h: Harness, root: Path) -> None:
     name = "--help and --version need no subcommand"
     r_help = h.run("--help")
     r_ver = h.run("--version")
-    if r_help.rc == 0 and r_ver.rc == 0:
+    m = re.search(r"^\s+Platform:\s+(.+)$", r_ver.out, re.MULTILINE)
+    platform = m.group(1).strip() if m else ""
+    first = r_ver.out.splitlines()[0] if r_ver.out else ""
+    known_os = ("macOS", "Linux", "FreeBSD", "NetBSD", "OpenBSD", "DragonFly",
+                "illumos", "Solaris", "Cygwin", "Windows")
+    if (r_help.rc == 0 and r_ver.rc == 0
+            and re.fullmatch(r"Tsubaki \S+", first)
+            and platform.startswith(known_os) and "unknown" not in platform):
         h.ok("13", name)
     else:
-        h.bad("13", name, f"help={r_help.rc} version={r_ver.rc}")
+        h.bad("13", name,
+              f"help={r_help.rc} version={r_ver.rc} first={first!r} "
+              f"platform={platform!r}")
 
     name = "invalid argument: the thread count is not an integer, exit 64"
     r = h.sum("sha256", "--thread=x")

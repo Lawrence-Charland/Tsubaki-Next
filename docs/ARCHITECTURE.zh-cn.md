@@ -492,5 +492,5 @@ FreeBSD 和其它 POSIX 预设则交给系统默认编译器。`linux-gcc-san` �
 | `include/worker.hpp`, `src/worker.cpp` | `work_result` 与 `work_manager` |
 | `include/utilities.hpp`, `src/utilities.cpp` | 字符串工具、密钥读取、注释查找、终端宽度、fd 守卫 |
 | `include/cmdline.hpp` | 参数条目定义 |
-| `include/help.hpp`, `src/help.cpp` | 帮助文本、`--algorithm` 表格与补全词表 |
+| `include/help.hpp`, `src/help.cpp` | 帮助文本、`--algorithm` 表格、补全词表与 `--version` 输出 |
 | `LC-ArgParser`（拉取） | 独立的参数解析库，作为源文件编入 |
