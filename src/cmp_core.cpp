@@ -6,6 +6,7 @@
 #include "core_functions.hpp"
 #include "exit_codes.hpp"
 #include "listscanner.hpp"
+#include "utilities.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -42,7 +43,7 @@ struct cmp_entry
             input = &std::cin;                                                 \
         else                                                                   \
         {                                                                      \
-            ifs_input.open(path(SRC));                                         \
+            ifs_input.open(to_fs_path(SRC));                                   \
             if (!ifs_input.good())                                             \
             {                                                                  \
                 std::cerr << "Error: cannot read file list \"" << (SRC)        \
@@ -59,11 +60,11 @@ struct cmp_entry
             {                                                                  \
                 errors.emplace_back(                                           \
                     std::make_error_code(std::errc::invalid_argument),         \
-                    "empty checksum of \"" + token->p.string() + "\"");        \
+                    "empty checksum of \"" + from_fs_path(token->p) + "\"");   \
                 continue;                                                      \
             }                                                                  \
             cmp_entry entry;                                                   \
-            entry.shown = token->p.string();                                   \
+            entry.shown = from_fs_path(token->p);                              \
             entry.p = token->p;                                                \
             if (_canonical)                                                    \
             {                                                                  \
@@ -114,7 +115,7 @@ int cmp_main(argparser::ap_instance &cmdline)
                 output = &std::cout;
             else
             {
-                path output_filepath = path(content.at(0));
+                path output_filepath = to_fs_path(content.at(0));
                 // Both lists are read after the sink is opened, so an output
                 // naming either of them would truncate it first.
                 for (const std::string *src : {&L_src, &R_src})
@@ -122,7 +123,7 @@ int cmp_main(argparser::ap_instance &cmdline)
                     if (*src == "-")
                         continue;
                     std::error_code ec;
-                    if (equivalent(path(*src), output_filepath, ec))
+                    if (equivalent(to_fs_path(*src), output_filepath, ec))
                     {
                         std::cerr << "Error: the output file must not be one "
                                      "of the input files."
@@ -134,12 +135,14 @@ int cmp_main(argparser::ap_instance &cmdline)
                 if (!ofs_output.good())
                 {
                     std::cerr << "Error: cannot write to \""
-                              << output_filepath.string() << "\"." << std::endl;
+                              << from_fs_path(output_filepath) << "\"."
+                              << std::endl;
                     return TSUBAKI_FILE_WRITE_FAILED;
                 }
                 output = &ofs_output;
                 std::cerr << "The output file will be \""
-                          << output_filepath.string() << "\"." << std::endl;
+                          << from_fs_path(output_filepath) << "\"."
+                          << std::endl;
             }
         }
         // Import the file lists
@@ -171,7 +174,7 @@ int cmp_main(argparser::ap_instance &cmdline)
                     entries.at(i).mark = 0;
                 else if (entries.at(i - 1).sum != entries.at(i).sum)
                 {
-                    std::cerr << "Error: \"" << entries.at(i).p.string()
+                    std::cerr << "Error: \"" << from_fs_path(entries.at(i).p)
                               << "\" appears in one side more than once with "
                                  "multiple checksums."
                               << std::endl;

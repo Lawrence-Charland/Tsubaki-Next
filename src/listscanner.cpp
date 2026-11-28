@@ -36,7 +36,7 @@ std::optional<task_token> listscanner::pop_raw()
         if (rescan || parsed->sum.empty())
             return parsed.value();
         std::osyncstream(os)
-            << "# Kept: " << shown_name(parsed->p.string()) << std::endl
+            << "# Kept: " << shown_name(from_fs_path(parsed->p)) << std::endl
             << line << std::endl;
     }
     if (is.fail() && !is.eof())
@@ -67,7 +67,7 @@ std::optional<task_token> listscanner::pop()
         {
             // report_error locks the mutex ( safe to call here )
             report_error(error_entry(ec, "determining the file type of " +
-                                             candidate->p.string()));
+                                             from_fs_path(candidate->p)));
             continue;
         }
         if (std::filesystem::is_regular_file(status))
@@ -76,7 +76,7 @@ std::optional<task_token> listscanner::pop()
         {
             report_error(error_entry(
                 std::make_error_code(std::errc::operation_not_permitted),
-                "calculating the checksum of " + candidate->p.string() +
+                "calculating the checksum of " + from_fs_path(candidate->p) +
                     ", which is a directory"));
             continue;
         }
@@ -84,7 +84,7 @@ std::optional<task_token> listscanner::pop()
         {
             report_error(error_entry(
                 std::make_error_code(std::errc::operation_not_permitted),
-                "calculating the checksum of " + candidate->p.string() +
+                "calculating the checksum of " + from_fs_path(candidate->p) +
                     ", which is a socket"));
             continue;
         }

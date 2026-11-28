@@ -161,7 +161,7 @@ void list_algorithm(std::ostream &os)
         os << std::setw(sw) << it.first << std::setw(kw)
            << (it.second.is_keyed() ? "YES" : "NO") << std::setw(mw)
            << (it.second.need_args() ? "YES" : "NO")
-           << it.second.display_path.string() << std::endl;
+           << from_fs_path(it.second.display_path) << std::endl;
     os << "(" << pros.size() << " dynamic algorithms loaded)" << std::endl;
 }
 
@@ -217,8 +217,10 @@ void show_version(std::ostream &os)
     platform = "Linux";
 #elif defined(__FreeBSD__)
     platform = "FreeBSD";
+#elif defined(_WIN32)
+    platform = "Windows";
 #else
-    platform = "unknown OS";
+    platform = "Unknown OS";
 #endif
     platform += " (";
 #if defined(__x86_64__) || defined(_M_X64)

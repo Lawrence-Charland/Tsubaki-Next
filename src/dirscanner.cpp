@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Lawrence Charland
 
 #include "dirscanner.hpp"
+#include "utilities.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -18,9 +19,9 @@ const path &checked_directory(const path &dir)
 {
     if (!exists(dir))
         throw std::invalid_argument("cannot access directory \"" +
-                                    dir.string() + "\"");
+                                    from_fs_path(dir) + "\"");
     if (!is_directory(dir))
-        throw std::invalid_argument("\"" + dir.string() +
+        throw std::invalid_argument("\"" + from_fs_path(dir) +
                                     "\" is not a directory");
     return dir;
 }
@@ -40,13 +41,13 @@ dirscanner::dirscanner(const std::filesystem::path &dir,
         {
             errors.emplace_back(
                 std::make_error_code(std::errc::no_such_file_or_directory),
-                "checking whether " + it.string() + " exists");
+                "checking whether " + from_fs_path(it) + " exists");
             continue;
         }
         if (ec)
         {
             errors.emplace_back(ec,
-                                "checking whether " + it.string() + " exists");
+                                "checking whether " + from_fs_path(it) + " exists");
             continue;
         }
         excludes.push_back(it);
@@ -64,8 +65,8 @@ bool dirscanner::find_excludes()
         if (equivalent(ex, current, ec))
             return true;
         if (ec)
-            errors.emplace_back(ec, "checking whether " + current.string() +
-                                        " matches exclude " + ex.string());
+            errors.emplace_back(ec, "checking whether " + from_fs_path(current) +
+                                        " matches exclude " + from_fs_path(ex));
     }
     return false;
 }
@@ -79,7 +80,7 @@ void dirscanner::skip_if_possible()
             it.disable_recursion_pending();
         if (ec)
             errors.emplace_back(ec, "checking whether " +
-                                        it->path().string() +
+                                        from_fs_path(it->path()) +
                                         " is a directory");
         it++;
     }
@@ -117,7 +118,7 @@ std::optional<task_token> dirscanner::pop()
         if (ec)
         {
             report_error(error_entry(ec, "determining the file type of " +
-                                             candidate->p.string()));
+                                             from_fs_path(candidate->p)));
             continue;
         }
         if (std::filesystem::is_regular_file(status))

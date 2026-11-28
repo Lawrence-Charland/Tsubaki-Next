@@ -10,8 +10,16 @@
 #include <istream>
 #include <iterator>
 #include <string>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <io.h>
+#include <windows.h>
+#else
 #include <sys/ioctl.h>
 #include <unistd.h>
+#endif
 #include <utility>
 #include <vector>
 
@@ -40,14 +48,72 @@ void trim_str(std::string &target)
         target.end());
 }
 
+#if defined(_WIN32)
+namespace
+{
+std::string wide_to_utf8(const wchar_t *text)
+{
+    if (text == nullptr)
+        return {};
+    const int length = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0,
+                                           nullptr, nullptr);
+    if (length <= 1)
+        return {};
+    std::string result(static_cast<std::size_t>(length - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text, -1, result.data(), length - 1,
+                        nullptr, nullptr);
+    return result;
+}
+
+std::wstring utf8_to_wide(const std::string &text)
+{
+    if (text.empty())
+        return {};
+    const int length =
+        MultiByteToWideChar(CP_UTF8, 0, text.c_str(),
+                            static_cast<int>(text.size()), nullptr, 0);
+    if (length <= 0)
+        return {};
+    std::wstring result(static_cast<std::size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(),
+                        static_cast<int>(text.size()), result.data(), length);
+    return result;
+}
+} // namespace
+#endif
+
+std::filesystem::path to_fs_path(const std::string &text)
+{
+#if defined(_WIN32)
+    return std::filesystem::path(utf8_to_wide(text));
+#else
+    return std::filesystem::path(text);
+#endif
+}
+
+std::string from_fs_path(const std::filesystem::path &p)
+{
+#if defined(_WIN32)
+    return wide_to_utf8(p.wstring().c_str());
+#else
+    return p.string();
+#endif
+}
+
+
 std::vector<std::string> get_env_arr(const std::string &env_name,
                                      char separator)
 {
     std::vector<std::string> result;
+#if defined(_WIN32)
+    const std::wstring wide_name = utf8_to_wide(env_name);
+    const std::string value = wide_to_utf8(_wgetenv(wide_name.c_str()));
+#else
     const char *raw = std::getenv(env_name.c_str());
-    if (raw == nullptr)
+    const std::string value = raw ? raw : "";
+#endif
+    if (value.empty())
         return result;
-    const std::string value(raw);
     std::string::size_type start = 0;
     while (start <= value.size())
     {
@@ -84,7 +150,8 @@ bool is_checksum(const std::string &target)
 
 namespace
 {
-// An escaped line starts with a backslash; inside, only \\, \n and \r are valid.
+// An escaped line starts with a backslash; inside, only \\, \n and \r are
+// valid.
 std::optional<std::string> unescape_name(const std::string &name)
 {
     std::string out;
@@ -157,14 +224,22 @@ std::optional<task_token> parse_line(const std::string &line)
     }
 
     if (digest == none_checksum)
-        return task_token(path);
-    return task_token(path, digest);
+        return task_token(to_fs_path(path));
+    return task_token(to_fs_path(path), digest);
 }
 
 void write_line(const std::string &sum, const std::filesystem::path &p,
                 std::ostream &os)
 {
+    // Manifest paths keep forward slashes on every platform, the way coreutils
+    // writes them on Windows, so a listing is readable by both.
+#if defined(_WIN32)
+    const std::u8string generic = p.generic_u8string();
+    const std::string name(reinterpret_cast<const char *>(generic.data()),
+                           generic.size());
+#else
     const std::string name = p.string();
+#endif
     if (name.find_first_of("\n\r\\") != std::string::npos)
     {
         // Escaped: a leading backslash marks the line.
@@ -292,10 +367,23 @@ std::string to_hex(const unsigned char *data, std::size_t len)
 
 std::size_t terminal_width(std::FILE *stream)
 {
+#if defined(_WIN32)
+    // A redirected stream has no console buffer, and the call fails there.
+    const auto handle =
+        reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(stream)));
+    if (handle == INVALID_HANDLE_VALUE)
+        return 0;
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    if (!GetConsoleScreenBufferInfo(handle, &info))
+        return 0;
+    const int width = info.srWindow.Right - info.srWindow.Left + 1;
+    return width > 0 ? static_cast<std::size_t>(width) : 0;
+#else
     winsize ws{};
     if (::ioctl(::fileno(stream), TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0)
         return 0;
     return static_cast<std::size_t>(ws.ws_col);
+#endif
 }
 
 fd_guard::fd_guard(int fd) noexcept : fd_(fd)
@@ -305,7 +393,13 @@ fd_guard::fd_guard(int fd) noexcept : fd_(fd)
 fd_guard::~fd_guard()
 {
     if (fd_ >= 0)
+    {
+#if defined(_WIN32)
+        _close(fd_);
+#else
         ::close(fd_);
+#endif
+    }
 }
 
 int fd_guard::get() const noexcept

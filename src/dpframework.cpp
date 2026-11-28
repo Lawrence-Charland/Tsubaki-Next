@@ -7,16 +7,63 @@
 #include "dirscanner.hpp"
 #include "utilities.hpp"
 
-#include <dlfcn.h>
+#include <algorithm>
+#include <cctype>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <utility>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 namespace tsubaki
 {
+namespace
+{
+#if defined(_WIN32)
+constexpr const char *provider_extension = ".dll";
+constexpr char search_path_separator = ';';
+
+void *find_symbol(void *module, const char *name)
+{
+    return reinterpret_cast<void *>(
+        GetProcAddress(static_cast<HMODULE>(module), name));
+}
+#else
+constexpr const char *provider_extension = ".so";
+constexpr char search_path_separator = ':';
+
+void *find_symbol(void *module, const char *name)
+{
+    dlerror();
+    void *found = dlsym(module, name);
+    return dlerror() ? nullptr : found;
+}
+#endif
+
+// Windows filesystems are case insensitive, and the extension arrives with the
+// case it was created with; elsewhere the match stays exact.
+bool has_provider_extension(const std::filesystem::path &p)
+{
+#if defined(_WIN32)
+    std::string extension = from_fs_path(p.extension());
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return extension == provider_extension;
+#else
+    return p.extension() == provider_extension;
+#endif
+}
+} // namespace
+
 const char *no_algo_info() noexcept
 {
     return "No information provided.";
@@ -39,15 +86,19 @@ bool fake_check_key(const char *, std::size_t) noexcept
 
 provider::provider(const std::filesystem::path &path) : display_path(path)
 {
+#if defined(_WIN32)
+    handle = LoadLibraryW(display_path.wstring().c_str());
+#else
     handle = dlopen(display_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+#endif
     if (!handle)
     {
         error = provider_msg::dlopen_fail;
         return;
     }
-    dlerror();
-    name = reinterpret_cast<decltype(name)>(dlsym(handle, TSUBAKI_SYMBOL_NAME));
-    if (const char *err = dlerror())
+    name = reinterpret_cast<decltype(name)>(
+        find_symbol(handle, TSUBAKI_SYMBOL_NAME));
+    if (!name)
     { // missing name is unacceptable
         error = provider_msg::dlsym_fail;
         return;
@@ -58,13 +109,13 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
         return;
     }
     algo_info = reinterpret_cast<decltype(algo_info)>(
-        dlsym(handle, TSUBAKI_SYMBOL_ALGO_INFO));
-    if (const char *err = dlerror())
+        find_symbol(handle, TSUBAKI_SYMBOL_ALGO_INFO));
+    if (!algo_info)
         // no info is acceptable
         algo_info = no_algo_info;
     is_keyed = reinterpret_cast<decltype(is_keyed)>(
-        dlsym(handle, TSUBAKI_SYMBOL_IS_KEYED));
-    if (const char *err = dlerror())
+        find_symbol(handle, TSUBAKI_SYMBOL_IS_KEYED));
+    if (!is_keyed)
         // default to unkeyed
         goto no_key;
     if (is_keyed() == false)
@@ -76,23 +127,23 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
     else
     {
         check_key = reinterpret_cast<decltype(check_key)>(
-            dlsym(handle, TSUBAKI_SYMBOL_CHECK_KEY));
-        if (const char *err = dlerror())
+            find_symbol(handle, TSUBAKI_SYMBOL_CHECK_KEY));
+        if (!check_key)
         { // missing ckecker is unacceptable
             error = provider_msg::dlsym_fail;
             return;
         }
     }
     implement = reinterpret_cast<decltype(implement)>(
-        dlsym(handle, TSUBAKI_SYMBOL_IMPLEMENT));
-    if (const char *err = dlerror())
+        find_symbol(handle, TSUBAKI_SYMBOL_IMPLEMENT));
+    if (!implement)
     { // no implement
         error = provider_msg::dlsym_fail;
         return;
     }
     need_args = reinterpret_cast<decltype(need_args)>(
-        dlsym(handle, TSUBAKI_SYMBOL_NEED_ARGS));
-    if (const char *err = dlerror())
+        find_symbol(handle, TSUBAKI_SYMBOL_NEED_ARGS));
+    if (!need_args)
         // default to no args
         goto no_args;
     if (need_args() == false)
@@ -103,15 +154,15 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
         return;
     }
     arg_def = reinterpret_cast<decltype(arg_def)>(
-        dlsym(handle, TSUBAKI_SYMBOL_ARGDEF));
-    if (const char *err = dlerror())
+        find_symbol(handle, TSUBAKI_SYMBOL_ARGDEF));
+    if (!arg_def)
     {
         error = provider_msg::dlsym_fail;
         return;
     }
     take_args = reinterpret_cast<decltype(take_args)>(
-        dlsym(handle, TSUBAKI_SYMBOL_TAKE_ARGS));
-    if (const char *err = dlerror())
+        find_symbol(handle, TSUBAKI_SYMBOL_TAKE_ARGS));
+    if (!take_args)
     {
         error = provider_msg::dlsym_fail;
         return;
@@ -121,18 +172,18 @@ provider::provider(const std::filesystem::path &path) : display_path(path)
 
 dpf_instance::dpf_instance()
 {
-    search_paths = get_env_arr(TSUBAKI_PROVIDERS_ENV_NAME, ':');
+    search_paths = get_env_arr(TSUBAKI_PROVIDERS_ENV_NAME, search_path_separator);
     for (auto &path : search_paths)
     {
         try
         {
-            dirscanner so_scanner(std::filesystem::path(path), {}, false);
+            dirscanner so_scanner(to_fs_path(path), {}, false);
             std::optional<task_token> target;
             while ((target = so_scanner.pop(), target))
             {
-                // Only shared objects can be providers; the directory may hold
-                // anything else.
-                if (target.value().p.extension() != ".so")
+                // Only provider modules can be loaded; the directory may
+                // hold anything else.
+                if (!has_provider_extension(target.value().p))
                     continue;
                 provider so_open(target.value().p);
                 switch (so_open.error)
@@ -142,19 +193,19 @@ dpf_instance::dpf_instance()
                     break;
                 case provider_msg::dlopen_fail:
                     std::cerr << "Error: dlopen failed for \""
-                              << target.value().p.string() << "\"" << std::endl;
+                              << from_fs_path(target.value().p) << "\"" << std::endl;
                     break;
                 case provider_msg::dlsym_fail:
                     std::cerr << "Error: dlsym failed for \""
-                              << target.value().p.string() << "\"" << std::endl;
+                              << from_fs_path(target.value().p) << "\"" << std::endl;
                     break;
                 case provider_msg::refused:
                     std::cerr << "Error: refused to load \""
-                              << target.value().p.string() << "\"" << std::endl;
+                              << from_fs_path(target.value().p) << "\"" << std::endl;
                     break;
                 default:
                     std::cerr << "Error: failed to load provider \""
-                              << target.value().p.string() << "\"."
+                              << from_fs_path(target.value().p) << "\"."
                               << std::endl;
                     break;
                 }

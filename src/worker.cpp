@@ -24,7 +24,11 @@
 #include <string>
 #include <syncstream>
 #include <thread>
+#if defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 #include <vector>
 
 namespace tsubaki
@@ -49,7 +53,7 @@ void work_result::print(std::ostream &os, bool in_details)
             {
                 os << "#\n# Changed files:" << std::endl;
                 for (auto &files : changed)
-                    os << "# " << shown_name(files.p.string()) << std::endl;
+                    os << "# " << shown_name(from_fs_path(files.p)) << std::endl;
                 os << "#\n";
             }
         }
@@ -60,7 +64,7 @@ void work_result::print(std::ostream &os, bool in_details)
             {
                 os << "#\n# Unsure files:" << std::endl;
                 for (auto &files : unsure)
-                    os << "# " << shown_name(files.p.string()) << std::endl;
+                    os << "# " << shown_name(from_fs_path(files.p)) << std::endl;
                 os << "#\n";
             }
         }
@@ -114,7 +118,11 @@ void on_interrupt(int)
         g_interrupt->store(true, std::memory_order_relaxed);
     if (int_count == 5)
     {
+#if defined(_WIN32)
+        _write(2, term_msg, strlen(term_msg));
+#else
         write(2, term_msg, strlen(term_msg));
+#endif
         _Exit(TSUBAKI_TERMINATED);
     }
 }
@@ -142,7 +150,7 @@ void work_manager::worker(bool verify)
         {
             tasks.report_error(
                 error_entry(checksum.error(), "calculating the checksum of " +
-                                                  target->p.string()));
+                                                  from_fs_path(target->p)));
             std::osyncstream out(os);
             write_line(none_sum, target->p, out);
             failed.fetch_add(1, std::memory_order_relaxed);

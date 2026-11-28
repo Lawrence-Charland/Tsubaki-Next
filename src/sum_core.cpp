@@ -37,7 +37,8 @@ int sum_main(argparser::ap_instance &cmdline, bool internal)
     if (internal)
         cmdline.evaluate(cmdline_group::sum_int);
 
-    const std::string program = path(cmdline.argv_zero()).filename().string();
+    const std::string program =
+        from_fs_path(to_fs_path(std::string(cmdline.argv_zero())).filename());
 
     // Check errors (early stage)
     if (!cmdline.fine())

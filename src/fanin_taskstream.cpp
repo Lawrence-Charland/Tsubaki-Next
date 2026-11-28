@@ -4,9 +4,7 @@
 #include "fanin_taskstream.hpp"
 #include "basic_taskstream.hpp"
 
-#include <filesystem>
 #include <mutex>
-#include <pthread.h>
 #include <utility>
 #include <vector>
 

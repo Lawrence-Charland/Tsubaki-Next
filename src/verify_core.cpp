@@ -33,7 +33,8 @@ int verify_main(argparser::ap_instance &cmdline)
     {
         std::error_code ec;
         if (input != "-" &&
-            (!exists(path(input), ec) || is_directory(path(input), ec)))
+            (!exists(to_fs_path(input), ec) ||
+             is_directory(to_fs_path(input), ec)))
         {
             std::cerr << "Error: cannot read the input file \"" << input
                       << "\"." << std::endl;
@@ -61,7 +62,7 @@ int verify_main(argparser::ap_instance &cmdline)
         }
         else
         {
-            auto get_algo = get_comment_value(path(input), "Algorithm");
+            auto get_algo = get_comment_value(to_fs_path(input), "Algorithm");
             if (!get_algo)
             {
                 std::cerr << "Error: no \"Algorithm:\" header in \"" << input
@@ -95,7 +96,7 @@ int verify_main(argparser::ap_instance &cmdline)
     if (output != "-")
     {
         std::error_code ec;
-        if (equivalent(path(input), path(output), ec))
+        if (equivalent(to_fs_path(input), to_fs_path(output), ec))
         {
             std::cerr << "Error: the output file must not be the input file."
                       << std::endl;

@@ -5,6 +5,7 @@
 #define LCPROJECTS_TSUBAKI_CMDLINE_HPP
 
 #include "argparser.hpp"
+#include "utilities.hpp"
 
 #include <filesystem>
 #include <ostream>
@@ -100,7 +101,7 @@ static inline void error_prompt(std::ostream &os, ap_instance &cmdline,
     }
     if (hint)
         os << "Try '"
-           << std::filesystem::path(cmdline.argv_zero()).filename().string()
+           << from_fs_path(to_fs_path(std::string(cmdline.argv_zero())).filename())
            << " --help' for more information." << std::endl;
 }
 

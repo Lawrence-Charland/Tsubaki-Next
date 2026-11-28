@@ -7,16 +7,11 @@ project(Tsubaki-Next VERSION 2.2.2 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
-# The sources rely on POSIX headers: dlfcn.h (dynamic providers), unistd.h and
-# fcntl.h (file reads), pthread.h (worker threads), sys/ioctl.h (terminal
-# width). Linux, macOS, the BSDs, illumos, Solaris and Cygwin all provide
-# those; native Windows does not, and is not supported.
-if(WIN32 AND NOT CYGWIN)
-    message(FATAL_ERROR
-        "Tsubaki-Next targets POSIX systems only (dlfcn.h, unistd.h, "
-        "pthread.h, sys/ioctl.h). Native Windows is not supported; build "
-        "under Cygwin or WSL instead.")
-endif()
+# The few POSIX dependencies sit behind `_WIN32` branches: dlfcn.h becomes
+# LoadLibrary/GetProcAddress, unistd.h and fcntl.h become _open/_read/_close,
+# pthread.h is only used by std::thread, and sys/ioctl.h becomes
+# GetConsoleScreenBufferInfo. Linux, macOS, the BSDs, illumos, Solaris and
+# Cygwin take the POSIX path; native Windows takes the other one.
 
 # Homebrew keeps OpenSSL outside the default search path on macOS.
 if(APPLE AND NOT DEFINED OPENSSL_ROOT_DIR)
@@ -107,15 +102,21 @@ endif()
 # `tsubaki -V` reports the build time in Beijing time (UTC+8), whatever the
 # build host's zone. Ask date for the offset too, so a host without
 # Asia/Shanghai tzdata falls back to UTC instead of mislabelling local time.
-execute_process(
-    COMMAND "${CMAKE_COMMAND}" -E env TZ=Asia/Shanghai LC_ALL=C
-            date "+%Y-%m-%dT%H:%M:%S%z"
-    OUTPUT_VARIABLE TSUBAKI_BUILD_TIMESTAMP
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-    RESULT_VARIABLE _tsubaki_date_rc)
-if(NOT _tsubaki_date_rc EQUAL 0 OR
-   NOT TSUBAKI_BUILD_TIMESTAMP MATCHES "\\+0800$")
+# Windows has no date(1) to ask, so it takes the UTC branch outright.
+set(TSUBAKI_BUILD_TIMESTAMP "")
+if(NOT WIN32)
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env TZ=Asia/Shanghai LC_ALL=C
+                date "+%Y-%m-%dT%H:%M:%S%z"
+        OUTPUT_VARIABLE _tsubaki_date
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _tsubaki_date_rc)
+    if(_tsubaki_date_rc EQUAL 0 AND _tsubaki_date MATCHES "\\+0800$")
+        set(TSUBAKI_BUILD_TIMESTAMP "${_tsubaki_date}")
+    endif()
+endif()
+if(TSUBAKI_BUILD_TIMESTAMP STREQUAL "")
     string(TIMESTAMP TSUBAKI_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
 endif()
 
@@ -139,5 +140,15 @@ target_link_libraries(tsubaki PRIVATE
     OpenSSL::Crypto
     Threads::Threads
     ${CMAKE_DL_LIBS})
+
+if(WIN32)
+    # A static OpenSSL drags these in; nothing in tsubaki calls them directly.
+    target_link_libraries(tsubaki PRIVATE ws2_32 crypt32 bcrypt)
+endif()
+
+if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # The entry point is wmain, so argv arrives as UTF-16; MinGW has to be told.
+    target_link_options(tsubaki PRIVATE -municode)
+endif()
 
 install(TARGETS tsubaki RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

@@ -6,6 +6,7 @@
 #include "cmdline.hpp"
 #include "core_functions.hpp"
 #include "exit_codes.hpp"
+#include "utilities.hpp"
 #include "help.hpp"
 
 #include <filesystem>
@@ -27,7 +28,7 @@ int tsubaki::tsubaki_entrance(const std::vector<std::string> &args)
     cmdline.pre_parse(args);
     cmdline.evaluate(cmdline_group::general);
     const std::string program =
-        std::filesystem::path(cmdline.argv_zero()).filename().string();
+        from_fs_path(to_fs_path(std::string(cmdline.argv_zero())).filename());
 
     // Help, version and list args. Shouldn't check errors.
     if (cmdline.entry(cmdline_entry::help).repetition)

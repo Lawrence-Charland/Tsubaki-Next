@@ -7,11 +7,15 @@
 #include <cerrno>
 #include <cstddef>
 #include <fcntl.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 #include <memory>
 #include <openssl/core_names.h>
 #include <openssl/evp.h>
 #include <openssl/params.h>
-#include <unistd.h>
 #include <vector>
 
 namespace
@@ -101,7 +105,16 @@ template <typename Update>
 std::expected<void, std::error_code>
 stream_file(const std::filesystem::path &path, Update &&update)
 {
+
+#if defined(_WIN32)
+    // _O_BINARY keeps CRLF translation and the 0x1A EOF rule out of the read,
+    // which would otherwise change the digest of any binary file.
+    tsubaki::fd_guard fd(_open(path.wstring().c_str(),
+                               _O_RDONLY | _O_NOINHERIT | _O_BINARY));
+#else
     tsubaki::fd_guard fd(::open(path.c_str(), O_RDONLY | O_CLOEXEC));
+#endif
+
     if (fd.get() < 0)
         return std::unexpected(std::error_code(errno, std::system_category()));
 
@@ -109,7 +122,14 @@ stream_file(const std::filesystem::path &path, Update &&update)
 
     for (;;)
     {
+
+#if defined(_WIN32)
+        const auto read_size =
+            _read(fd.get(), buffer.data(), static_cast<unsigned int>(buffer_size));
+#else
         const ssize_t read_size = ::read(fd.get(), buffer.data(), buffer_size);
+#endif
+
         if (read_size < 0)
         {
             if (errno == EINTR)
