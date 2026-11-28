@@ -47,9 +47,10 @@
 ## 快速开始
 
 预编译二进制在[发布页](https://github.com/Lawrence-Charland/Tsubaki-Next/releases)：
-目前只发布 Linux（x86_64、aarch64、armv7l、riscv64、loongarch64），静态链接、
-OpenSSL 已经编进去，解压就能用。其它平台从源码构建，需要 CMake 3.28+、C++23
-编译器、OpenSSL 3.0+ 和 Ninja：
+静态链接、OpenSSL 已经编进去，解压就能用。每个包里还带 `providers/`，里面是为
+同一个目标构建的动态 provider，把 `TSUBAKI_DYNAMIC_PROVIDER_PATHS` 指向那个
+目录就能用上。其它平台从源码构建，需要 CMake 3.28+、C++23 编译器、OpenSSL
+3.0+ 和 Ninja：
 
 ```sh
 cmake --preset linux-gcc-release

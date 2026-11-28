@@ -115,6 +115,9 @@ hmac_sha3_256  hmac_sha3_512  blake2b512_mac  blake2s256_mac
 每个目录会被递归遍历，扩展名匹配的文件才会被加载（`libx.so.1` 会被跳过）。空段
 直接忽略。
 
+发行包里的 provider 已经按目标构建好，放在二进制旁边的 `providers/` 目录，把上面
+那个变量指向它就全都有了。
+
 现成的 provider 在
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
 里，一个 CMake 工程全包：直接拉取、编译，里面的动态算法就能拿来用，具体有哪些

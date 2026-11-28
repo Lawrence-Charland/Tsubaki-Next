@@ -128,6 +128,10 @@ POSIX, `.dll` on Windows. List the directories in
 walked recursively and every file whose extension matches is loaded
 (`libx.so.1` is skipped). Empty segments are ignored.
 
+Release tarballs carry the providers already built for the target, in a
+`providers/` directory next to the binary, so pointing that variable at it is
+enough to get every one of them.
+
 Ready-made providers live in
 [Tsubaki-Sample-Providers](https://github.com/Lawrence-Charland/Tsubaki-Sample-Providers)
 as one CMake project: clone it, build it, and the dynamic algorithms it ships

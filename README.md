@@ -60,10 +60,11 @@ the [provider contract](docs/PROVIDER-ABI.md).
 
 Prebuilt binaries are on the
 [releases page](https://github.com/Lawrence-Charland/Tsubaki-Next/releases):
-Linux only so far (x86_64, aarch64, armv7l, riscv64, loongarch64), statically
-linked with OpenSSL compiled in, so you unpack and run. Every other platform
-builds from source; that needs CMake 3.28+, a C++23 compiler, OpenSSL 3.0+ and
-Ninja:
+statically linked with OpenSSL compiled in, so you unpack and run. Each
+tarball also carries the dynamic providers under `providers/`, built for the
+same target; point `TSUBAKI_DYNAMIC_PROVIDER_PATHS` at that directory to use
+them. Every other platform builds from source; that needs CMake 3.28+, a C++23
+compiler, OpenSSL 3.0+ and Ninja:
 
 ```sh
 cmake --preset linux-gcc-release
