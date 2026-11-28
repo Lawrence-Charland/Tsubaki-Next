@@ -38,8 +38,10 @@ class Harness:
         self.passed = 0
         self.failed = 0
         self.known = 0
+        self.skipped = 0
         self.failed_names: list[str] = []
         self.known_names: list[str] = []
+        self.skipped_names: list[str] = []
 
     def run(
         self,
@@ -88,6 +90,11 @@ class Harness:
         print(f"  \033[31mFAIL\033[0m  {ident}  {name}")
         if detail:
             print(f"        {detail}")
+
+    def skip(self, ident: str, name: str, reason: str) -> None:
+        self.skipped += 1
+        self.skipped_names.append(f"{ident} {name} ({reason})")
+        print(f"  \033[36mSKIP\033[0m  {ident}  {name}  ({reason})")
 
     def xpass(self, ident: str, name: str) -> None:
         self.passed += 1

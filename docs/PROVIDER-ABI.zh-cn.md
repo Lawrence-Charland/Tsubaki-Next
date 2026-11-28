@@ -267,9 +267,9 @@ provider 条目又先于文件列表认领 token。
 
 - C++23，按位置无关（`-fPIC`）编成共享对象，架构与调用约定要和 tsubaki 一致，对着
   `dynamic_provider_header.hpp` 编译。Windows 上同样的源码用 `-shared -static`
-  编成 `.dll`；`-static` 不是可选项，模块如果还导入 `libstdc++-6.dll` 或
-  `libwinpthread-1.dll`，目标机器上两者都没有，加载会失败。不需要 `dllexport`
-  ——MinGW 会把每个 `extern "C"` 符号都导出。
+  编成 `.dll`，模块自带运行时。不加 `-static` 就会导入 `libstdc++-6.dll` 和
+  `libwinpthread-1.dll`，只有在 DLL 搜索路径上有这两个文件的地方才加载得起来。
+  不需要 `dllexport`——MinGW 会把每个 `extern "C"` 符号都导出。
 - 模块必须自包含：tsubaki 不向它导出符号，也不给它可借用的运行时。静态链接的
   tsubaki 仍然通过系统 C 库加载模块，所以在 POSIX 上，模块要针对 tsubaki 链接时
   所用的同一代 glibc 构建；Windows 版同样是静态链接，模块只要对上系统自带的 UCRT。

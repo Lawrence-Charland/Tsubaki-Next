@@ -78,11 +78,11 @@ tsubaki cmp old.txt new.txt          # 比较两份清单，差异打到 stdout
 
 | 系统 | 预设 | 说明 |
 | --- | --- | --- |
-| Linux（glibc 或 musl） | `linux-gcc-debug`、`linux-gcc-release` | 唯一提供预编译二进制的平台，五个架构都支持 |
+| Linux（glibc 或 musl） | `linux-gcc-debug`、`linux-gcc-release` | 预编译包覆盖五个架构 |
 | macOS 12+ | `macos-debug`、`macos-release` | Xcode 16+，Apple 工具链，自动找 Homebrew 的 `openssl@3` |
 | FreeBSD 13+ | `freebsd-debug`、`freebsd-release` | 系统 clang；`pkg install openssl3` |
 | 其它 POSIX（NetBSD、OpenBSD、Solaris 等） | `posix-debug`、`posix-release` | 要 OpenSSL 3.0+，LibreSSL 不行 |
-| Windows 10+ | `windows-x86_64-debug`、`windows-x86_64-release` | 在 Linux 上交叉编译，需要 MinGW-w64 和对应目标的静态 libcrypto |
+| Windows 10+ | `windows-x86_64-debug`、`windows-x86_64-release` | 预编译包覆盖 x86_64；在 Linux 上交叉编译，需要 MinGW-w64 和对应目标的静态 libcrypto |
 
 另有 `linux-clang-debug`，唯一的非 GCC Linux 预设，用来看编译器警告。
 `linux-gcc-san` 在 Debug 构建上开着 ASan 和 UBSan，只用于本机跑。

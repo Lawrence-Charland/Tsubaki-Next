@@ -7,9 +7,9 @@ Every case corresponds to one promise in docs/USAGE.md, docs/ARCHITECTURE.md or
 README.md. Nothing here calls internal functions: the test feeds bytes in and
 checks the bytes that come back out.
 
-The provider ABI has its own suite in `abi.py`, because those cases build `.so`
-files and therefore need a compiler; the two share `harness.py`. `check.py`
-runs this file, `abi.py` and `differential.py` in one go.
+The provider ABI has its own suite in `abi.py`, because those cases build
+shared modules and therefore need a compiler; the two share `harness.py`.
+`check.py` runs this file, `abi.py` and `differential.py` in one go.
 
     ./tests/general.py                          # find the binary under build/
     TSUBAKI=/usr/bin/tsubaki ./tests/general.py # name the binary
@@ -37,6 +37,16 @@ from harness import (Harness, count_results, digest, field, require_binary,
                      result_lines, section, write)
 
 SHA256_HEADER = "# Algorithm:         sha256\n"
+IS_WINDOWS = os.name == "nt"
+
+
+def shown(path: object) -> str:
+    """A path the way tsubaki prints it: forward slashes everywhere."""
+    return Path(path).as_posix()
+
+
+def skip_reason(*needs: str) -> str:
+    return f"Windows has no {' or '.join(needs)}"
 
 
 # ---------------------------------------------------------------- 01-02
@@ -55,7 +65,7 @@ def test_basic(h: Harness, root: Path) -> None:
             "(subdirectory/empty file/space name/= name)")
     r = h.sum("sha256", fx)
     got = [tuple(line.split(None, 1)) for line in result_lines(r.out)]
-    want = [(digest(p), str(p)) for p in sorted(fx.rglob("*")) if p.is_file()]
+    want = [(digest(p), shown(p)) for p in sorted(fx.rglob("*")) if p.is_file()]
     if r.rc == 0 and sorted(got) == sorted(want):
         h.ok("01", name)
     else:
@@ -84,7 +94,7 @@ def test_excludes(h: Harness, root: Path) -> None:
     name = "-e /a/b does not also exclude /a/bc"
     r = h.sum("sha256", fx, "-e", fx / "b")
     if (r.rc == 0 and count_results(r.out) == 1
-            and str(fx / "bc" / "in_bc.txt") in r.out):
+            and shown(fx / "bc" / "in_bc.txt") in r.out):
         h.ok("03", name)
     else:
         h.bad("03", name, f"rc={r.rc} lines={count_results(r.out)}")
@@ -97,11 +107,11 @@ def test_lists(h: Harness, root: Path) -> None:
     fx = root / "t4"
     a = write(fx / "a.txt", b"hello\n")
     keep = root / "keep.list"
-    keep.write_text(f"{digest(a)} {a}\n", encoding="utf-8")
+    keep.write_text(f"{digest(a)} {shown(a)}\n", encoding="utf-8")
     name = "<checksum> <path> line only prints # Kept: and stays out of the counts"
     r = h.sum("sha256", "-l", keep)
     if (r.rc == 0 and field(r.out, "Processed") == "0"
-            and f"# Kept: {a}" in r.out):
+            and f"# Kept: {shown(a)}" in r.out):
         h.ok("04", name)
     else:
         h.bad("04", name, f"rc={r.rc} processed={field(r.out, 'Processed')}")
@@ -290,7 +300,7 @@ def test_key_files(h: Harness, root: Path) -> None:
     key_lf = root / "key-lf"
     key_lf.write_text("secret\n", encoding="utf-8")
     key_crlf = root / "key-crlf"
-    key_crlf.write_text("secret\r\n", encoding="utf-8")
+    key_crlf.write_bytes(b"secret\r\n")
     key_empty = write(root / "key-empty", b"")
     keydir = root / "keydir"
     keydir.mkdir()
@@ -349,6 +359,11 @@ def test_key_files(h: Harness, root: Path) -> None:
 
 def test_special_files(h: Harness, root: Path) -> None:
     section("20-21 Special files")
+    if IS_WINDOWS:
+        h.skip("20", "a walk yields regular files only", skip_reason("FIFOs"))
+        h.skip("21", "an explicitly named FIFO is read as a stream",
+               skip_reason("FIFOs"))
+        return
     fx = root / "t20"
     write(fx / "a.txt", b"a\n")
     write(fx / "sub" / "b.txt", b"b\n")
@@ -382,7 +397,7 @@ def test_special_files(h: Harness, root: Path) -> None:
     th.start()
     r = h.sum("sha256", fifo, timeout=10)
     th.join(timeout=5)
-    want = f"{hashlib.sha256(b'hello\n').hexdigest()}  {fifo}"
+    want = f"{hashlib.sha256(b'hello\n').hexdigest()}  {shown(fifo)}"
     if r.rc == 0 and result_lines(r.out) == [want]:
         h.ok("21", name)
     else:
@@ -426,8 +441,8 @@ def test_verify(h: Harness, root: Path) -> None:
     r_again = h.verify(out, "-o", "-")
     if (r.rc == 0 and field(report, "Changed") == "1"
             and field(report, "Unsure") == "0"
-            and f"# {a}" in report
-            and f"{new_digest}  {a}" in report
+            and f"# {shown(a)}" in report
+            and f"{new_digest}  {shown(a)}" in report
             and field(r_again.out, "Changed") == "0"):
         h.ok("23", name)
     else:
@@ -438,12 +453,12 @@ def test_verify(h: Harness, root: Path) -> None:
             "a checksum is an error")
     unsure_manifest = root / "unsure.txt"
     unsure_manifest.write_text(
-        SHA256_HEADER + f"<NONE> {b}\n{a}\n", encoding="utf-8")
+        SHA256_HEADER + f"<NONE> {shown(b)}\n{shown(a)}\n", encoding="utf-8")
     r = h.verify(unsure_manifest, "-o", "-")
     if (r.rc == 1 and field(r.out, "Changed") == "0"
             and field(r.out, "Unsure") == "1"
             and count_results(r.out) == 1
-            and f"{digest(b)}  {b}" in r.out
+            and f"{digest(b)}  {shown(b)}" in r.out
             and 'not a "<checksum> <path>" line' in r.out):
         h.ok("24", name)
     else:
@@ -453,7 +468,7 @@ def test_verify(h: Harness, root: Path) -> None:
     name = "uppercase hexadecimal checksums are not changes"
     upper_manifest = root / "upper.txt"
     upper_manifest.write_text(
-        SHA256_HEADER + f"{digest(b).upper()} {b}\n", encoding="utf-8")
+        SHA256_HEADER + f"{digest(b).upper()} {shown(b)}\n", encoding="utf-8")
     r = h.verify(upper_manifest, "-o", "-")
     if r.rc == 0 and field(r.out, "Changed") == "0":
         h.ok("25", name)
@@ -474,7 +489,7 @@ def test_verify(h: Harness, root: Path) -> None:
             "--verify unavailable")
     r_missing = h.verify(root / "no-such-manifest")
     plain = root / "plain.list"
-    plain.write_text(f"{digest(b)} {b}\n", encoding="utf-8")
+    plain.write_text(f"{digest(b)} {shown(b)}\n", encoding="utf-8")
     r_plain = h.verify(plain)
     none_manifest = root / "none-manifest.txt"
     h.sum("none", b, "-o", none_manifest)
@@ -525,6 +540,9 @@ def test_verify(h: Harness, root: Path) -> None:
 
     name = ("a path that cannot be hashed: Failed 1, unsure 1, exit 1, and "
             "<NONE> in the refreshed listing")
+    if IS_WINDOWS:
+        h.skip("30", name, skip_reason("mode bits", "/proc/self/mem"))
+        return
     fx30 = root / "v30"
     locked = write(fx30 / "locked.txt", b"secret\n")
     os.chmod(locked, 0o000)
@@ -532,14 +550,14 @@ def test_verify(h: Harness, root: Path) -> None:
     if os.access(locked, os.R_OK):  # root ignores the mode bits
         target = Path("/proc/self/mem")  # a regular file whose reads always fail
     manifest30 = root / "v30.txt"
-    manifest30.write_text(SHA256_HEADER + f"{'0' * 64} {target}\n",
+    manifest30.write_text(SHA256_HEADER + f"{'0' * 64} {shown(target)}\n",
                           encoding="utf-8")
     r = h.verify(manifest30, "-o", "-")
     os.chmod(locked, 0o644)
     if (r.rc == 1 and field(r.out, "Failed") == "1"
             and field(r.out, "Unsure") == "1"
-            and f"<NONE>  {target}" in r.out
-            and f"# Unsure files:\n# {target}\n" in r.out):
+            and f"<NONE>  {shown(target)}" in r.out
+            and f"# Unsure files:\n# {shown(target)}\n" in r.out):
         h.ok("30", name)
     else:
         h.bad("30", name, f"rc={r.rc} failed={field(r.out, 'Failed')} "
@@ -662,23 +680,23 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
     digest = hashlib.sha256(b"hello\n").hexdigest()
     marked = fx / "marked.txt"
     plain = fx / "plain.txt"
-    marked.write_text(f"# Algorithm: sha256\n{digest} *{target}\n",
+    marked.write_text(f"# Algorithm: sha256\n{digest} *{shown(target)}\n",
                       encoding="utf-8")
-    plain.write_text(f"# Algorithm: sha256\n{digest}  {target}\n",
+    plain.write_text(f"# Algorithm: sha256\n{digest}  {shown(target)}\n",
                      encoding="utf-8")
 
     name = "the binary marker of sha256sum --binary is not part of the path"
     r = h.verify(marked, "-o", "-")
     if (r.rc == 0 and field(r.out, "Changed") == "0"
             and field(r.out, "Failed") == "0"
-            and f"{digest}  {target}\n" in r.out):
+            and f"{digest}  {shown(target)}\n" in r.out):
         h.ok("38", name)
     else:
         h.bad("38", name, f"rc={r.rc} out={r.out!r} err={r.err!r}")
 
     name = "a marked line and a two-space line name the same file"
     r = h.cmp(marked, plain, "-o", "-")
-    if r.rc == 0 and f"[=] {target}\n" in r.out:
+    if r.rc == 0 and f"[=] {shown(target)}\n" in r.out:
         h.ok("39", name)
     else:
         h.bad("39", name, f"rc={r.rc} out={r.out!r}")
@@ -687,7 +705,7 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
             "unchanged")
     manifest = fx / "sep.txt"
     h.sum("sha256", target, "-o", manifest)
-    line = f"{digest}  {target}"
+    line = f"{digest}  {shown(target)}"
     r_refeed = h.sum("sha256", "-l", manifest, "-f", "-o", "-")
     if (line in manifest.read_text(encoding="utf-8")
             and r_refeed.rc == 0 and result_lines(r_refeed.out) == [line]):
@@ -720,36 +738,39 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
 
     name = ("a name coreutils would escape is written escaped, and reads back "
             "unchanged")
-    odd = fx / "odd"
-    odd.mkdir()
-    (odd / "back\\slash.txt").write_text("b\n", encoding="utf-8")
-    (odd / "new\nline.txt").write_text("n\n", encoding="utf-8")
-    odd_manifest = fx / "odd.txt"
-    r_odd = h.sum("sha256", "back\\slash.txt", "new\nline.txt",
-                  "-o", odd_manifest, cwd=odd)
-    r_odd_refeed = h.sum("sha256", "-l", odd_manifest, "-f", "-o", "-", cwd=odd)
-    want_odd = sorted([
-        f"\\{hashlib.sha256(b'b\n').hexdigest()}  back\\\\slash.txt",
-        f"\\{hashlib.sha256(b'n\n').hexdigest()}  new\\nline.txt",
-    ])
-    got_odd = sorted(body_lines(odd_manifest.read_text(encoding="utf-8")))
-    got_refeed = sorted(body_lines(r_odd_refeed.out))
-    if (r_odd.rc == 0 and got_odd == want_odd and r_odd_refeed.rc == 0
-            and got_refeed == want_odd
-            and field(r_odd_refeed.out, "Failed") == "0"):
-        h.ok("55", name)
+    if IS_WINDOWS:
+        h.skip("55", name, skip_reason("a backslash or a newline in a file name"))
     else:
-        h.bad("55", name, f"manifest={got_odd!r} refeed={got_refeed!r} "
-                          f"rc={r_odd.rc} err={r_odd.err!r}")
+        odd = fx / "odd"
+        odd.mkdir()
+        (odd / "back\\slash.txt").write_text("b\n", encoding="utf-8")
+        (odd / "new\nline.txt").write_text("n\n", encoding="utf-8")
+        odd_manifest = fx / "odd.txt"
+        r_odd = h.sum("sha256", "back\\slash.txt", "new\nline.txt",
+                      "-o", odd_manifest, cwd=odd)
+        r_odd_refeed = h.sum("sha256", "-l", odd_manifest, "-f", "-o", "-", cwd=odd)
+        want_odd = sorted([
+            f"\\{hashlib.sha256(b'b\n').hexdigest()}  back\\\\slash.txt",
+            f"\\{hashlib.sha256(b'n\n').hexdigest()}  new\\nline.txt",
+        ])
+        got_odd = sorted(body_lines(odd_manifest.read_text(encoding="utf-8")))
+        got_refeed = sorted(body_lines(r_odd_refeed.out))
+        if (r_odd.rc == 0 and got_odd == want_odd and r_odd_refeed.rc == 0
+                and got_refeed == want_odd
+                and field(r_odd_refeed.out, "Failed") == "0"):
+            h.ok("55", name)
+        else:
+            h.bad("55", name, f"manifest={got_odd!r} refeed={got_refeed!r} "
+                              f"rc={r_odd.rc} err={r_odd.err!r}")
 
     name = ("one space, two spaces and a tab separate the fields; one space "
             "before * is still the binary marker")
     forms = {
-        "one": f"{digest} {target}",
-        "two": f"{digest}  {target}",
-        "tab": f"{digest}\t{target}",
-        "tab-space": f"{digest}\t {target}",
-        "marker": f"{digest} *{target}",
+        "one": f"{digest} {shown(target)}",
+        "two": f"{digest}  {shown(target)}",
+        "tab": f"{digest}\t{shown(target)}",
+        "tab-space": f"{digest}\t {shown(target)}",
+        "marker": f"{digest} *{shown(target)}",
     }
     broken = []
     for label, text in forms.items():
@@ -766,56 +787,62 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
 
     name = ("leading and trailing spaces in a name are part of the path, and a "
             "carriage return is escaped")
-    spaced_dir = fx / "spaced"
-    spaced_dir.mkdir()
-    (spaced_dir / " lead.txt").write_text("l\n", encoding="utf-8")
-    (spaced_dir / "trail.txt ").write_text("t\n", encoding="utf-8")
-    (spaced_dir / "car\rret").write_text("c\n", encoding="utf-8")
-    spaced_manifest = fx / "spaced.txt"
-    r_spaced = h.sum("sha256", " lead.txt", "trail.txt ", "car\rret",
-                     "-o", spaced_manifest, cwd=spaced_dir)
-    want_spaced = sorted([
-        f"{hashlib.sha256(b'l\n').hexdigest()}   lead.txt",
-        f"{hashlib.sha256(b't\n').hexdigest()}  trail.txt ",
-        f"\\{hashlib.sha256(b'c\n').hexdigest()}  car\\rret",
-    ])
-    got_spaced = sorted(body_lines(
-        spaced_manifest.read_text(encoding="utf-8")))
-    r_spaced_refeed = h.sum("sha256", "-l", spaced_manifest, "-f", "-o", "-",
-                            cwd=spaced_dir)
-    got_spaced_refeed = sorted(body_lines(r_spaced_refeed.out))
-    r_spaced_verify = h.verify(spaced_manifest, "-o", "-", cwd=spaced_dir)
-    if (r_spaced.rc == 0 and got_spaced == want_spaced
-            and r_spaced_refeed.rc == 0 and got_spaced_refeed == want_spaced
-            and r_spaced_verify.rc == 0
-            and field(r_spaced_verify.out, "Failed") == "0"
-            and field(r_spaced_verify.out, "Changed") == "0"):
-        h.ok("58", name)
+    if IS_WINDOWS:
+        h.skip("58", name, skip_reason("trailing spaces or a carriage return in a file name"))
     else:
-        h.bad("58", name, f"manifest={got_spaced!r} "
-                          f"refeed={got_spaced_refeed!r} "
-                          f"verify={r_spaced_verify.out!r}")
+        spaced_dir = fx / "spaced"
+        spaced_dir.mkdir()
+        (spaced_dir / " lead.txt").write_text("l\n", encoding="utf-8")
+        (spaced_dir / "trail.txt ").write_text("t\n", encoding="utf-8")
+        (spaced_dir / "car\rret").write_text("c\n", encoding="utf-8")
+        spaced_manifest = fx / "spaced.txt"
+        r_spaced = h.sum("sha256", " lead.txt", "trail.txt ", "car\rret",
+                         "-o", spaced_manifest, cwd=spaced_dir)
+        want_spaced = sorted([
+            f"{hashlib.sha256(b'l\n').hexdigest()}   lead.txt",
+            f"{hashlib.sha256(b't\n').hexdigest()}  trail.txt ",
+            f"\\{hashlib.sha256(b'c\n').hexdigest()}  car\\rret",
+        ])
+        got_spaced = sorted(body_lines(
+            spaced_manifest.read_text(encoding="utf-8")))
+        r_spaced_refeed = h.sum("sha256", "-l", spaced_manifest, "-f", "-o", "-",
+                                cwd=spaced_dir)
+        got_spaced_refeed = sorted(body_lines(r_spaced_refeed.out))
+        r_spaced_verify = h.verify(spaced_manifest, "-o", "-", cwd=spaced_dir)
+        if (r_spaced.rc == 0 and got_spaced == want_spaced
+                and r_spaced_refeed.rc == 0 and got_spaced_refeed == want_spaced
+                and r_spaced_verify.rc == 0
+                and field(r_spaced_verify.out, "Failed") == "0"
+                and field(r_spaced_verify.out, "Changed") == "0"):
+            h.ok("58", name)
+        else:
+            h.bad("58", name, f"manifest={got_spaced!r} "
+                              f"refeed={got_spaced_refeed!r} "
+                              f"verify={r_spaced_verify.out!r}")
 
     name = ("an extra space stays in the name, and a lone * after one space is "
             "a name")
-    lead_three = fx / "lead-three.txt"
-    lead_three.write_text(
-        f"# Algorithm: sha256\n{hashlib.sha256(b'l\n').hexdigest()}   "
-        f"lead.txt\n", encoding="utf-8")
-    (fx / "*").write_text("x\n", encoding="utf-8")
-    star_only = fx / "star-only.txt"
-    star_only.write_text(
-        f"# Algorithm: sha256\n{hashlib.sha256(b'x\n').hexdigest()} *\n",
-        encoding="utf-8")
-    r_lead = h.verify(lead_three, "-o", "-", cwd=spaced_dir)
-    r_star = h.verify(star_only, "-o", "-", cwd=fx)
-    if (r_lead.rc == 0 and field(r_lead.out, "Hashed") == "1"
-            and field(r_lead.out, "Failed") == "0"
-            and r_star.rc == 0 and field(r_star.out, "Hashed") == "1"
-            and field(r_star.out, "Failed") == "0"):
-        h.ok("59", name)
+    if IS_WINDOWS:
+        h.skip("59", name, skip_reason("a file name that only differs by a leading space"))
     else:
-        h.bad("59", name, f"lead={r_lead.out!r} star={r_star.out!r}")
+        lead_three = fx / "lead-three.txt"
+        lead_three.write_text(
+            f"# Algorithm: sha256\n{hashlib.sha256(b'l\n').hexdigest()}   "
+            f"lead.txt\n", encoding="utf-8")
+        (fx / "*").write_text("x\n", encoding="utf-8")
+        star_only = fx / "star-only.txt"
+        star_only.write_text(
+            f"# Algorithm: sha256\n{hashlib.sha256(b'x\n').hexdigest()} *\n",
+            encoding="utf-8")
+        r_lead = h.verify(lead_three, "-o", "-", cwd=spaced_dir)
+        r_star = h.verify(star_only, "-o", "-", cwd=fx)
+        if (r_lead.rc == 0 and field(r_lead.out, "Hashed") == "1"
+                and field(r_lead.out, "Failed") == "0"
+                and r_star.rc == 0 and field(r_star.out, "Hashed") == "1"
+                and field(r_star.out, "Failed") == "0"):
+            h.ok("59", name)
+        else:
+            h.bad("59", name, f"lead={r_lead.out!r} star={r_star.out!r}")
 
     name = "an escape sequence coreutils does not define makes the line invalid"
     bad_escape = fx / "bad-escape.txt"
@@ -829,16 +856,19 @@ def test_manifest_lines(h: Harness, root: Path) -> None:
 
     name = ("a changed name with a newline stays on one comment line in the "
             "verify report")
-    (odd / "new\nline.txt").write_text("n2\n", encoding="utf-8")
-    r_report = h.verify(odd_manifest, "-o", "-", cwd=odd)
-    report = r_report.out
-    name_ok = "# Changed files:\n# new\\nline.txt\n" in report
-    stray = "\nline.txt\n" in report
-    if r_report.rc == 0 and name_ok and not stray:
-        h.ok("57", name)
+    if IS_WINDOWS:
+        h.skip("57", name, skip_reason("a newline in a file name"))
     else:
-        h.bad("57", name, f"rc={r_report.rc} stray={stray!r} "
-                          f"report={report!r}")
+        (odd / "new\nline.txt").write_text("n2\n", encoding="utf-8")
+        r_report = h.verify(odd_manifest, "-o", "-", cwd=odd)
+        report = r_report.out
+        name_ok = "# Changed files:\n# new\\nline.txt\n" in report
+        stray = "\nline.txt\n" in report
+        if r_report.rc == 0 and name_ok and not stray:
+            h.ok("57", name)
+        else:
+            h.bad("57", name, f"rc={r_report.rc} stray={stray!r} "
+                              f"report={report!r}")
 
 # ---------------------------------------------------------------- 40
 
@@ -852,7 +882,7 @@ def test_stdout_output(h: Harness, root: Path) -> None:
 
     name = "-o - writes to stdout instead of a file named -"
     r = h.sum("sha256", a, "-o", "-", cwd=fx)
-    if (r.rc == 0 and f"{digest}  {a}\n" in r.out
+    if (r.rc == 0 and f"{digest}  {shown(a)}\n" in r.out
             and not (fx / "-").exists()):
         h.ok("40", name)
     else:
@@ -871,7 +901,7 @@ def test_use_algo(h: Harness, root: Path) -> None:
     name = "-u overrides a stale Algorithm header, and says so on stderr"
     stale = root / "stale.txt"
     stale.write_text("# Algorithm:         sha512\n"
-                     f"{digest(a)} {a}\n", encoding="utf-8")
+                     f"{digest(a)} {shown(a)}\n", encoding="utf-8")
     r_header = h.verify(stale, "-o", "-")
     r_forced = h.verify(stale, "-u", "sha256", "-o", "-")
     if (r_header.rc == 0 and field(r_header.out, "Changed") == "1"
@@ -889,7 +919,7 @@ def test_use_algo(h: Harness, root: Path) -> None:
     name = ("a listing without an Algorithm header needs -u, which then "
             "verifies it")
     headerless = root / "headerless.txt"
-    headerless.write_text(f"{digest(a)} {a}\n{digest(b)} {b}\n",
+    headerless.write_text(f"{digest(a)} {shown(a)}\n{digest(b)} {shown(b)}\n",
                           encoding="utf-8")
     r_plain = h.verify(headerless, "-o", "-")
     r_forced = h.verify(headerless, "-u", "sha256", "-o", "-")
@@ -936,8 +966,8 @@ def test_verify_streams(h: Harness, root: Path) -> None:
     section("45-48 Verify from a stream")
     fx = root / "v45"
     a = write(fx / "a.txt", b"hello\n")
-    manifest_text = SHA256_HEADER + f"{digest(a)} {a}\n"
-    want = f"{digest(a)}  {a}"
+    manifest_text = SHA256_HEADER + f"{digest(a)} {shown(a)}\n"
+    want = f"{digest(a)}  {shown(a)}"
 
     name = 'a "-" manifest needs -u, because its header cannot be prefetched'
     r = h.verify("-", stdin_data=manifest_text)
@@ -978,6 +1008,9 @@ def test_verify_streams(h: Harness, root: Path) -> None:
             pass
 
     name = "a named pipe is read as a manifest instead of being refused"
+    if IS_WINDOWS:
+        h.skip("48", name, skip_reason("FIFOs"))
+        return
     th = threading.Thread(target=writer, daemon=True)
     th.start()
     r = h.verify(fifo, "-u", "sha256", "-o", "-", timeout=10)
@@ -997,7 +1030,7 @@ def test_text_key(h: Harness, root: Path) -> None:
     fx = root / "t49"
     a = write(fx / "a.txt", b"hello\n")
     key_crlf = root / "key-text-crlf"
-    key_crlf.write_text("a\r\nb\r\n", encoding="utf-8")
+    key_crlf.write_bytes(b"a\r\nb\r\n")
     key_lf = root / "key-text-lf"
     key_lf.write_text("a\nb\n", encoding="utf-8")
     want = result_lines(h.sum("hmac_sha256", a, "-k", "a\nb").out)
@@ -1041,7 +1074,7 @@ def test_text_key(h: Harness, root: Path) -> None:
             and r_literal.rc == 0
             and result_lines(r_literal.out) != want
             and r_plain_digest.rc == 0
-            and result_lines(r_plain_digest.out) == [f"{digest(a)}  {a}"]
+            and result_lines(r_plain_digest.out) == [f"{digest(a)}  {shown(a)}"]
             and "doesn't need key" in r_plain_digest.err):
         h.ok("50", name)
     else:
@@ -1146,6 +1179,44 @@ def test_completion(h: Harness, root: Path) -> None:
               f"rc={r_algo.rc} out={r_algo.out[:80]!r}")
 
 
+# ---------------------------------------------------------------- 65-66
+
+def test_crlf(h: Harness, root: Path) -> None:
+    section("65-66 Windows line endings")
+    fx = root / "t65"
+    a = write(fx / "a.txt", b"hello\n")
+
+    name = "sum --crlf writes CRLF into the file named by -o"
+    if not IS_WINDOWS:
+        h.skip("65", name, "--crlf exists in the Windows build only")
+    else:
+        crlf = root / "crlf.txt"
+        lf = root / "lf.txt"
+        r_crlf = h.sum("sha256", a, "-o", crlf, "--crlf")
+        r_lf = h.sum("sha256", a, "-o", lf)
+        body = crlf.read_bytes() if crlf.exists() else b""
+        plain = lf.read_bytes() if lf.exists() else b""
+        if (r_crlf.rc == 0 and r_lf.rc == 0
+                and body.count(b"\r\n") == body.count(b"\n") > 0
+                and b"\r" not in plain):
+            h.ok("65", name)
+        else:
+            h.bad("65", name,
+                  f"rc={r_crlf.rc}/{r_lf.rc} "
+                  f"crlf={body.count(b'\r\n')} lines={body.count(b'\n')} "
+                  f"stray_cr={b'\r' in plain}")
+
+    name = "--crlf is not an option on platforms that do not have it"
+    if IS_WINDOWS:
+        h.skip("66", name, "the option exists in the Windows build")
+    else:
+        r = h.sum("sha256", a, "--crlf")
+        if r.rc == 1 and "determining the file type of --crlf" in r.out:
+            h.ok("66", name)
+        else:
+            h.bad("66", name, f"rc={r.rc} out={r.out[-200:]!r}")
+
+
 # ---------------------------------------------------------------- runner
 
 def main(argv: list[str]) -> int:
@@ -1175,12 +1246,18 @@ def main(argv: list[str]) -> int:
         test_verify_streams(h, root)
         test_text_key(h, root)
         test_completion(h, root)
+        test_crlf(h, root)
 
     print("\n--------------------------------")
-    print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")
+    print(f"{h.passed} passed, {h.failed} failed, {h.skipped} skipped, "
+          f"{h.known} known issues")
     if h.known_names:
         print("known issues (do not affect the exit status):")
         for item in h.known_names:
+            print(f"  - {item}")
+    if h.skipped_names:
+        print("skipped cases:")
+        for item in h.skipped_names:
             print(f"  - {item}")
     if h.failed_names:
         print("failed cases:")

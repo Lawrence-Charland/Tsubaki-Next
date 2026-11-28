@@ -320,10 +320,10 @@ in `tsubaki_take_args` and return a message (exit 64).
 - C++23, compiled as a position-independent (`-fPIC`) shared object for the same
   architecture and calling convention as tsubaki, against
   `dynamic_provider_header.hpp`. On Windows the same sources build as a `.dll`
-  with `-shared -static`; `-static` is not optional, because a module that
-  still imports `libstdc++-6.dll` or `libwinpthread-1.dll` fails to load on a
-  machine that has neither. No `dllexport` is needed, because MinGW exports
-  every `extern "C"` symbol.
+  with `-shared -static`, so the module carries its own runtime. Without
+  `-static` it imports `libstdc++-6.dll` and `libwinpthread-1.dll`, and loads
+  only where those are on the DLL search path. No `dllexport` is needed,
+  because MinGW exports every `extern "C"` symbol.
 - The module is self-contained: tsubaki exports no symbols to it and hands it no
   runtime to borrow. A statically linked tsubaki still loads modules through the
   system C library, so on POSIX the module has to be built against the same

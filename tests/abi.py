@@ -4,9 +4,10 @@
 """Black-box provider ABI tests for tsubaki.
 
 Every case corresponds to one promise in docs/PROVIDER-ABI.md. Unlike
-`general.py`, this suite needs a C++ compiler: each fixture is a real `.so` built
-from `include/dynamic_provider_header.hpp`, because the promise under test is
-what the loader and the two sides agree on.
+`general.py`, this suite needs a C++ compiler: each fixture is a real module
+built from `include/dynamic_provider_header.hpp` (`.so` on POSIX, `.dll` on
+Windows), because the promise under test is what the loader and the two sides
+agree on.
 
     ./tests/abi.py                            # find the binary under build/
     TSUBAKI=/usr/bin/tsubaki ./tests/abi.py   # name the binary
@@ -31,6 +32,21 @@ import tempfile
 from pathlib import Path
 
 from harness import Harness, digest, field, resolve_binary, section
+
+EXT = ".dll" if os.name == "nt" else ".so"
+# Windows needs -static, or the module imports libstdc++-6.dll and fails to
+# load anywhere the runtime is not on the search path.
+LINK = ["-shared"] + (["-static"] if os.name == "nt" else [])
+
+
+def mod(name: str) -> str:
+    """A module's file name, with the extension the loader looks for."""
+    return f"{name}{EXT}"
+
+
+def shown(path: Path) -> str:
+    """A path the way tsubaki prints it: forward slashes everywhere."""
+    return path.as_posix()
 
 HEAD = """#include "dynamic_provider_header.hpp"
 
@@ -142,9 +158,9 @@ class Builder:
     def build(self, filename: str, source: str) -> Path:
         src = self.outdir / f"{filename}.cpp"
         src.write_text(source)
-        so = self.outdir / f"{filename}.so"
+        so = self.outdir / mod(filename)
         cp = subprocess.run(
-            [self.compiler, "-std=c++23", "-fPIC", "-shared", "-O0",
+            [self.compiler, "-std=c++23", "-fPIC", *LINK, "-O0",
              "-I", str(self.include), str(src), "-o", str(so)],
             capture_output=True, text=True)
         if cp.returncode != 0:
@@ -190,14 +206,14 @@ def test_minimal_module(h: Harness, root: Path, plain: Path) -> None:
 
     r = h.run("-a", env=env_for(d))
     row = provider_row(r.out, "plain")
-    if r.rc == 0 and row == ["NO", "NO", str(d / "plain.so")]:
+    if r.rc == 0 and row == ["NO", "NO", shown(d / mod("plain"))]:
         h.ok("A01", "only a name and a checksum function are required to load")
     else:
         h.bad("A01", "only a name and a checksum function are required to load",
               f"rc={r.rc} row={row}")
 
     r = h.run("algo", "plain", env=env_for(d))
-    want = f"Source:     {d / 'plain.so'}\nNo information provided.\n"
+    want = f"Source:     {shown(d / mod('plain'))}\nNo information provided.\n"
     if r.rc == 0 and r.out == want:
         h.ok("A01b", "a module without algo info still answers `algo`")
     else:
@@ -295,7 +311,8 @@ def test_builtin_shadow(h: Harness, root: Path, shadow: Path) -> None:
     section("A06 A module cannot shadow a built-in name")
     d = staging(root, "shadow", [shadow])
     r = h.run("-a", env=env_for(d))
-    if (r.rc == 0 and f'Error: refused to load "{d / "shadow.so"}"' in r.err
+    if (r.rc == 0
+            and f'Error: refused to load "{shown(d / mod("shadow"))}"' in r.err
             and "Dynamic providers" not in r.out):
         h.ok("A06", "a module claiming sha256 is refused at load")
     else:
@@ -336,25 +353,31 @@ def test_scan(h: Harness, root: Path, plain: Path, dupe_a: Path,
 
     d = root / "load" / "extensions"
     d.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(plain, d / "plain.so")
-    shutil.copy2(plain, d / "libx.so.1")
-    shutil.copy2(plain, d / "x.SO")
+    shutil.copy2(plain, d / mod("plain"))
+    shutil.copy2(plain, d / f"libx{EXT}.1")
+    shutil.copy2(plain, d / f"x{EXT.upper()}")
     r = h.run("-a", env=env_for(d))
-    if r.rc == 0 and loaded_count(r.out) == 1 and "x.SO" not in r.out:
-        h.ok("A08", "only an extension of exactly .so is loaded")
+    if os.name == "nt":
+        want_count, name = 2, "a .dll extension matches in any case on Windows"
     else:
-        h.bad("A08", "only an extension of exactly .so is loaded",
-              f"rc={r.rc} count={loaded_count(r.out)} out={r.out[-200:]!r}")
+        want_count, name = 1, "only an extension of exactly .so is loaded"
+    upper_seen = f"x{EXT.upper()}" in r.out
+    if (r.rc == 0 and loaded_count(r.out) == want_count
+            and upper_seen == (os.name == "nt")):
+        h.ok("A08", name)
+    else:
+        h.bad("A08", name,
+              f"rc={r.rc} count={loaded_count(r.out)} upper={upper_seen}")
 
     d = root / "load" / "garbage"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "garbage.so").write_bytes(b"not an elf file\n")
-    shutil.copy2(plain, d / "plain.so")
+    (d / mod("garbage")).write_bytes(b"not an object file\n")
+    shutil.copy2(plain, d / mod("plain"))
     r = h.run("-a", env=env_for(d))
     if r.rc == 0 and not r.err and loaded_count(r.out) == 1:
-        h.ok("A09", "a .so that is not loadable is skipped silently")
+        h.ok("A09", f"a {EXT} that is not loadable is skipped silently")
     else:
-        h.bad("A09", "a .so that is not loadable is skipped silently",
+        h.bad("A09", f"a {EXT} that is not loadable is skipped silently",
               f"rc={r.rc} err={r.err!r} count={loaded_count(r.out)}")
 
     r = h.run("-a", env=env_for(root / "no-such-dir", root / "load" / "minimal"))
@@ -405,7 +428,7 @@ def test_algo_output(h: Harness, root: Path, info: Path, args_bad: Path,
     section("A14-A17 What `algo` and `-a` show about a module")
     d = staging(root, "info", [info])
     r = h.run("algo", "info", env=env_for(d))
-    want = (f"Source:     {d / 'info.so'}\n"
+    want = (f"Source:     {shown(d / mod('info'))}\n"
             "Digest:     8 hex\nKey:        none\nOrigin:     https://example.org/x\n")
     if r.rc == 0 and r.out == want:
         h.ok("A14", "algo info is printed verbatim under tsubaki's Source line")
@@ -587,7 +610,7 @@ def test_one_scan(h: Harness, root: Path, shadow: Path,
     r = h.sum("sha256", f, env=env_for(d))
     refused = "refused to load" in r.err
     digest_ok = f" {f}" in r.out and r.out.count("\n") > 1
-    refused_line = f'Error: refused to load "{d / "shadow.so"}".\n'
+    refused_line = f'Error: refused to load "{shown(d / mod("shadow"))}".\n'
     if refused and digest_ok and r.err == refused_line:
         h.ok("A29", "a module claiming a built-in name is refused by sum")
     else:
@@ -793,10 +816,15 @@ def main(argv: list[str]) -> int:
         test_one_scan(h, root, mods["shadow"], mods["keyed_no_check"])
 
     print("\n--------------------------------")
-    print(f"{h.passed} passed, {h.failed} failed, {h.known} known issues")
+    print(f"{h.passed} passed, {h.failed} failed, {h.skipped} skipped, "
+          f"{h.known} known issues")
     if h.known_names:
         print("known issues (do not affect the exit status):")
         for item in h.known_names:
+            print(f"  - {item}")
+    if h.skipped_names:
+        print("skipped cases:")
+        for item in h.skipped_names:
             print(f"  - {item}")
     if h.failed_names:
         print("failed cases:")

@@ -94,11 +94,11 @@ arguments until the next switch, `-e` and `-l` especially.
 
 | System | Presets | Notes |
 | --- | --- | --- |
-| Linux, glibc or musl | `linux-gcc-debug`, `linux-gcc-release` | the only platform with prebuilt binaries; all five architectures |
+| Linux, glibc or musl | `linux-gcc-debug`, `linux-gcc-release` | prebuilt for all five architectures |
 | macOS 12+ | `macos-debug`, `macos-release` | Xcode 16+, Apple toolchain, Homebrew's `openssl@3` found automatically |
 | FreeBSD 13+ | `freebsd-debug`, `freebsd-release` | base clang; `pkg install openssl3` |
 | other POSIX (NetBSD, OpenBSD, Solaris, ...) | `posix-debug`, `posix-release` | needs OpenSSL 3.0+; LibreSSL has no `EVP_MAC` |
-| Windows 10+ | `windows-x86_64-debug`, `windows-x86_64-release` | cross-built from Linux with MinGW-w64; needs a static libcrypto for the target |
+| Windows 10+ | `windows-x86_64-debug`, `windows-x86_64-release` | prebuilt for x86_64; cross-built from Linux with MinGW-w64, needs a static libcrypto for the target |
 
 `linux-clang-debug` is the single non-GCC Linux preset, kept as a second opinion
 on compiler warnings. `linux-gcc-san` adds AddressSanitizer and
