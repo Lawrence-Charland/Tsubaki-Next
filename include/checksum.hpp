@@ -5,13 +5,14 @@
 #define LCPROJECTS_TSUBAKI_CHECKSUM_HPP
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <system_error>
-#include <vector>
 
 namespace tsubaki
 {
@@ -47,13 +48,13 @@ enum class algorithm
     error,
 };
 
-const std::vector<std::string> mapper = {
-#define ALGORITHM_STR_ITEM(name) #name,
+const constexpr std::array mapper = {
+#define ALGORITHM_STR_ITEM(name) std::string_view{#name},
     ALGORITHM_LIST(ALGORITHM_STR_ITEM)
 #undef ALGORITHM_STR_ITEM
 };
 
-inline algorithm str_to_alg(const std::string &literal)
+inline algorithm str_to_alg(const std::string_view &literal)
 {
     auto i = std::find(mapper.begin(), mapper.end(), literal);
     if (i == mapper.end())
@@ -61,7 +62,7 @@ inline algorithm str_to_alg(const std::string &literal)
     return static_cast<algorithm>(i - mapper.begin());
 }
 
-inline std::string alg_to_str(const algorithm &alg)
+inline std::string_view alg_to_str(const algorithm &alg)
 {
     if (alg == algorithm::error)
         throw std::invalid_argument("tsubaki::alg_to_string: algorithm::error "
@@ -69,7 +70,7 @@ inline std::string alg_to_str(const algorithm &alg)
     return mapper.at(static_cast<size_t>(alg));
 }
 
-inline constexpr const char* none_checksum = "<NONE>";
+inline constexpr const char *none_checksum = "<NONE>";
 
 std::expected<std::string, std::error_code>
 checksum_file(const std::filesystem::path &path, algorithm algo);
@@ -111,8 +112,7 @@ inline std::size_t max_key_length(const algorithm &alg)
     }
 }
 
-inline bool check_key_validity(const std::string &key,
-                                         const algorithm &alg)
+inline bool check_key_validity(const std::string &key, const algorithm &alg)
 {
     if (!is_keyed(alg))
         return true;
