@@ -32,8 +32,7 @@ argv --> main --> entrance --> cmdline --> sum_core --> dirscanner-----+
 argv --> main --> entrance --> cmdline --> cmp_core --> listscanner x2 --> entries --> compare --> out
 ```
 
-`algo`（`algo-info` 仍作为旧拼法接受，不作承诺）根本没有流水线，只解析一个名字再
-打印出来：
+`algo` 根本没有流水线，只解析一个名字再打印出来：
 
 ```
 argv --> main --> entrance --> cmdline --> algo_info_core --> get_info_builtin()
@@ -73,7 +72,7 @@ argv --> main --> entrance --> cmdline --> algo_info_core --> get_info_builtin()
 位置参数加上 `--help`、`--version`、`--algorithm`、`--completions`。四个
 标志在校验之前处理，所以不需要子命令，也优先于参数错误。
 `fine()` 校验完 `general` 后，`subcmd` 选择 `sum_main()`、`verify_main()`、
-`cmp_main()` 或 `algo_info_core()`（`algo` 和 `algo-info` 都落到这里）；其它值
+`cmp_main()` 或 `algo_info_core()` ；其它值
 退出 64。
 
 `sum_main(cmdline, internal)` 评估 `sum` 组（`internal` 为真时再加上 `sum_int`，
@@ -476,7 +475,7 @@ FreeBSD 和其它 POSIX 预设则交给系统默认编译器。`linux-gcc-san` �
 | `src/sum_core.cpp` | `sum` 参数组的检查、provider 参数声明及其后的贪婪阶段、启动流程、流的组装 |
 | `src/verify_core.cpp` | `verify` 参数组、`-u` 覆盖、头部查找、内部 `sum` 调用 |
 | `src/cmp_core.cpp` | `cmp` 参数组、两份清单的导入、路径与校验和匹配、分节输出 |
-| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` 参数组、`get_info_builtin()`，以及打印内建或 provider 说明、外加 provider 参数脚本的驱动 |
+| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo_info` 参数组、`get_info_builtin()`，以及打印内建或 provider 说明、外加 provider 参数脚本的驱动 |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | 基类流与它的 `pop()` 过滤 |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | 目录遍历 |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | 列表文件与 stdin 解析 |

@@ -70,7 +70,7 @@ inline std::string_view alg_to_str(const algorithm &alg)
     return mapper.at(static_cast<size_t>(alg));
 }
 
-inline constexpr const char *none_checksum = "<NONE>";
+inline constexpr std::string_view none_checksum = "<NONE>";
 
 std::expected<std::string, std::error_code>
 checksum_file(const std::filesystem::path &path, algorithm algo);
@@ -79,7 +79,7 @@ std::expected<std::string, std::error_code>
 checksum_file_key(const std::filesystem::path &path, const std::string &key,
                   algorithm algo);
 
-inline constexpr bool is_keyed(const algorithm &alg)
+inline bool is_keyed(const algorithm &alg)
 {
     switch (alg)
     {

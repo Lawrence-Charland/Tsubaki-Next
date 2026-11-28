@@ -40,9 +40,7 @@ tsubaki --completions
 A subcommand is required: `sum` calculates checksums, `verify` re-checks a
 file written by `sum`, `cmp` compares two such files, and `algo` explains one
 algorithm. Those four names are the contract: they keep their spelling, and
-nothing is added in their place. `algo-info` is still accepted as an older,
-longer spelling of `algo`, but it comes with no promise and may disappear; the
-name to use is `algo`.
+nothing is added in their place.
 
 `--help`, `--version`, `--algorithm` (or `-a`) and `--completions` (or `-C`)
 are the only invocations that do not need a subcommand; any other word in the

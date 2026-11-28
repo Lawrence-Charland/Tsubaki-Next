@@ -11,55 +11,64 @@
 
 namespace tsubaki
 {
+#define SUBCOMMAND_LIST(X)                                                     \
+    X(sum)                                                                     \
+    X(verify)                                                                  \
+    X(cmp)                                                                     \
+    X(algo)
+
+#define CMDGROUP_LIST(X)                                                       \
+    X(general)                                                                 \
+    X(sum)                                                                     \
+    X(sum_int)                                                                 \
+    X(sum_greedy)                                                              \
+    X(verify)                                                                  \
+    X(cmp)                                                                     \
+    X(algo_info)
+
+#define CMDENTRY_LIST(X)                                                       \
+    X(subcmd)                                                                  \
+    X(version)                                                                 \
+    X(list_alg)                                                                \
+    X(help)                                                                    \
+    X(comp)                                                                    \
+    X(key)                                                                     \
+    X(key_file)                                                                \
+    X(text)                                                                    \
+    X(threads)                                                                 \
+    X(output)                                                                  \
+    X(verbose)                                                                 \
+    X(follow_symlinks)                                                         \
+    X(force_rescan)                                                            \
+    X(algorithm)                                                               \
+    X(excludes)                                                                \
+    X(lists)                                                                   \
+    X(files)                                                                   \
+    X(verify_sumint)                                                           \
+    X(to_verify)                                                               \
+    X(extra_args)                                                              \
+    X(use_algo)                                                                \
+    X(to_compare)                                                              \
+    X(canonical)                                                               \
+    X(algo_to_info)
+
 namespace cmdline_group
 {
-inline constexpr const char *general = "general";
-inline constexpr const char *sum = "sum";
-inline constexpr const char *sum_int = "sum_int";
-inline constexpr const char *sum_greedy = "sum_greedy";
-inline constexpr const char *verify = "verify";
-inline constexpr const char *cmp = "cmp";
-inline constexpr const char *algo_info = "algo_info";
+#define CMDGROUP_GEN(name) inline constexpr const char *name = #name;
+CMDGROUP_LIST(CMDGROUP_GEN)
+#undef CMDGROUP_GEN
 } // namespace cmdline_group
 
 namespace cmdline_entry
 {
-inline constexpr const char *subcmd = "subcmd";
-inline constexpr const char *version = "version";
-inline constexpr const char *list_alg = "list_alg";
-inline constexpr const char *help = "help";
-inline constexpr const char *comp = "comp";
-inline constexpr const char *key = "key";
-inline constexpr const char *key_file = "key_file";
-inline constexpr const char *text = "text";
-inline constexpr const char *threads = "threads";
-inline constexpr const char *output = "output";
-inline constexpr const char *verbose = "verbose";
-inline constexpr const char *follow_symlinks = "follow-symlinks";
-inline constexpr const char *force_rescan = "force-rescan";
-inline constexpr const char *algorithm = "algorithm";
-inline constexpr const char *excludes = "excludes";
-inline constexpr const char *lists = "lists";
-inline constexpr const char *files = "files";
-inline constexpr const char *verify_sumint = "verify_sumint";
-inline constexpr const char *to_verify = "to_verify";
-inline constexpr const char *extra_args = "extra_args";
-inline constexpr const char *use_algo = "use_algo";
-inline constexpr const char *to_compare = "to_compare";
-inline constexpr const char *canonical = "canonical";
-inline constexpr const char *algo_to_info = "algo_to_info";
+#define CMDENTRY_GEN(name) inline constexpr const char *name = #name;
+CMDENTRY_LIST(CMDENTRY_GEN)
+#undef CMDENTRY_GEN
 } // namespace cmdline_entry
-
-#define SUBCOMMAND_LIST(X)                                                     \
-    X(sum, "sum")                                                              \
-    X(verify, "verify")                                                        \
-    X(cmp, "cmp")                                                              \
-    X(algo, "algo")                                                            \
-    X(algo_info, "algo-info")
 
 namespace subcommands
 {
-#define SUBCOMMANDS_STRINGS(name, str) inline constexpr const char *name = str;
+#define SUBCOMMANDS_STRINGS(name) inline constexpr const char *name = #name;
 SUBCOMMAND_LIST(SUBCOMMANDS_STRINGS)
 #undef SUBCOMMANDS_STRINGS
 } // namespace subcommands

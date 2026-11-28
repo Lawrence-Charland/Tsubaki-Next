@@ -313,10 +313,9 @@ std::unordered_set<std::string> get_completion()
                 .ls_options();
         result.insert(dynamic_options.begin(), dynamic_options.end());
     }
-#define SUBCOMMAND_COMP(name, str) result.insert(str);
+#define SUBCOMMAND_COMP(name) result.insert(#name);
     SUBCOMMAND_LIST(SUBCOMMAND_COMP)
 #undef SUBCOMMAND_COMP
-    result.erase(result.find("algo-info"));
     return result;
 }
 

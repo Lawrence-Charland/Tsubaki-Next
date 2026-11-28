@@ -16,10 +16,8 @@ provider, see [More algorithms](#more-algorithms).
 
 Four subcommands: `sum` generates a manifest, `verify` re-hashes the paths a
 manifest names and reports what changed and what it could not decide, `cmp`
-compares two manifests, and `algo` describes a single algorithm. Those four
-names are a contract: they keep their spelling, and nothing takes their place.
-(`algo-info` still works today, but it is a longer old spelling with no
-promise behind it.) `verify` answers "did anything change since the record?",
+compares two manifests, and `algo` describes a single algorithm.
+ `verify` answers "did anything change since the record?",
 `cmp` answers "what exactly changed between two runs?", and they chain: refresh
 with `verify`, then compare the result against the old manifest with `cmp`.
 

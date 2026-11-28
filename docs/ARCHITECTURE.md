@@ -35,8 +35,7 @@ once both are loaded:
 argv --> main --> entrance --> cmdline --> cmp_core --> listscanner x2 --> entries --> compare --> out
 ```
 
-`algo` (with `algo-info` still accepted as an older spelling, no promise)
-has no pipeline at all. It resolves one name and prints it:
+`algo` has no pipeline at all. It resolves one name and prints it:
 
 ```
 argv --> main --> entrance --> cmdline --> algo_info_core --> get_info_builtin()
@@ -78,7 +77,7 @@ parses the `general` group — the `subcmd` positional plus `--help`,
 `include/cmdline.hpp`. The four flags are handled before validation, so they
 need no subcommand and win over argument errors. After `fine()` validates
 `general`, `subcmd` selects one of `sum_main()`, `verify_main()`, `cmp_main()`
-or `algo_info_core()` (`algo` and `algo-info` both land there); anything else
+or `algo_info_core()` ; anything else
 exits 64.
 
 `sum_main(cmdline, internal)` evaluates the `sum` group (`sum_int` too when
@@ -563,7 +562,7 @@ time (UTC+8) so the printed time does not depend on the build host's zone.
 | `src/sum_core.cpp` | `sum` argument group checks, provider argument declaration, the greedy stage that follows it, startup sequence, stream construction |
 | `src/verify_core.cpp` | `verify` argument group, `-u` override, header lookup, internal `sum` invocation |
 | `src/cmp_core.cpp` | `cmp` argument group, import of both listings, path and checksum matching, section output |
-| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo-info` argument group, `get_info_builtin()` and the driver that prints a built-in or provider description, plus a provider's argument script |
+| `include/algo_info_core.hpp`, `src/algo_info_core.cpp` | `algo_info` argument group, `get_info_builtin()` and the driver that prints a built-in or provider description, plus a provider's argument script |
 | `include/basic_taskstream.hpp`, `src/basic_taskstream.cpp` | the base stream and its `pop()` filter |
 | `include/dirscanner.hpp`, `src/dirscanner.cpp` | directory walk |
 | `include/listscanner.hpp`, `src/listscanner.cpp` | list-file and stdin parsing |
