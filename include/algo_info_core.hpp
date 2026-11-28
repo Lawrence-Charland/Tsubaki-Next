@@ -6,10 +6,11 @@
 
 #include "argparser.hpp"
 #include "checksum.hpp"
+#include <string_view>
 
 namespace tsubaki
 {
-std::string get_info_builtin(algorithm algo);
+std::string_view get_info_builtin(algorithm algo);
 
 int algo_info_core(argparser::ap_instance &cmdline);
 } // namespace tsubaki

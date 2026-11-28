@@ -8,10 +8,11 @@
 #include "exit_codes.hpp"
 #include <iostream>
 #include <string>
+#include <string_view>
 
 namespace tsubaki
 {
-std::string get_info_builtin(algorithm algo)
+std::string_view get_info_builtin(algorithm algo)
 {
     switch (algo)
     {
