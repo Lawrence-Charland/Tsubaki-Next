@@ -166,10 +166,12 @@ answer, so it tells you what the module claims, not whether it can be trusted.
   it, and `verify` cannot infer it. Rechecking means writing the same parameters
   again on the `verify` command line; leaving them out or changing them makes the
   module hash with other settings, and every entry then reads as changed.
-- **What goes wrong.** A path that is not a readable directory, a module that
-  cannot be loaded, a missing symbol: each prints one `Error:` line on stderr
-  and is skipped, and none of them changes the exit status. Modules stay loaded
-  for the life of the process; nothing unloads them.
+- **What goes wrong.** A path that is not a readable directory prints one
+  `Error:` line on stderr. A module that cannot be loaded, or that does not
+  export the ABI's name symbol, is skipped without a word: a provider directory
+  can hold other shared libraries, and on Windows the C++ runtime is one of
+  them. None of it changes the exit status. Modules stay loaded for the life of
+  the process; nothing unloads them.
 
 Writing a provider — the symbols to export, the digest buffer limit, the build
 requirements and the argument-script syntax — is described in

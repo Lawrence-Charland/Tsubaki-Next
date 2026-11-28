@@ -186,30 +186,12 @@ dpf_instance::dpf_instance()
                 if (!has_provider_extension(target.value().p))
                     continue;
                 provider so_open(target.value().p);
-                const std::string shown =
-                    from_fs_path(target.value().p);
-                switch (so_open.error)
-                {
-                case provider_msg::success:
+                if (so_open.error == provider_msg::success)
                     provider_mapper.emplace(so_open.name(), std::move(so_open));
-                    break;
-                case provider_msg::dlopen_fail:
-                    std::cerr << "Error: dlopen failed for \"" << shown
-                              << "\"" << std::endl;
-                    break;
-                case provider_msg::dlsym_fail:
-                    std::cerr << "Error: dlsym failed for \"" << shown
-                              << "\"" << std::endl;
-                    break;
-                case provider_msg::refused:
-                    std::cerr << "Error: refused to load \"" << shown << "\""
+                else if (so_open.error == provider_msg::refused)
+                    std::cerr << "Error: refused to load \""
+                              << from_fs_path(target.value().p) << "\"."
                               << std::endl;
-                    break;
-                default:
-                    std::cerr << "Error: failed to load provider \"" << shown
-                              << "\"." << std::endl;
-                    break;
-                }
             }
         }
         catch (const std::exception &e)

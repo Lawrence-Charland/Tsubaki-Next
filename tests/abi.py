@@ -246,9 +246,7 @@ def test_keyed_module(h: Harness, root: Path, keyed: Path,
     section("A04-A05 A keyed module and its checker")
     d = staging(root, "keyed_no_check", [keyed_no_check])
     r = h.run("-a", env=env_for(d))
-    refused = [line for line in r.err.splitlines()
-               if line.startswith("Error: dlsym failed for")]
-    if (r.rc == 0 and refused and "Dynamic providers" not in r.out):
+    if r.rc == 0 and not r.err and "Dynamic providers" not in r.out:
         h.ok("A04", "is_keyed() true without a checker fails the load")
     else:
         h.bad("A04", "is_keyed() true without a checker fails the load",
@@ -353,11 +351,10 @@ def test_scan(h: Harness, root: Path, plain: Path, dupe_a: Path,
     (d / "garbage.so").write_bytes(b"not an elf file\n")
     shutil.copy2(plain, d / "plain.so")
     r = h.run("-a", env=env_for(d))
-    if (r.rc == 0 and f'Error: dlopen failed for "{d / "garbage.so"}"' in r.err
-            and loaded_count(r.out) == 1):
-        h.ok("A09", "a .so that is not loadable is reported and skipped")
+    if r.rc == 0 and not r.err and loaded_count(r.out) == 1:
+        h.ok("A09", "a .so that is not loadable is skipped silently")
     else:
-        h.bad("A09", "a .so that is not loadable is reported and skipped",
+        h.bad("A09", "a .so that is not loadable is skipped silently",
               f"rc={r.rc} err={r.err!r} count={loaded_count(r.out)}")
 
     r = h.run("-a", env=env_for(root / "no-such-dir", root / "load" / "minimal"))
@@ -386,8 +383,7 @@ def test_argument_trio(h: Harness, root: Path, args_false: Path,
 
     d = staging(root, "args_no_script", [args_no_script])
     r = h.run("-a", env=env_for(d))
-    if (r.rc == 0 and "Error: dlsym failed for" in r.err
-            and "Dynamic providers" not in r.out):
+    if r.rc == 0 and not r.err and "Dynamic providers" not in r.out:
         h.ok("A12", "need_more_args() true without a script fails the load")
     else:
         h.bad("A12", "need_more_args() true without a script fails the load",
@@ -395,8 +391,7 @@ def test_argument_trio(h: Harness, root: Path, args_false: Path,
 
     d = staging(root, "args_no_take", [args_no_take])
     r = h.run("-a", env=env_for(d))
-    if (r.rc == 0 and "Error: dlsym failed for" in r.err
-            and "Dynamic providers" not in r.out):
+    if r.rc == 0 and not r.err and "Dynamic providers" not in r.out:
         h.ok("A13", "need_more_args() true without take_args fails the load")
     else:
         h.bad("A13", "need_more_args() true without take_args fails the load",
@@ -580,32 +575,11 @@ def test_one_scan(h: Harness, root: Path, shadow: Path,
     what keeps `--help` and `--version` from touching the provider directories
     at all.
     """
-    section("A27-A30 One scan per process")
-
-    d = root / "load" / "two_failures"
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "garbage.so").write_bytes(b"not an elf file\n")
-    shutil.copy2(keyed_no_check, d / "keyed_no_check.so")
-    counts = {}
-    for command in (["-a"], ["-C"], ["algo", "garbage"]):
-        r = h.run(*command, env=env_for(d))
-        counts[" ".join(command)] = {
-            name: sum(1 for line in r.err.splitlines()
-                      if line.endswith(f'"{d / name}"'))
-            for name in ("garbage.so", "keyed_no_check.so")}
-    if all(n == 1 for seen in counts.values() for n in seen.values()):
-        h.ok("A27", "each failing module prints exactly one Error line")
-    else:
-        h.bad("A27", "each failing module prints exactly one Error line",
-              f"counts={counts}")
-
-    r1 = h.run("--version", env=env_for(d))
-    r2 = h.run("--help", env=env_for(d))
-    if not r1.err and not r2.err:
-        h.ok("A28", "help and version never scan the provider directories")
-    else:
-        h.bad("A28", "help and version never scan the provider directories",
-              f"version={r1.err!r} help={r2.err!r}")
+    # A27 and A28 watched for one scan per process by counting the "Error:"
+    # lines a failing module printed. Loading failures are silent now, so a
+    # black-box test can no longer tell one scan from two; dpf_instance::ins()
+    # is the only thing keeping it at one.
+    section("A29 A refused module does not stop sum")
 
     f = root / "a29.txt"
     f.write_text("hello\n")
@@ -613,25 +587,13 @@ def test_one_scan(h: Harness, root: Path, shadow: Path,
     r = h.sum("sha256", f, env=env_for(d))
     refused = "refused to load" in r.err
     digest_ok = f" {f}" in r.out and r.out.count("\n") > 1
-    if refused and digest_ok and not r.err.replace(
-            f'Error: refused to load "{d / "shadow.so"}"\n', ""):
+    refused_line = f'Error: refused to load "{d / "shadow.so"}".\n'
+    if refused and digest_ok and r.err == refused_line:
         h.ok("A29", "a module claiming a built-in name is refused by sum")
     else:
         h.bad("A29", "a module claiming a built-in name is refused by sum",
               f"refused={refused} digest_ok={digest_ok} err={r.err!r}")
 
-    d = root / "load" / "verify_scan"
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "garbage.so").write_bytes(b"not an elf file\n")
-    manifest = root / "a30.sum"
-    manifest.write_text(f"# Algorithm:         sha256\n{digest(f)}  {f}\n")
-    r = h.verify("-u", "sha256", manifest, env=env_for(d))
-    hits = [line for line in r.err.splitlines() if 'garbage.so"' in line]
-    if r.rc == 0 and len(hits) == 1 and field(r.out, "Changed") == "0":
-        h.ok("A30", "verify's two checksum_api objects share one scan")
-    else:
-        h.bad("A30", "verify's two checksum_api objects share one scan",
-              f"rc={r.rc} hits={len(hits)} changed={field(r.out, 'Changed')!r}")
 
 
 # ---------------------------------------------------------------- runner

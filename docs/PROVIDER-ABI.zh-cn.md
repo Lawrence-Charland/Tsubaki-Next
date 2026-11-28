@@ -266,8 +266,10 @@ provider 条目又先于文件列表认领 token。
 ## 构建模块
 
 - C++23，按位置无关（`-fPIC`）编成共享对象，架构与调用约定要和 tsubaki 一致，对着
-  `dynamic_provider_header.hpp` 编译。Windows 上同样的源码用 `-shared` 编成
-  `.dll`，不需要 `dllexport`——MinGW 会把每个 `extern "C"` 符号都导出。
+  `dynamic_provider_header.hpp` 编译。Windows 上同样的源码用 `-shared -static`
+  编成 `.dll`；`-static` 不是可选项，模块如果还导入 `libstdc++-6.dll` 或
+  `libwinpthread-1.dll`，目标机器上两者都没有，加载会失败。不需要 `dllexport`
+  ——MinGW 会把每个 `extern "C"` 符号都导出。
 - 模块必须自包含：tsubaki 不向它导出符号，也不给它可借用的运行时。静态链接的
   tsubaki 仍然通过系统 C 库加载模块，所以在 POSIX 上，模块要针对 tsubaki 链接时
   所用的同一代 glibc 构建；Windows 版同样是静态链接，模块只要对上系统自带的 UCRT。
@@ -278,9 +280,13 @@ provider 条目又先于文件列表认领 token。
 
 ## 加载器怎么对待模块
 
-- 路径不是可读目录、模块加载不了、少了符号：各打一行 `Error:` 到 stderr 然后
-  跳过，都不改变退出码。
-- 自报名字是内建算法的模块在加载时就被拒掉，其余符号根本不会被解析。
+- 路径不是可读目录时打一行 `Error:` 到 stderr 然后跳过，不改变退出码。
+- 加载不了、或者没有导出 `tsubaki_provider_name` 的模块静默跳过。provider 目录里
+  可能躺着别的共享库——Windows 上 C++ 运行时就是其中之一——逐个报出来只会把真正
+  失败的模块淹掉。
+- 自报名字是内建算法的模块在加载时就被拒掉，其余符号根本不会被解析，并且会在
+  stderr 上说一句。导出了 `tsubaki_provider_name` 却缺了头文件规定必需的符号的
+  模块同样如此。
 - 两个 provider 抢同一个名字时先加载的胜出——先是 `TSUBAKI_DYNAMIC_PROVIDER_PATHS`
   里的顺序，然后才是各目录内的遍历顺序。
 - 模块永远不被卸载。

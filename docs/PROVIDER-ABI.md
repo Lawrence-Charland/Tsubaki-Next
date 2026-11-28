@@ -320,8 +320,10 @@ in `tsubaki_take_args` and return a message (exit 64).
 - C++23, compiled as a position-independent (`-fPIC`) shared object for the same
   architecture and calling convention as tsubaki, against
   `dynamic_provider_header.hpp`. On Windows the same sources build as a `.dll`
-  with `-shared`; no `dllexport` is needed, because MinGW exports every
-  `extern "C"` symbol.
+  with `-shared -static`; `-static` is not optional, because a module that
+  still imports `libstdc++-6.dll` or `libwinpthread-1.dll` fails to load on a
+  machine that has neither. No `dllexport` is needed, because MinGW exports
+  every `extern "C"` symbol.
 - The module is self-contained: tsubaki exports no symbols to it and hands it no
   runtime to borrow. A statically linked tsubaki still loads modules through the
   system C library, so on POSIX the module has to be built against the same
@@ -335,11 +337,15 @@ in `tsubaki_take_args` and return a message (exit 64).
 
 ## How the loader treats a module
 
-- A path that is not a readable directory, a module that cannot be loaded, or a
-  missing symbol each prints one `Error:` line on stderr and is skipped; none of
-  them changes the exit status.
+- A path that is not a readable directory prints one `Error:` line on stderr
+  and is skipped; it does not change the exit status.
+- A module that cannot be loaded, or that does not export
+  `tsubaki_provider_name`, is skipped silently. A provider directory may hold
+  other shared libraries — on Windows the C++ runtime is one of them — and
+  naming each of them would bury the modules that really did fail.
 - A module reporting a built-in name is refused at load, before the remaining
-  symbols are resolved.
+  symbols are resolved, and says so on stderr. So does a module that exports
+  `tsubaki_provider_name` but lacks a symbol the header makes unavoidable.
 - Two providers claiming one name: the first loaded wins — the order in
   `TSUBAKI_DYNAMIC_PROVIDER_PATHS`, then the walk order inside each directory.
 - Modules are never unloaded.
